@@ -49,21 +49,26 @@ process.stdin.on('end', () => {
       if (msg) {
         const subject = (msg.split('\n').find(l => l.trim()) || '').trim();
 
-        // === 检查 2: subject 匹配 active preset's subject_regex (warn) ===
+        // === 检查 2: subject 匹配 active preset's subject_regex (warn, opt-in) ===
+        // 仅在用户**主动**选了 preset 时校验（HARNESS_PRESET env / .harness.local.json
+        // / .claude/settings.json `harness.preset`）。默认 fallback 到 generic
+        // 的用户体验"原方式"，不应被新检查打扰（back-compat for v0.8.x → v0.9.0）。
         try {
           const preset = loadPreset();
-          const re = preset.commit_format?.subject_regex;
-          if (re) {
-            let regex;
-            try { regex = new RegExp(re); } catch { regex = null; }
-            if (regex && subject && !regex.test(subject)) {
-              process.stderr.write(
-                `[Commit Check] Subject 不符合 preset '${preset.name}' 格式。\n` +
-                `→ 期望: ${preset.commit_format.format_description || re}\n` +
-                `→ 实际: ${subject}\n` +
-                `→ 示例: ${(preset.commit_format.examples || [])[0] || '(none)'}\n` +
-                `→ 警告级别，不阻止执行。bypass: HARNESS_SKIP_GATE=1\n`
-              );
+          if (preset.source !== 'default') {
+            const re = preset.commit_format?.subject_regex;
+            if (re) {
+              let regex;
+              try { regex = new RegExp(re); } catch { regex = null; }
+              if (regex && subject && !regex.test(subject)) {
+                process.stderr.write(
+                  `[Commit Check] Subject 不符合 preset '${preset.name}' 格式。\n` +
+                  `→ 期望: ${preset.commit_format.format_description || re}\n` +
+                  `→ 实际: ${subject}\n` +
+                  `→ 示例: ${(preset.commit_format.examples || [])[0] || '(none)'}\n` +
+                  `→ 警告级别，不阻止执行。bypass: HARNESS_SKIP_GATE=1\n`
+                );
+              }
             }
           }
         } catch {}

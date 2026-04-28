@@ -101,5 +101,64 @@
       "stderrNot": ["格式不符合"],
       "stdout": "empty"
     }
+  },
+  {
+    "name": "commit-check: opt-in 负例 — 默认 fallback 到 generic + presets 已 vendor + 违规 subject → 不应 subject warn (back-compat)",
+    "hook": "commit-check.js",
+    "kitPresets": true,
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m '随便写啥都行\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["Subject 不符合"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: opt-in 正例 — HARNESS_PRESET=generic 显式 + 违规 subject → 仍 subject warn",
+    "hook": "commit-check.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "generic" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m '随便写啥都行\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["Subject 不符合 preset 'generic'"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: HARNESS_PRESET=example-company + 缺 TICKET 前缀 → subject warn",
+    "hook": "commit-check.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'feat: add login\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["Subject 不符合 preset 'example-company'"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: HARNESS_PRESET=example-company + 合规 'JIRA-1234 feat:' → 不警告",
+    "hook": "commit-check.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'JIRA-1234 feat: add login\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["Subject 不符合"],
+      "stdout": "empty"
+    }
   }
 ]

@@ -15,16 +15,21 @@
   - `presets/example-company/` — 公开范例，演示 TICKET-ID 前缀 + 受限分支 + 单 release 约束 + fork 来源约束 + feat-on-release 禁止
 - **`scripts/hooks/load-preset.js`**：preset 加载器，支持 env / `.harness.local.json` / `.claude/settings.json` 三级解析 + extends 链 + 缺失自动回退到 generic
 - **`scripts/hooks/branch-policy-guard.js`**：PreToolUse:Bash，按 active preset 阻 push 受保护分支 / 阻 feat-on-release / 阻 push --all/--mirror
-- **`scripts/hooks/commit-check.js`** 扩展：subject 匹配 active preset 的 `subject_regex`（warn 级，与 Co-Authored-By 检查同风格）；改进 `-m` 提取支持 single quotes 和 `--message=`
+- **`scripts/hooks/commit-check.js`** 扩展：subject 匹配 active preset 的 `subject_regex`（warn 级，与 Co-Authored-By 检查同风格，**opt-in**：仅在用户主动选 preset 时生效，详见下方 Fixed）；改进 `-m` 提取支持 single quotes 和 `--message=`
 - **`templates/settings-json.tmpl`**：注册 branch-policy-guard hook
 - **`.harness.local.example.json`**：committed 模板，展示如何选 preset + 设 author_prefix
 - **`.gitignore`**：增 `.harness.local.json`（每台机器自己选 preset，不进 git）
 - **`methodology/19-company-presets.md`**：解释 preset 系统、如何写公司 preset、双仓策略（公开框架 vs 私有 preset 内容）
 - **`methodology/12-commit-standards.md`**：标注 generic 是默认 preset，preset 可覆盖 commit format 但不削弱 Co-Authored-By
 
+### Fixed (back-compat)
+
+- **`commit-check.js` subject 检查改 opt-in (back-compat for v0.8.x → v0.9.0)**: 默认 fallback 到 generic preset（即 `loadPreset().source === 'default'`）时跳过 subject_regex 校验，避免老用户升级后无 preset 配置就突然出现 conv-commit 格式 warning。仅在用户主动选了 preset（env `HARNESS_PRESET` / `.harness.local.json` / `.claude/settings.json` `harness.preset`）时才校验 subject。Co-Authored-By 检查（v0.8.x 起就有的行为）不变。新增 5 个 commit-check scenario 覆盖 opt-in 正负路径（详见 `tests/hook-scenarios/commit-check.json`）。
+- **`branch-policy-guard.js`** 默认行为：generic preset 的 `protected_branches` / `merge_only_branches` / `type_blocked_on_branch` 均为空，hook 通过 `hasAnyPolicy=false` 早返；老用户升级后即使 settings.json 注册了该 hook 也是 no-op，零变化。
+
 ### Why this matters
 
-公司 / 团队 / 项目对 commit 格式和分支策略有不同要求（例如 GitLab 服务端 hook 强制特定格式）。之前 harness-kit 写死 Conventional Commits，公司私有规则只能在外部维护。Preset 系统让规则数据驱动，AI 收到 active preset 即可遵循，无需重写硬编码。
+公司 / 团队 / 项目对 commit 格式和分支策略有不同要求（例如 GitLab 服务端 hook 强制特定格式）。之前 harness-kit 写死 Conventional Commits，公司私有规则只能在外部维护。Preset 系统让规则数据驱动，AI 收到 active preset 即可遵循，无需重写硬编码。**对没有特殊需求的项目，零配置 = 零变化。**
 
 ## [0.8.7] - 2026-04-17
 
