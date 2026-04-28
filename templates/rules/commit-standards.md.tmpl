@@ -43,9 +43,35 @@ Co-Authored-By: Codex CLI (gpt-5.3-codex)
 
 完全由人手动编写（没有任何 AI 辅助）的 commit 不需要 Co-Authored-By。
 
-## 其他 commit 规范
+## Commit subject 格式（preset-driven）
 
-- Conventional Commits 前缀：`feat:` / `fix:` / `refactor:` / `test:` / `docs:` / `chore:` / `perf:` / `ci:`
+具体的 subject 格式由当前 active preset 决定 —— 不在本文件硬编码。
+
+**默认 preset 是 `generic`**（等价于 Conventional Commits）：
+- 前缀：`feat:` / `fix:` / `refactor:` / `test:` / `docs:` / `chore:` / `perf:` / `ci:` / `build:` / `style:` / `revert:`
 - 主题行 ≤ 72 字符
 - 中文为主，技术术语保留英文
-- 完整规范见 kit 仓库的 `methodology/12-commit-standards.md`
+
+**切换到其他 preset：**
+
+```bash
+# 查看当前 active preset
+node scripts/hooks/load-preset.js
+
+# 临时覆盖
+HARNESS_PRESET=example-company node scripts/hooks/load-preset.js
+
+# 持久化（复制 .harness.local.example.json → .harness.local.json）
+echo '{"preset":"example-company"}' > .harness.local.json
+```
+
+不同 preset 的 subject 格式举例：
+- `generic`：`feat: add login`
+- `example-company`：`JIRA-1234 feat: add login`（额外 TICKET-ID 前缀）
+- 自定义：你公司的特殊格式
+
+**`scripts/hooks/commit-check.js`** 在 PreToolUse:Bash 阶段会按 active preset 校验 subject 格式（warn 级），并且 **`scripts/hooks/branch-policy-guard.js`** 会按 active preset 阻止 push 到受保护分支或在 release 分支上提交 `feat`（block 级）。
+
+完整规范与 preset 系统设计见 kit 仓库的：
+- `methodology/12-commit-standards.md` — 通用 commit 规范
+- `methodology/19-company-presets.md` — preset 系统说明

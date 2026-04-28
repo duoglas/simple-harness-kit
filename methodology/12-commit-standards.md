@@ -74,6 +74,12 @@ Co-Authored-By: {工具名} ({模型ID})
 
 type 遵循 Conventional Commits：feat / fix / refactor / test / docs / chore / perf / ci
 
+### Preset 覆盖
+
+上面的 subject 格式是**默认 preset (`generic`)**。公司或项目可以通过 preset 系统覆盖 subject 格式（例如要求 `<TICKET-ID> feat: ...` 前缀），但 **Co-Authored-By 是所有 preset 都强制的最低线**。
+
+切换 preset、查看 active preset、写自己的 preset：见 `methodology/19-company-presets.md`。
+
 ## 统计方法
 
 基于 Co-Authored-By 可以统计：
