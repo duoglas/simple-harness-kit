@@ -110,6 +110,18 @@ function substituteTimestamps(s) {
 function setupTempDir(scenario) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-test-'));
 
+  // kitPresets: true → copy <kit>/presets/ into tmpDir + create .harness/ marker
+  // so find-root.js latches onto tmpDir and load-preset.js sees the real preset data.
+  // Used by branch-policy-guard / commit-check scenarios that depend on preset files.
+  if (scenario.kitPresets) {
+    fs.mkdirSync(path.join(tmpDir, '.harness'), { recursive: true });
+    const srcPresets = path.resolve(__dirname, '..', 'presets');
+    const dstPresets = path.join(tmpDir, 'presets');
+    if (fs.existsSync(srcPresets)) {
+      fs.cpSync(srcPresets, dstPresets, { recursive: true });
+    }
+  }
+
   if (scenario.setup) {
     for (const [filePath, rawContent] of Object.entries(scenario.setup)) {
       const fullPath = path.join(tmpDir, filePath);
@@ -125,7 +137,20 @@ function setupTempDir(scenario) {
           fs.mkdirSync(path.dirname(target), { recursive: true });
           fs.writeFileSync(target, substituteTimestamps(rawContent.target_content));
         }
-        fs.symlinkSync(target, fullPath);
+        try {
+          fs.symlinkSync(target, fullPath);
+        } catch (e) {
+          // Windows without SeCreateSymbolicLinkPrivilege / Developer Mode → EPERM.
+          // Some sandboxed envs → EACCES. Surface as SKIP so symlink-dependent
+          // scenarios don't kill the whole runner.
+          if (e.code === 'EPERM' || e.code === 'EACCES') {
+            try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+            const err = new Error(`symlink not permitted on this platform (${e.code})`);
+            err.code = 'SYMLINK_UNAVAILABLE';
+            throw err;
+          }
+          throw e;
+        }
       } else {
         // String form: write file with placeholder substitution
         fs.writeFileSync(fullPath, substituteTimestamps(rawContent));
@@ -174,7 +199,15 @@ function runScenario(scenario) {
     return { pass: false, reason: `Hook 不存在: ${hookPath}` };
   }
 
-  const tmpDir = setupTempDir(scenario);
+  let tmpDir;
+  try {
+    tmpDir = setupTempDir(scenario);
+  } catch (e) {
+    if (e.code === 'SYMLINK_UNAVAILABLE') {
+      return { pass: true, skipped: true, reason: e.message };
+    }
+    return { pass: false, reason: `setup failed: ${e.message}` };
+  }
   // stdin 支持 RECENT_TIMESTAMP 与 TS_OFFSET_<±N><S|M|H> 占位符（见 substituteTimestamps）
   const stdinData = scenario.stdin
     ? substituteTimestamps(JSON.stringify(scenario.stdin))
@@ -359,11 +392,15 @@ console.log(`\n  Hook 功能测试 — ${scenarios.length} 个场景\n`);
 
 let passed = 0;
 let failed = 0;
+let skipped = 0;
 const failures = [];
 
 for (const s of scenarios) {
   const result = runScenario(s);
-  if (result.pass) {
+  if (result.skipped) {
+    skipped++;
+    console.log(`  SKIP  ${s.name} (${result.reason})`);
+  } else if (result.pass) {
     passed++;
     console.log(`  PASS  ${s.name}`);
   } else {
@@ -375,7 +412,7 @@ for (const s of scenarios) {
 }
 
 console.log(`\n  ──────────────────────────────`);
-console.log(`  ${passed} passed, ${failed} failed, ${scenarios.length} total\n`);
+console.log(`  ${passed} passed, ${failed} failed, ${skipped} skipped, ${scenarios.length} total\n`);
 
 if (failures.length > 0) {
   console.log('  失败详情:');

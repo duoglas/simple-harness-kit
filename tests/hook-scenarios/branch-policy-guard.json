@@ -1,0 +1,133 @@
+[
+  {
+    "name": "branch-policy-guard: example-company + push to master → block",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push origin master" }
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["Direct push to 'master'", "merge-only"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: example-company + push to feature-1234-AI-TEST → block (matches feature-*)",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push origin feature-1234-AI-TEST" }
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["Direct push to 'feature-1234-AI-TEST'", "merge-only"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: example-company + push --all → block (wildcard unsafe with protected)",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push --all origin" }
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["--all / --mirror is unsafe"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: example-company + push --mirror → block (wildcard unsafe with protected)",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push --mirror origin" }
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["--all / --mirror is unsafe"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: example-company + push to personal-* prefix branch → 放行",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push origin personal-feature-1234" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: example-company + 非 push/commit (git status) → 早返放行",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git status" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: generic + push to master → 放行 (无 protected branches)",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "generic" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push origin master" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: generic + push --all → 放行 (无 policy)",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "generic" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push --all origin" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "branch-policy-guard: HARNESS_SKIP_GATE=1 → 旁路 (即使违规)",
+    "hook": "branch-policy-guard.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "example-company", "HARNESS_SKIP_GATE": "1" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push origin master" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["Bypassed via HARNESS_SKIP_GATE"],
+      "stdout": "empty"
+    }
+  }
+]
