@@ -101,8 +101,34 @@ The skill asks for the issue and expected behavior, then runs F1-F5 automaticall
 
 - **6-Stage Loop:** Plan → Setup → Execute → Verify → Review → Feedback (loops until quality gates pass)
 - **5-Layer QA Pyramid:** TDD self-verify → Tool checks (build/lint/test) → Spec review (independent reviewer) → Santa Method (dual adversarial) → Human review
-- **8 Hooks:** safety-guard, harness-stage-guard, agent-check, verification-gate, commit-check, delivery-review, context-monitor, session-logger — fire at 100% reliability regardless of context length
+- **9 Hooks:** safety-guard, harness-stage-guard, agent-check, verification-gate, commit-check, delivery-review, context-monitor, session-logger, branch-policy-guard — fire at 100% reliability regardless of context length
 - **Continuous Learning:** Auto-captures tool usage patterns (<50ms, no overhead), analyzes at each REVIEW stage. Pure local analysis, zero API calls. Discovers workflow habits, hot files needing tests, stable patterns to promote to Rules (token savings)
+
+### Preset System (v0.9.0)
+
+Commit format and branch policy are **data-driven** — different companies / teams / projects often need different rules (TICKET-ID prefixes, protected branches, no `feat` on `release-*` etc.). Instead of forking the kit and rewriting hooks, drop a preset config.
+
+**Zero config = zero behavior change.** Default fallback to `generic` is silent and back-compatible — existing users upgrading from v0.8.x see no new warnings.
+
+**Built-in presets:**
+- `presets/generic/` — default, equivalent to Conventional Commits + Co-Authored-By
+- `presets/example-company/` — public scaffold demonstrating TICKET-ID prefix + protected branches + single-release constraint + feat-on-release block. Copy and rename to author your own.
+
+**Opt-in to a non-default preset:**
+
+```bash
+cp .harness.local.example.json .harness.local.json
+# edit "preset" field, e.g. "example-company" or your own
+```
+
+Or env override for one-shot: `HARNESS_PRESET=example-company`.
+
+**What gets enforced:**
+- `commit-check` warns when subject doesn't match active preset's `subject_regex`
+- `branch-policy-guard` blocks `git push` to `merge_only_branches`, blocks `--all`/`--mirror` when protected branches exist, blocks commit types listed in `type_blocked_on_branch` (e.g. `feat` on `release-*`)
+- `HARNESS_SKIP_GATE=1` bypasses for one-off emergency
+
+Full reference: [methodology/19-company-presets.md](methodology/19-company-presets.md)
 
 ### Real-World Validation
 
@@ -161,11 +187,12 @@ We surveyed three layers: **agent frameworks** (DeerFlow/LangGraph/CrewAI — bu
 
 ```
 simple-harness-kit/
-├── methodology/   14 methodology docs
-├── templates/     5 rule templates + 8 hook scripts + 4 config templates
+├── methodology/   15 methodology docs
+├── presets/       2 built-in (generic + example-company), data-driven commit & branch rules
+├── templates/     5 rule templates + 9 hook scripts + 4 config templates
 ├── skills/        7 skills (init user-triggered | rest AI-auto)
 ├── examples/      3 real-world experiments (A + B + C)
-├── tests/         6 regression scenarios
+├── tests/         138+ hook scenarios + template integrity + scripted matrix + codex smoke
 └── init-prompt.md initialization prompt
 ```
 
