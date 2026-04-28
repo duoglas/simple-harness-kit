@@ -1,0 +1,10 @@
+{
+  "name": "example-company",
+  "version": "1.0.0",
+  "description": "Public scaffold demonstrating how to author a company-specific preset (commit format + branch policy). Copy-paste this directory and rename to start your own.",
+  "extends": "generic",
+  "files": {
+    "commit_format": "commit-format.json",
+    "branch_policy": "branch-policy.json"
+  }
+}

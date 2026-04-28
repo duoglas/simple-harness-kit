@@ -5,3 +5,7 @@ node_modules/
 .env.*
 tmp/
 .harness/
+
+# Local preset selection — each machine picks its own preset (not committed).
+# See methodology/19-company-presets.md for how to author and vendor presets.
+.harness.local.json

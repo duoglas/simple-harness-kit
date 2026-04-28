@@ -1,0 +1,16 @@
+{
+  "description": "Example branch policy: feature/release/hotfix branches require MR (no direct push); release-* allows only one at a time.",
+  "protected_branches": ["feature-*", "release-*", "hotfix-*", "main", "master"],
+  "merge_only_branches": ["feature-*", "release-*", "hotfix-*", "main", "master"],
+  "single_branch_constraints": {
+    "release-*": {
+      "max_concurrent": 1,
+      "message": "Only one release-* branch may exist at a time."
+    }
+  },
+  "fork_constraints": {
+    "feature-*": {"from": ["main", "master"]},
+    "release-*": {"from": ["main", "master"]},
+    "hotfix-*": {"from_tag": true}
+  }
+}

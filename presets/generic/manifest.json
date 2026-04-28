@@ -1,0 +1,10 @@
+{
+  "name": "generic",
+  "version": "1.0.0",
+  "description": "Default preset matching methodology/12-commit-standards.md — Conventional Commits + Co-Authored-By for AI sessions.",
+  "extends": null,
+  "files": {
+    "commit_format": "commit-format.json",
+    "branch_policy": "branch-policy.json"
+  }
+}

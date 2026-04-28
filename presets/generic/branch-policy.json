@@ -1,0 +1,7 @@
+{
+  "description": "Generic preset has no branch restrictions — all branches accept direct push.",
+  "protected_branches": [],
+  "merge_only_branches": [],
+  "single_branch_constraints": {},
+  "fork_constraints": {}
+}

@@ -1,0 +1,24 @@
+{
+  "format_description": "Example: <TICKET-ID> <type>: <subject>  (e.g. JIRA-1234 feat: add login)",
+  "subject_regex": "^[A-Z]+-\\d+\\s+(feat|fix|docs|chore|refactor|test|perf|ci)(\\([^)]+\\))?: .{1,72}$",
+  "subject_max_length": 100,
+  "type_enum": [
+    "feat",
+    "fix",
+    "docs",
+    "chore",
+    "refactor",
+    "test",
+    "perf",
+    "ci"
+  ],
+  "require_co_authored_by_for_ai": true,
+  "type_blocked_on_branch": {
+    "feat": ["release-*", "hotfix-*"]
+  },
+  "examples": [
+    "JIRA-1234 feat: add user login",
+    "JIRA-1234 fix(api): handle null user response",
+    "PROJ-42 docs: update README"
+  ]
+}

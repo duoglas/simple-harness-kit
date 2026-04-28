@@ -1,0 +1,25 @@
+{
+  "format_description": "Conventional Commits: <type>(<scope>): <subject>",
+  "subject_regex": "^(feat|fix|docs|chore|refactor|test|perf|ci|build|style|revert)(\\([^)]+\\))?: .{1,72}$",
+  "subject_max_length": 72,
+  "type_enum": [
+    "feat",
+    "fix",
+    "docs",
+    "chore",
+    "refactor",
+    "test",
+    "perf",
+    "ci",
+    "build",
+    "style",
+    "revert"
+  ],
+  "require_co_authored_by_for_ai": true,
+  "type_blocked_on_branch": {},
+  "examples": [
+    "feat: add user login",
+    "fix(api): handle null response in /users",
+    "docs: update README install steps"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "_comment": "Local preset selection. Copy this file to .harness.local.json (gitignored) and edit. The framework reads .harness.local.json on each commit/push hook to decide which preset's rules to apply.",
+
+  "preset": "generic",
+
+  "_preset_options": [
+    "generic         — default, Conventional Commits, no branch restrictions",
+    "example-company — public demo (TICKET-ID prefix + protected branches)",
+    "<your-name>     — copy presets/example-company/ to start your own"
+  ],
+
+  "author_prefix": "",
+  "_author_prefix_doc": "Optional. If set, branch-policy-guard treats branches starting with `<author_prefix>-` as personal/dev branches exempt from protected_branches. Leave empty to disable."
+}
