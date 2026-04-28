@@ -2,15 +2,17 @@
 'use strict';
 
 /**
- * Commit Check Hook — 提交前检查两件事:
- * @version 0.8.1
- * 1. AI session 的 commit 必须包含 Co-Authored-By
- * 2. REVIEW 阶段检查是否有未提交变更（配合 verification-gate）
+ * Commit Check Hook — 提交前检查三件事:
+ * @version 0.9.0
+ * 1. AI session 的 commit 必须包含 Co-Authored-By（warn）
+ * 2. commit subject 必须匹配 active preset 的 subject_regex（warn）
+ * 3. REVIEW 阶段检查是否有未提交变更（配合 verification-gate）
  *
  * 触发: PreToolUse:Bash
  */
 
 const { execSync } = require('child_process');
+const { loadPreset } = require('./load-preset');
 const MAX_STDIN = 1024 * 1024;
 let raw = '';
 process.stdin.setEncoding('utf8');
@@ -23,14 +25,49 @@ process.stdin.on('end', () => {
     const input = JSON.parse(raw);
     const cmd = String(input.tool_input?.command || '');
 
-    // === 检查 1: git commit 必须包含 Co-Authored-By (格式也要对) ===
+    // === 检查 1+2: git commit 必须包含 Co-Authored-By + subject 匹配 preset ===
     if (/git\s+commit/.test(cmd)) {
-      // 从命令中提取 commit message
-      const msgMatch = cmd.match(/-m\s+["']([^"']+)["']/s) ||
-                        cmd.match(/-m\s+"?\$\(cat\s+<<['"]?EOF([\s\S]*?)EOF/);
-      const msg = msgMatch ? (msgMatch[1] || msgMatch[2] || '') : '';
+      // 从命令中提取 commit message — 覆盖更多 -m / --message= 形式
+      // 顺序：heredoc → -m "..." → -m '...' → --message=...
+      let msg = '';
+      let m;
+      m = cmd.match(/<<['"]?EOF([\s\S]*?)EOF/);
+      if (m) msg = m[1];
+      if (!msg) {
+        m = cmd.match(/(?:^|\s)-m\s+"([\s\S]*?)(?<!\\)"/);
+        if (m) msg = m[1];
+      }
+      if (!msg) {
+        m = cmd.match(/(?:^|\s)-m\s+'([\s\S]*?)'/);
+        if (m) msg = m[1];
+      }
+      if (!msg) {
+        m = cmd.match(/--message=("([^"]*)"|'([^']*)'|(\S+))/);
+        if (m) msg = m[2] || m[3] || m[4] || '';
+      }
 
       if (msg) {
+        const subject = (msg.split('\n').find(l => l.trim()) || '').trim();
+
+        // === 检查 2: subject 匹配 active preset's subject_regex (warn) ===
+        try {
+          const preset = loadPreset();
+          const re = preset.commit_format?.subject_regex;
+          if (re) {
+            let regex;
+            try { regex = new RegExp(re); } catch { regex = null; }
+            if (regex && subject && !regex.test(subject)) {
+              process.stderr.write(
+                `[Commit Check] Subject 不符合 preset '${preset.name}' 格式。\n` +
+                `→ 期望: ${preset.commit_format.format_description || re}\n` +
+                `→ 实际: ${subject}\n` +
+                `→ 示例: ${(preset.commit_format.examples || [])[0] || '(none)'}\n` +
+                `→ 警告级别，不阻止执行。bypass: HARNESS_SKIP_GATE=1\n`
+              );
+            }
+          }
+        } catch {}
+
         const hasCoAuthored = /Co-Authored-By:/i.test(msg);
         if (!hasCoAuthored) {
           process.stderr.write(

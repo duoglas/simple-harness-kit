@@ -150,7 +150,17 @@
             "command": "D=$(cd \"$(pwd)\" && pwd -P);while [ \"$D\" != / ]&&[ ! -f \"$D/scripts/hooks/find-root.js\" ];do D=$(dirname \"$D\");done;[ -f \"$D/scripts/hooks/find-root.js\" ]&&cd \"$D\"&&node scripts/hooks/commit-check.js"
           }
         ],
-        "description": "AI commit 必须包含 Co-Authored-By + REVIEW 阶段检查未提交变更"
+        "description": "AI commit 必须包含 Co-Authored-By + subject 匹配 active preset + REVIEW 阶段未提交变更检查"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D=$(cd \"$(pwd)\" && pwd -P);while [ \"$D\" != / ]&&[ ! -f \"$D/scripts/hooks/find-root.js\" ];do D=$(dirname \"$D\");done;[ -f \"$D/scripts/hooks/find-root.js\" ]&&cd \"$D\"&&node scripts/hooks/branch-policy-guard.js"
+          }
+        ],
+        "description": "active preset 分支策略守门（拒绝 push 受保护分支 + feat-on-release 拒绝）"
       },
       {
         "matcher": "Agent",
