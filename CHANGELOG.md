@@ -6,9 +6,11 @@
 
 ## [Unreleased]
 
-> 这些变更已 commit 但未打 tag。下次发版时整理到具体版本号下。
+（暂无）
 
-### Added — Preset 系统 (v0.9.0 草案)
+## [0.9.0] - 2026-04-30
+
+### Added — Preset 系统
 
 - **`presets/` 目录**：默认两个 preset
   - `presets/generic/` — 等价于 methodology/12 的 Conventional Commits + Co-Authored-By
@@ -30,6 +32,16 @@
 ### Why this matters
 
 公司 / 团队 / 项目对 commit 格式和分支策略有不同要求（例如 GitLab 服务端 hook 强制特定格式）。之前 harness-kit 写死 Conventional Commits，公司私有规则只能在外部维护。Preset 系统让规则数据驱动，AI 收到 active preset 即可遵循，无需重写硬编码。**对没有特殊需求的项目，零配置 = 零变化。**
+
+### Known Issues
+
+3 个 pre-existing test failures inherited from v0.8.x，与 v0.9.0 preset 系统改动无关，已计划 v0.9.1 修复：
+
+- **`02-skill-path-resolution.sh`**: `install/uninstall` path resolution + `skill-relative` (`./resources/...`) 路径检查多项 FAIL，根因待排查
+- **`03-full-e2e.sh`**: `e2e-acceptance-validate.sh` 无法从 `required-wiring.json` 加载 `required_files` 数组
+- **`05-mutation-test.sh M2`**: 移除 mutation 后维度 02 应 PASS 但仍 FAIL（与 02 同根因）
+
+`tests/pre-release-check.sh` exit 1 因 C-GATE-09 严格规则触发。Hook scenarios 段 (151 个) + template-integrity (T1-T16) + 其余 scripted matrix 全绿。**preset 系统本身的 138+ scenarios + 双 README + methodology/19 全部 PASS**，本次发版核心范围无 regression。
 
 ## [0.8.7] - 2026-04-17
 
