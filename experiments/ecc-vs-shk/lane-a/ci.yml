@@ -1,0 +1,42 @@
+# CI 流水线 — 在 PR 合并到 master 前运行测试矩阵和路径安全扫描
+#
+# 触发时机: 向 master 提 PR 时，或 PR 有新推送时
+# 依赖: tests/scripts/run-all.sh, scripts/no-personal-paths.sh
+
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 测试矩阵
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 运行测试矩阵
+        run: bash tests/scripts/run-all.sh
+
+  path-scan:
+    name: 路径安全扫描
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 扫描本机绝对路径泄漏
+        run: bash scripts/no-personal-paths.sh .

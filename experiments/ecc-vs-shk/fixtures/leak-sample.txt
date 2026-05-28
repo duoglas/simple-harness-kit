@@ -1,0 +1,7 @@
+这是一个植入了真实本机绝对路径泄漏的测试样本，validator 必须将其判定为泄漏（退出码非 0）。
+
+POSIX 泄漏:
+const ROOT = "/Users/janedoe/projects/secret-harness/config.json";
+
+Windows 泄漏:
+log_path = "C:\Users\BobSmith\AppData\Local\harness\state.db"
