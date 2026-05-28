@@ -1,19 +1,41 @@
 # 实验结果：ECC 驱动 vs SHK 驱动迭代本工程
 
-> 日期 2026-05-28。设计与评分标准见 [SPEC.md](SPEC.md)（跑实验前预注册）。
+> 日期 2026-05-28。设计与评分标准见 [SPEC.md](SPEC.md)。
 > 两条 lane 独立 worktree、相同任务规格与汇报契约，仅"驱动方法论"不同，同用 sonnet。
+
+## 方法论诚实声明（必读，先于结论）
+
+本实验**未达到严格的 pre-registered 标准**，以下事实在 PR#4 跨模型 review 中被指出，
+此处如实保留以避免日后误读：
+
+1. **`SPEC.md` 与 `RESULTS.md` 在同一个 commit（`39a66f2`）、同一秒提交**——git 历史
+   无法独立证明 SPEC 写定先于 RESULTS。"预注册"在此**仅指会话内时序**（SPEC 内容确实
+   在 lane 子 agent 派遣之前由控制器写定），而非 git 时序。读者若要追求严格的预注册
+   证据，应取会话原始 transcript 而非本仓库 git 历史。
+2. **M2 工具调用数有两组**：harness 自动记录的 `tool_uses` 总数（40 / 23）与子 agent
+   自报数（20 / 16）有 ≈ 2× 偏差，原因可能是 subagent 自计漏掉了内部转发的调用。
+   下表已统一改用 harness 记录的更权威数值。
+3. **M4 方法论洞察由控制器（同一 AI session）人工判定**，无独立见证方。结论仍站得住
+   的根据是**洞察具体内容可被读者独立核验**——见 `lane-a/REPORT.md` §INSIGHTS 与
+   `lane-b/REPORT.md` §INSIGHTS 全文，以及它们对应催生的 commit。
+4. 实验的"AI 同时扮演 Lane A / Lane B / 评审者三角色"是真实结构性限制；本 PR 引入的
+   跨 model（codex + 独立 Claude）外部 review 流程正是为弥补这一点。
+
+记住：实验是发现性的、不是审计性的；这些限制不抵消结论，但读者应据此调整置信度。
 
 ## 评分卡
 
 | 指标 | Lane A（SHK 驱动） | Lane B（ECC 驱动） | 胜 |
 |---|---|---|---|
 | **M1 完成度**（gate, /4） | T1=2 T2=2 = **4** | T1=2 T2=2 = **4** | 平 |
-| **M2 效率**（harness 计工具调用 / 耗时） | 40 calls / 221s | **23 calls / 153s** | **B** |
+| **M2 效率**（工具调用 / 耗时） | 40 calls (harness 记录，子 agent 自报 20) / 221s | **23 calls (harness 记录，子 agent 自报 16) / 153s** | **B** |
 | **M3 质量**（evaluate.sh 自动, /5） | **5/5** | **5/5** | 平 |
 | **M4 方法论洞察**（可写回 methodology/） | 2 条 + **1 条 dogfood 才暴露的 meta-gap** | 1 条真洞察 + 1 条"关于适配 ECC 成本" | **A** |
 | **M5 规范契合** | 中文✓ emoji 0✓ bash(贴合 tests/) | 中文✓ emoji 0✓ JS(贴合 hooks/) + workflow 更健壮 | 略 B |
 
-两条 lane 的原始汇报、产物（`lane-a/`、`lane-b/`）与自动打分输出均在本目录，可复跑 `./evaluate.sh`。
+两条 lane 的**原始 SCORECARD/FRICTION/INSIGHTS/SELF_VALIDATION 汇报全文**见
+[`lane-a/REPORT.md`](lane-a/REPORT.md) 与 [`lane-b/REPORT.md`](lane-b/REPORT.md)；
+最终产物（`ci.yml`、`validator.*`）在同目录；自动打分器 `./evaluate.sh` 可复跑。
 
 ## 关键发现
 
