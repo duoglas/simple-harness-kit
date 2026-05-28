@@ -35,6 +35,7 @@
 - `TEST` — 测试相关
 - `INIT` — 初始化流程
 - `GATE` — 交付门控 + 端到端验收
+- `CI` — CI workflow 加固
 
 ---
 
@@ -62,6 +63,7 @@
 | C-TEST-01 | Hook 功能变更必须先更新/新增测试场景（tests/hook-scenarios/） | TDD 纪律 | 回归风险 |
 | C-TEST-02 | 功能性变更不能只用 mock 验证，必须在真实场景中跑过 | mock 通过不代表真实生效 | 上线后发现问题 |
 | C-TEST-03 | 新 session 开始时验证 .harness/observations.jsonl 有新数据 | 确认 session-logger hook 生效 | 所有 hooks 可能未加载 |
+| C-TEST-07 | 验证 validator/test 退出码时，**禁止**经过任何 pipe / 命令组合（`cmd \| tail`、`cmd \| grep`、`cmd && other`），必须用 `cmd; echo "exit=$?"` 或 `if cmd; then ... else ... fi` 直接捕获被测命令的 `$?` | shell `$?` 是上一条命令的退出码——管道下游命令成功执行会覆盖上游真实退出码（VH-17）；命令链结合律下 `&&` 短路同样会丢失第一条的真实失败 | "看起来通过实际失败"的虚假绿灯进入 commit / PR description / release notes，最终在 CI / 用户环境暴露 |
 
 ## [JC-04: Hook 脚本规范]
 
@@ -112,6 +114,19 @@
 | C-TEST-06 | 涉及"用户在任意目录"的功能（install 脚本、Skill 入口、init 流程等），脚本化测试必须使用**至少 3 个无父子关系的随机 tmp 目录**作为 `$HOME` / `$KIT` / `$CWD`，`cp -r` 真实拷贝 kit（不用 symlink），然后在 `$CWD` 下跑被测功能 | dogfooding workspace (ths-harness 有 simple-harness-kit 作为子目录) 是一个特殊 case，cwd-relative 路径在这里恰好能 work——这正是 bug 长期隐藏的原因。测试必须打破这个特殊环境 | 测试在作者机器上永远 PASS，用户机器上永远 FAIL |
 | C-HOOK-07 | Shell 脚本中所有 `cp -r <src> <dst>` 当 `<dst>` 可能已存在时，必须使用幂等模式 `rm -rf "<dst>" && cp -r "<src>" "<dst>"`。直接 `cp -r` 在 dst 存在时 GNU/BSD 行为都是"把 src 作为 subdir 放进 dst"，产生嵌套 | 不幂等导致第二次 install/update 产生 `.claude/skills/harness-init/harness-init/` 嵌套（VH-10 问题 A） | 二次安装/更新损坏 skill 结构 |
 
+## [JC-08: CI workflow 加固]
+
+详细动机与 pin 成熟度两阶段说明见 [`methodology/18-ci-hardening.md`](../methodology/18-ci-hardening.md)；本组约束源自 PR#4 ECC vs SHK 对照实验，是 SHK 生成 CI workflow 时的强制必填项。
+
+| ID | 约束 | WHY | 违反后果 |
+|---|---|---|---|
+| C-CI-01 | `permissions:` 必须显式收窄（首选 `contents: read`），禁止使用默认或 `write-all` | GitHub Actions 默认 token 权限随仓库设置而变；显式声明等于自我审计 | 一个被注入的 step 即可改 release/issue/PR |
+| C-CI-02 | 第三方 action 必须 pin 版本（最低 `@vN` tag；生产级配 Dependabot 后升级到 commit SHA） | 未 pin = 跟 master，攻击者推恶意 tag 即命中 | 2024+ tj-actions 等供应链事故 |
+| C-CI-03 | 每个 job 必须设 `timeout-minutes`（建议 ≤ 10，少数大任务可放宽，但不得省略） | 死循环或 fork-bomb 在无超时时耗光 Actions 配额 | 账单 / 配额事件、PR 阻塞 |
+| C-CI-04 | 触发 `pull_request` 的 workflow 必须设 `concurrency: cancel-in-progress: true` | 同一 PR 连推 N 次会并发起 N 份相同 job | 配额浪费、合并冲突期 CI 漂移 |
+| C-CI-05 | 安装包管理器依赖时必须禁 lifecycle script（`npm ci --ignore-scripts` / `pnpm install --ignore-scripts` / `yarn --mode=skip-build` / `bun install --ignore-scripts`）。**SHK 本仓库当前 ci.yml 不安装第三方依赖，本约束在本仓库不适用但作为 SHK 生成下游 CI 时的强制必填项保留** | install-time `postinstall` 是供应链注入主入口 | 一次 `npm install` 即被注入 |
+| C-CI-06 | 禁止 `pull_request_target` + checkout 不可信 ref/repo 的组合 | 该组合让 fork PR 代码在 base 仓库的 write-scoped token 下执行 | GitHub 安全文档列为高危 |
+
 ---
 
 ## Violation History
@@ -134,3 +149,4 @@
 | VH-15 | 2026-04-15 | v0.8.1 发布后用户在 Codex `/harness-init` 时仍看到 "hook returned invalid pre-tool-use JSON output"。**调查结论**: kit 代码无 bug — v0.8.1 hooks（empty stdout + exit 0）在 Codex 0.118.0 下冒烟测试 PASS（有 stage / 无 stage / block 路径三种组合均通过）。Codex 源码 `pre_tool_use.rs::parse_completed` 确认 empty stdout → Completed。最可能根因：target 项目残留 pre-VH-13 旧 hook 副本（仍有 passthrough stdout），`update.sh --hooks` 未执行。**真正教训**: VH-13 的"加固 TODO"从未兑现，用户仍是唯一 regression catcher。**修复**: 新增 `tests/codex-smoke.sh` + `codex-smoke-selftest.sh` + `tests/run.js` 集成，兑现 VH-13 遗留 TODO。新约束 C-GATE-08 | C-GATE-08 |
 | VH-14 | 2026-04-15 | 用户反馈"经常出现时间戳不一致的问题， 我觉得这个有点问题"。**根因**: `harness-stage-guard.js::validateSince` 把 `SINCE_DRIFT_LIMIT` 设为 5 分钟。AI 写 `.harness/current-stage.json` 的 `since` 字段时不知真实墙钟，必须先 `date -u` 再抄进 JSON，抄的过程中常因跨 tool 调用墙钟继续走动而超出 5 分钟窗口被拒。守门的实际用意是"防止 AI 手编递增时间戳骗过 verification-gate evidence freshness"，不是"必须精确到分钟"。**决策评估**: 方案 A（`since:"auto"` sentinel + PostToolUse autofill）最彻底但引入新 hook 与自愈失败模式；方案 B（窗口放宽到 30 分钟）一行改、零架构变动、invariant 仍成立（30 分钟远大于 AI 手抄正常 drift，远小于"覆盖 evidence mtime"所需跨度）；方案 C（彻底删检查）会把 evidence freshness 降级为存在性（重演 VH-08 的坑）。**取 B**，3 新测试场景覆盖窗口边界（15 分钟过去 PASS、45 分钟过去 REJECT、20 分钟未来 PASS）。**加固 TODO**: 若 30 分钟窗口实战仍超窗 → 再升级到方案 A（sentinel + autofill） | C-HOOK-\* 工具层 |
 | VH-16 | 2026-04-17 | 用户在 `mind-palace/workspaces/recruiting/candidates/2026-04-17-zhou-live-task/` 子目录启动 Claude Code，Stop hook 报 `Cannot find module '.../<subdir>/scripts/hooks/delivery-gate.js'`。调查发现 mind-palace `.claude/settings.json` 所有 hook `command` 是裸 `node scripts/hooks/<X>.js`，cwd=子目录时相对路径解析到不存在路径。**根因**: kit 两份模板（`templates/settings-json.tmpl` + `skills/harness-init/resources/settings-json.tmpl`）本身就是裸相对路径，所有用 kit init 出来的项目都有潜在 bug，只是没人从子目录起 session 就不触发。dogfooding workspace `ths-harness` 因为 kit 在子目录，`.claude/settings.json` 的 hook command 带了 `simple-harness-kit` marker 的 wrapper 所以没撞 — **VH-10 教训再次复演**（dogfooding 环境碰巧能 work = 假 PASS）。VH-10 已学到 SKILL.md 路径需 find-root，但 settings.json 的 hook path 同类问题被忽略。**修复**: kit 两份模板都加 find-root shell wrapper（marker=`scripts/hooks/find-root.js`），新增 C-HOOK-08 + T16 守门；热修 mind-palace `.claude/settings.json` 29 处 hook command 全 wrap。**同 release (v0.8.7)**: VH-14 Option A sentinel (C-HOOK-09) + 05-mutation-test M1 + codex-smoke-selftest + release gate (C-GATE-09) | C-HOOK-08 |
+| VH-17 | 2026-05-28 | PR#4 (ECC vs SHK 对照实验合入) 的 description 与 4 个 commit message 均明确声称 `node scripts/ci/validate-no-personal-paths.js .` 在仓库根 exit 0；跨模型 review (Claude reviewer Critical #1 + codex reviewer 独立确认) 实测**真实退出码 = 1**，CI 上线即必挂。**完整失效链 (5 层)**: (1) **shell pipe 吞退出码**——控制器验证用 `node ... ; echo "exit=$?" \| tail -10`，`\| tail` 让 `$?` 读成 tail 的退出码 (0)，未捕获 node 的真实退出码 (1)；(2) **experiments/ 目录无整体豁免**——validator 把 `experiments/ecc-vs-shk/fixtures/leak-sample.txt`（故意植入用来测试 validator 自身的 `/Users/<janedoe>` + `C:\Users\<BobSmith>`）当成产品代码的真泄漏；(3) **PR 文档放大错误**——基于错读的 exit 0 写进 PR description / commit message / RESULTS.md，错误被多处复制；(4) **单 reviewer 盲区**——控制器作为同一 AI session 自审，对自己造成的盲区永远盲，必须跨 model 才能发现；(5) **本 commit 同时引入两个 Critical 与多个 Major**——SPEC.md/RESULTS.md 同 commit 同秒提交使 "pre-registered" 主张不可验证、`isGitHubUrl()` 死代码豁免任何 URL 不限于 github、未覆盖 Linux `/home/<name>`、C-CI-* 未登记到本 constraints.md 等。**修复**: (a) validator 加 `EXEMPT_PREFIXES = ['experiments/']`；(b) 加 `/home/<name>` 第三种 POSIX 模式；(c) 删 isGitHubUrl 死代码；(d) RESULTS.md 加方法论诚实声明小节披露 4 项实验设计限制；(e) lane-a/b 补 REPORT.md 让 M2 数字有 harness vs 自报双源对照；(f) 新约束 **C-TEST-07** 强制 validator/test 退出码核实禁过 pipe；(g) C-CI-01..06 与 JC-08 登记入本表。**强证据**: 本 VH 自身证明了"跨模型 review 作为 5 层 QA 金字塔最后一道"的有效性——同一 AI session 自审无论几轮都抓不到自己的 pipe 误读，是真正独立的 reviewer 把它揪出来的 | C-CI-01..06, C-TEST-07, C-GATE-05 |
