@@ -17,7 +17,7 @@
     "hook": "commit-check.js",
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Claude Code (claude-opus-4-6)'" }
+      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Claude Code (claude-opus-4-6) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -81,7 +81,7 @@
     "hook": "commit-check.js",
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Codex CLI (gpt-5.3-codex)'" }
+      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Codex CLI (gpt-5.3-codex) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -94,7 +94,7 @@
     "hook": "commit-check.js",
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Claude Code (claude-opus-4-6)\nCo-Authored-By: Codex CLI (gpt-5.3-codex)'" }
+      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Claude Code (claude-opus-4-6) code\nCo-Authored-By: Codex CLI (gpt-5.3-codex) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -108,7 +108,7 @@
     "kitPresets": true,
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '随便写啥都行\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '随便写啥都行\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -123,7 +123,7 @@
     "env": { "HARNESS_PRESET": "generic" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '随便写啥都行\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '随便写啥都行\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -138,7 +138,7 @@
     "env": { "HARNESS_PRESET": "example-company" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'feat: add login\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m 'feat: add login\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -153,7 +153,7 @@
     "env": { "HARNESS_PRESET": "example-company" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'JIRA-1234 feat: add login\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m 'JIRA-1234 feat: add login\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -169,7 +169,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 feat 添加用户登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '123456 feat 添加用户登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -184,7 +184,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'TCLOUD-100 feat 提供分支校验功能\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m 'TCLOUD-100 feat 提供分支校验功能\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -199,7 +199,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'style 调整缩进\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m 'style 调整缩进\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -214,7 +214,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'docs 在 Readme 中增加部署说明\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m 'docs 在 Readme 中增加部署说明\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -229,7 +229,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 skip 不计代码量的提交\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '123456 skip 不计代码量的提交\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -244,7 +244,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 chore(gitignore) 忽略 dogfood 产物\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '123456 chore(gitignore) 忽略 dogfood 产物\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -259,7 +259,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 feat(api) 添加用户登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '123456 feat(api) 添加用户登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -274,7 +274,7 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 unknown 标题\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '123456 unknown 标题\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
@@ -289,12 +289,57 @@
     "env": { "HARNESS_PRESET": "ths-example" },
     "stdin": {
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 feat: 添加登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7)'" }
+      "tool_input": { "command": "git commit -m '123456 feat: 添加登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
     },
     "expect": {
       "exitCode": 0,
       "stderr": ["Subject 不符合 preset 'ths-example'"],
       "stdout": "empty"
     }
+  },
+  {
+    "name": "commit-check: 3-seg Co-Authored-By (code) → 不警告",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Claude Code (claude-opus-4-6) code'" }
+    },
+    "expect": { "exitCode": 0, "stderrNot": ["格式不符合"], "stdout": "empty" }
+  },
+  {
+    "name": "commit-check: 3-seg Co-Authored-By (test) → 不警告",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'test add unit tests\n\nCo-Authored-By: Claude Code (claude-opus-4-6) test'" }
+    },
+    "expect": { "exitCode": 0, "stderrNot": ["格式不符合"], "stdout": "empty" }
+  },
+  {
+    "name": "commit-check: 3-seg Co-Authored-By (fix) → 不警告",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'fix handle null\n\nCo-Authored-By: Claude Code (claude-opus-4-6) fix'" }
+    },
+    "expect": { "exitCode": 0, "stderrNot": ["格式不符合"], "stdout": "empty" }
+  },
+  {
+    "name": "commit-check: 老 2-seg 格式 (缺 type 段) → 格式警告",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Cursor (claude-sonnet-4-6)'" }
+    },
+    "expect": { "exitCode": 0, "stderr": ["格式不符合", "缺第三段"], "stdout": "empty" }
+  },
+  {
+    "name": "commit-check: 3-seg 但 type 段非法 (foo) → 格式警告",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Codex CLI (gpt-5.3-codex) foo'" }
+    },
+    "expect": { "exitCode": 0, "stderr": ["格式不符合"], "stdout": "empty" }
   }
 ]
