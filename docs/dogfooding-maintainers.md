@@ -9,8 +9,8 @@
 实验 `experiments/ecc-vs-shk/` 暴露了一个产品级 meta-gap：
 
 - SHK 的核心强制机制（`stage-guard`、`verification-gate` 等 PreToolUse hook）依赖 `.harness/current-stage.json` 等运行时状态。
-- 这些状态文件是 per-developer 的，**`.gitignore` 第 7 行** 明确把 `.harness/` 排除——这是有意为之，不该提交。
-- 同理 `.claude/`、`.codex/` 也是"dogfooded 实例"，被排除（见 `.gitignore` 第 24-25 行的注释）。
+- 这些状态文件是 per-developer 的，仓库根的 `.gitignore` 明确以 `.harness/` 一行把它排除——这是有意为之，不该提交。
+- 同理 `.claude/` 与 `.codex/` 也作为"dogfooded 实例"被 `.gitignore` 排除，相关注释明确说明它们是 `harness-init` 在 kit 自身仓库生成的运行实例而非要分发的模板。
 - 后果：克隆仓库后，维护者**默认拿不到一个能跑的 harness 实例**，于是上手就没有强制约束——SHK 自己不被 SHK 约束。
 
 这不是 bug 是 design intent，但 **bootstrap 流程必须可发现** 否则等于隐藏功能。本文档就是那条流程。

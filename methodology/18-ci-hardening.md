@@ -17,7 +17,9 @@ CI workflow 是项目对外暴露的、带写权限的可执行入口。一个�
 | C-CI-05 | 安装依赖时必须禁脚本（`npm ci --ignore-scripts` / `pnpm install --ignore-scripts` / `yarn --mode=skip-build` / `bun install --ignore-scripts`） | install-time `postinstall` 是供应链注入主入口（参见 ECC `scan-supply-chain-iocs.js`） | 一次 `npm install` 即被注入 |
 | C-CI-06 | 不允许 `pull_request_target` + checkout 不可信 ref/repo | 该组合让 fork PR 代码在 base 仓库的 write-scoped token 下执行 | GitHub 安全文档列为高危 |
 
-参考实现：本仓库 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 满足以上全部 6 条。
+这 6 条约束已登记到 single source of truth [`docs/constraints.md`](../docs/constraints.md) §JC-08，是 SHK 生成下游 CI 时的强制必填项。
+
+参考实现：本仓库 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 满足 C-CI-01..04 与 C-CI-06；**C-CI-05 因本仓库 CI 不安装第三方包管理器依赖故不适用，但作为生成下游 CI 的强制项保留**。
 
 ## 二、Pin 成熟度两阶段
 
@@ -58,21 +60,8 @@ CI workflow 是项目对外暴露的、带写权限的可执行入口。一个�
 - workflow 里直接 `npm install` 不加 `--ignore-scripts` 还写注释"我们包不多没事"——你的传递依赖会笑出声
 - `pull_request_target` + `actions/checkout` 拉 `${{ github.event.pull_request.head.sha }}`——这是入侵 base 仓库的范式入口
 
-## 五、约束登记示例
+## 五、下游项目如何采纳
 
-下游项目在自己的 `constraints.md` 里可以这样登记 CI 加固约束组：
+本仓库已经把 C-CI-01..06 登记到 [`docs/constraints.md`](../docs/constraints.md) §JC-08。下游项目用 SHK init 出来的 `constraints.md`（基于 [`templates/constraints.md.tmpl`](../templates/constraints.md.tmpl)）应**整组复制 JC-08 块**作为生成 CI workflow 的强制必填项，并在 PR review 与 CI workflow 修改时强制核对。
 
-```markdown
-## [JC-CI: CI workflow 加固]
-
-| ID | 约束 | WHY | 违反后果 |
-|---|---|---|---|
-| C-CI-01 | permissions 显式收窄至 contents:read | 默认权限随仓库变 | 注入 step 即可越权 |
-| C-CI-02 | 第三方 action pin 到 @vN tag 或 commit SHA | 未 pin = 跟 master | 恶意 tag 攻击命中 |
-| C-CI-03 | 每个 job timeout-minutes ≤ 10 | 防死循环耗配额 | 账单/PR 阻塞事件 |
-| C-CI-04 | PR workflow 设 concurrency cancel-in-progress | 防 N 次推送起 N 份 job | 配额浪费 |
-| C-CI-05 | 包管理器安装禁 lifecycle script | 防 postinstall 注入 | 一次 install 即被注入 |
-| C-CI-06 | 禁用 pull_request_target + 不可信 ref checkout | 高危事件组合 | base 仓库写权限被劫持 |
-```
-
-将这组约束直接复制到下游 [`templates/constraints.md.tmpl`](../templates/constraints.md.tmpl) 生成出来的 `constraints.md` 里，并在 PR review 与 CI workflow 修改时强制核对。
+注意 C-CI-05 的"包管理器禁 lifecycle script"是**通用强制项**，不因 SHK 自身仓库不安装依赖而豁免——下游项目大概率会安装依赖，必须遵守。

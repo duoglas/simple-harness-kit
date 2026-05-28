@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout
+      - name: 代码检出
         uses: actions/checkout@v4
 
       - name: 运行测试套件
@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Checkout
+      - name: 代码检出
         uses: actions/checkout@v4
 
       - name: 扫描绝对路径泄漏
