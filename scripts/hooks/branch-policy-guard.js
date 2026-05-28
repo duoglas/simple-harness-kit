@@ -3,16 +3,20 @@
 
 /**
  * branch-policy-guard.js — Block git operations that violate the active
- * preset's branch-policy.json.
- * @version 0.9.0
+ * preset's branch-policy.json / commit-format.json.
+ * @version 0.10.0
  * Trigger: PreToolUse:Bash
  *
  * Blocks (exit 2):
  *   1. git push to a branch matching merge_only_branches → use MR/PR instead
  *   2. git push --all / --mirror when any protected branches exist
  *   3. git commit with a type listed in commit_format.type_blocked_on_branch
- *      while current branch matches one of the listed patterns
- *      (e.g. `feat` on `release-*`)
+ *      matching the current branch. Pattern may use `!` prefix to invert,
+ *      e.g. `fix: ['!fix-*']` = "fix forbidden everywhere except fix-*"
+ *      (i.e. "fix only allowed on fix-*")
+ *   4. git commit with a type NOT in commit_format.type_required_on_branch[p]
+ *      where p is a branch pattern matching the current branch,
+ *      e.g. `fix-*: ['fix', 'test']` = "on fix-* only fix/test are allowed"
  *
  * Warn-only (no exit):
  *   - Push target unparseable (let server-side reject if violation)
@@ -39,6 +43,16 @@ function globToRegex(pattern) {
 function matchesAny(branch, patterns) {
   if (!Array.isArray(patterns) || patterns.length === 0) return false;
   return patterns.some(p => globToRegex(p).test(branch));
+}
+
+// Pattern supports `!` prefix to negate: `!fix-*` matches branches NOT
+// matching `fix-*`. Used by type_blocked_on_branch to express "type blocked
+// everywhere except this branch family".
+function branchMatchesPattern(branch, pattern) {
+  if (pattern.startsWith('!')) {
+    return !globToRegex(pattern.slice(1)).test(branch);
+  }
+  return globToRegex(pattern).test(branch);
 }
 
 function currentBranch() {
@@ -156,11 +170,13 @@ process.stdin.on('end', () => {
     const protected_branches = preset.branch_policy?.protected_branches || [];
     const merge_only = preset.branch_policy?.merge_only_branches || [];
     const type_blocked = preset.commit_format?.type_blocked_on_branch || {};
+    const type_required = preset.commit_format?.type_required_on_branch || {};
 
     const hasAnyPolicy =
       protected_branches.length > 0 ||
       merge_only.length > 0 ||
-      Object.keys(type_blocked).length > 0;
+      Object.keys(type_blocked).length > 0 ||
+      Object.keys(type_required).length > 0;
     if (!hasAnyPolicy) return;
 
     // === git push ===
@@ -199,21 +215,44 @@ process.stdin.on('end', () => {
     }
 
     // === git commit (and amend) ===
-    if (/git\s+commit/.test(cmd) && Object.keys(type_blocked).length > 0) {
+    if (/git\s+commit/.test(cmd) &&
+        (Object.keys(type_blocked).length > 0 || Object.keys(type_required).length > 0)) {
       const branch = currentBranch();
       if (!branch) return;
       const type = extractCommitType(cmd);
       if (!type) return;
+
+      // type_blocked_on_branch: {type: [branch-pattern, ...]} — block `type`
+      // on matching branches. Pattern with `!` prefix inverts (block everywhere
+      // except matching), e.g. `fix: ['!fix-*']` = "fix only on fix-*".
       const blockedPatterns = type_blocked[type];
-      if (!Array.isArray(blockedPatterns) || blockedPatterns.length === 0) return;
-      for (const pat of blockedPatterns) {
-        if (globToRegex(pat).test(branch)) {
+      if (Array.isArray(blockedPatterns) && blockedPatterns.length > 0) {
+        for (const pat of blockedPatterns) {
+          if (branchMatchesPattern(branch, pat)) {
+            process.stderr.write(
+              `[Branch Policy Guard] Commit type '${type}' is forbidden on branch '${branch}'.\n` +
+              `→ Active preset: ${preset.name}\n` +
+              `→ Pattern matched: '${pat}'\n` +
+              `→ Reason: '${type}' commits don't belong on this branch family.\n` +
+              '→ Use a different type (e.g. "fix" on release-*) or commit on a feature branch.\n' +
+              '→ Bypass once: HARNESS_SKIP_GATE=1 git commit ...\n'
+            );
+            process.exit(2);
+          }
+        }
+      }
+
+      // type_required_on_branch: {branch-pattern: [allowed-type, ...]} — on
+      // branches matching this pattern, only the listed types are allowed.
+      for (const [branchPat, allowedTypes] of Object.entries(type_required)) {
+        if (!Array.isArray(allowedTypes) || allowedTypes.length === 0) continue;
+        if (!globToRegex(branchPat).test(branch)) continue;
+        if (!allowedTypes.includes(type)) {
           process.stderr.write(
-            `[Branch Policy Guard] Commit type '${type}' is forbidden on branch '${branch}'.\n` +
+            `[Branch Policy Guard] Commit type '${type}' is not allowed on branch '${branch}'.\n` +
             `→ Active preset: ${preset.name}\n` +
-            `→ Pattern matched: '${pat}'\n` +
-            `→ Reason: '${type}' commits don't belong on this branch family.\n` +
-            '→ Use a different type (e.g. "fix" on release-*) or commit on a feature branch.\n' +
+            `→ Branch matched pattern: '${branchPat}'\n` +
+            `→ Allowed types on this branch: ${allowedTypes.join(', ')}\n` +
             '→ Bypass once: HARNESS_SKIP_GATE=1 git commit ...\n'
           );
           process.exit(2);

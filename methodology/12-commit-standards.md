@@ -13,33 +13,44 @@
 所有由 AI 工具生成或协助完成的 commit，必须在 commit message 末尾添加：
 
 ```
-Co-Authored-By: {工具名} {模型型号} <{邮箱}>
+Co-Authored-By: {工具名} ({模型ID}) {type}
 ```
+
+`{type}` 是 **commit 内容语义**，只在三者中取一个（不要与 Conventional Commits 的 type 枚举混淆）：
+
+| 段值 | 用途 |
+|------|------|
+| `code` | 业务/功能代码改动 |
+| `test` | 单元/集成测试改动（应独立 commit） |
+| `fix` | AI 修复 bug（含 AI 自修上一轮的产出），便于审计统计 |
 
 ### 各工具的标准格式
 
 | 工具 | 格式 |
 |------|------|
-| Claude Code | `Co-Authored-By: Claude Code (claude-opus-4-6)` |
-| Claude Code (Sonnet) | `Co-Authored-By: Claude Code (claude-sonnet-4-6)` |
-| Claude Code (Haiku) | `Co-Authored-By: Claude Code (claude-haiku-4-5)` |
-| Codex CLI | `Co-Authored-By: Codex CLI (gpt-5.3-codex)` |
-| Cursor | `Co-Authored-By: Cursor (claude-sonnet-4-6)` |
-| Cursor (GPT) | `Co-Authored-By: Cursor (gpt-5.3)` |
-| Windsurf | `Co-Authored-By: Windsurf (claude-sonnet-4-6)` |
-| GitHub Copilot | `Co-Authored-By: GitHub Copilot (gpt-5.3)` |
-| OpenCode | `Co-Authored-By: OpenCode (gemini-3.1-pro)` |
+| Claude Code | `Co-Authored-By: Claude Code (claude-opus-4-6) code` |
+| Claude Code (Sonnet) | `Co-Authored-By: Claude Code (claude-sonnet-4-6) code` |
+| Claude Code (Haiku) | `Co-Authored-By: Claude Code (claude-haiku-4-5) code` |
+| Codex CLI | `Co-Authored-By: Codex CLI (gpt-5.3-codex) code` |
+| Cursor | `Co-Authored-By: Cursor (claude-sonnet-4-6) code` |
+| Cursor (GPT) | `Co-Authored-By: Cursor (gpt-5.3) code` |
+| Windsurf | `Co-Authored-By: Windsurf (claude-sonnet-4-6) code` |
+| GitHub Copilot | `Co-Authored-By: GitHub Copilot (gpt-5.3) code` |
+| OpenCode | `Co-Authored-By: OpenCode (gemini-3.1-pro) code` |
+
+> 例子里第三段 `code` 仅为占位；实际按本次 commit 内容替换为 `code` / `test` / `fix`。
 
 ### 格式规则
 
 ```
-Co-Authored-By: {工具名} ({模型ID})
-                 ↑           ↑
-             工具品牌名    具体模型ID
+Co-Authored-By: {工具名} ({模型ID}) {type}
+                 ↑           ↑       ↑
+             工具品牌名    具体模型ID  内容语义
 ```
 
 - **工具名**：用户使用的 AI 工具品牌（Claude Code / Codex CLI / Cursor 等）
 - **模型ID**：实际调用的模型标识（claude-opus-4-6 / gpt-5.3-codex 等）
+- **type 段**：`code` / `test` / `fix`，见上表
 
 ### 多个 AI 工具协作
 
@@ -50,8 +61,8 @@ feat: add search functionality to magazine page
 
 Implement real-time article search with a11y support.
 
-Co-Authored-By: Claude Code (claude-opus-4-6)
-Co-Authored-By: Codex CLI (gpt-5.3-codex)
+Co-Authored-By: Claude Code (claude-opus-4-6) code
+Co-Authored-By: Codex CLI (gpt-5.3-codex) code
 ```
 
 ### 纯人工 commit
@@ -69,14 +80,36 @@ Co-Authored-By: Codex CLI (gpt-5.3-codex)
 
 {详细描述（可选）}
 
-Co-Authored-By: {工具名} ({模型ID})
+Co-Authored-By: {工具名} ({模型ID}) {code|test|fix}
 ```
 
-type 遵循 Conventional Commits：feat / fix / refactor / test / docs / chore / perf / ci
+第一行的 `{type}` 遵循 Conventional Commits：feat / fix / refactor / test / docs / chore / perf / ci（**不要**与 Co-Authored-By 末尾的 type 段混淆，二者是两个独立维度）。
+
+## 标题质量
+
+不论 preset 用什么 subject 格式，标题（subject 本体部分）都有通用要求：
+
+- **≤50 字**（中英文均按字符算）— 超长说明应该拆 commit
+- **动词开头**：新增 / 修复 / 优化 / 重构 / 调整 / 删除 / 统一 …
+- **聚焦业务价值**：写改了什么业务行为，而不是改了哪个文件
+- **避免 AI 腔**：不要写"实现了 X"、"完成了 X 的开发"、"使得 Y 成为可能"
+- **不放表情包，慎用特殊字符**
+
+合规示例：
+
+- 新增订单风控拦截逻辑
+- 修复用户登录异常问题
+- 优化查询性能降低延迟
+
+不合规示例：
+
+- 实现了新功能（AI 腔 + 没说啥功能）
+- update.js 修复了一些 bug（聚焦文件不是业务）
+- 🎉 Big refactor done!!!（表情包 + 不聚焦）
 
 ### Preset 覆盖
 
-上面的 subject 格式是**默认 preset (`generic`)**。公司或项目可以通过 preset 系统覆盖 subject 格式（例如要求 `<TICKET-ID> feat: ...` 前缀），但 **Co-Authored-By 是所有 preset 都强制的最低线**。
+上面的 subject 格式是**默认 preset (`generic`)**。公司或项目可以通过 preset 系统覆盖 subject 格式（例如要求 `<TICKET-ID> feat: ...` 前缀），但 **Co-Authored-By（含 3 段格式）与标题质量是所有 preset 都强制的最低线**。
 
 切换 preset、查看 active preset、写自己的 preset：见 `methodology/19-company-presets.md`。
 
@@ -95,6 +128,11 @@ git log --grep="Co-Authored-By: Codex CLI" --oneline | wc -l
 # 统计各模型的 commit 数
 git log --grep="claude-opus-4-6" --oneline | wc -l
 git log --grep="claude-sonnet-4-6" --oneline | wc -l
+
+# 按内容语义统计（type 段）
+git log --grep="Co-Authored-By:.*) code$" --oneline | wc -l    # AI 写的业务代码
+git log --grep="Co-Authored-By:.*) test$" --oneline | wc -l    # AI 写的测试
+git log --grep="Co-Authored-By:.*) fix$"  --oneline | wc -l    # AI 修的 bug
 
 # AI 辅助 commit 占比
 total=$(git log --oneline | wc -l)
