@@ -26,10 +26,23 @@ bash install.sh --target both --scope personal
 #    它会在本仓库生成: .claude/  .codex/  .harness/  以及对应 settings.json
 #    这些目录都是 gitignored，每台机器各自生成。
 
-# 3. 验证 dogfooding 起效：
-#    在 Claude Code 里随便写一个文件，PreToolUse hook 应在没有 .harness/current-stage.json 时
-#    拒绝并提示进入 PLAN 阶段。如果直接放行 = bootstrap 未完成。
+# 3. **关键步骤：restart Claude Code 会话**（见 C-INIT-05）
+#    Claude Code 不在 mid-session 热载 .claude/settings.json，必须：
+#      a. exit 当前会话（输入 /exit 或关窗口）
+#      b. 在仓库根重新启动 claude
+#    没 restart 的话，第 2 步写入的 hook 注册不会生效，bootstrap "看起来成功实际不工作"。
+#    (VH-18 的隐性 gap 就是没人 restart 但以为 bootstrap 完成)
 ```
+
+## 验证 dogfooding 起效（restart 后立刻做）
+
+restart 后的第一个 session，做以下三件事观察 hook 是否真活跃：
+
+1. **副作用信号**：随便发一个 Bash 命令（如 `ls`），然后查 `.harness/observations.jsonl` 与 `.harness/tool-count.json` 是否被自动创建——这两个文件由 session-logger / stage-guard 在 PostToolUse / PreToolUse 时写入，**只在 hook 真活跃时**才会出现。
+2. **拦截信号**：发一个 `echo "chmod 777 /tmp/test"`——safety-guard 正则 `/chmod\s+777/` 应命中，exit 2 并 stderr 写 `[Safety Guard] 禁止 chmod 777`。如果 echo 正常输出 = hook 没生效。
+3. **stage-guard 信号**：在 `.harness/current-stage.json` 不存在时尝试 Write 任何文件——stage-guard 应 exit 2 提示进入 PLAN 阶段。直接放行 = hook 没生效。
+
+三个信号有一个出问题，就回到 §"Bootstrap 不到位的几种典型表征" 排查。
 
 ## 日常使用回路
 

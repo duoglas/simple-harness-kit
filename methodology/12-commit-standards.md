@@ -20,7 +20,8 @@ Co-Authored-By: {工具名} {模型型号} <{邮箱}>
 
 | 工具 | 格式 |
 |------|------|
-| Claude Code | `Co-Authored-By: Claude Code (claude-opus-4-6)` |
+| Claude Code (Opus 最新) | `Co-Authored-By: Claude Code (claude-opus-4-7)` |
+| Claude Code (Opus 历史) | `Co-Authored-By: Claude Code (claude-opus-4-6)` |
 | Claude Code (Sonnet) | `Co-Authored-By: Claude Code (claude-sonnet-4-6)` |
 | Claude Code (Haiku) | `Co-Authored-By: Claude Code (claude-haiku-4-5)` |
 | Codex CLI | `Co-Authored-By: Codex CLI (gpt-5.3-codex)` |
