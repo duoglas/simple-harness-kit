@@ -3,11 +3,15 @@
 
 /**
  * Harness Session Start — 新 session 检测 harness 并输出入口 banner
- * @version 0.8.0
+ * @version 0.9.0
  * 触发: SessionStart
  *
  * 1. 删除 .harness/current-stage.json，迫使新 session 重新声明阶段
  * 2. 检测 .harness/ 目录，输出标准入口 banner 指令
+ *
+ * v0.9.0 (C-WORK-01): 在 worktree 内启动时 .harness/ 可能不存在
+ *   （find-root 现在停在 worktree 边界），写入前先 mkdir -p。
+ *
  * 设计目标: <10ms
  */
 
@@ -19,6 +23,9 @@ const ROOT = findRoot();
 const HARNESS_DIR = path.join(ROOT, '.harness');
 const STAGE_FILE = path.join(HARNESS_DIR, 'current-stage.json');
 const TOOL_COUNT_FILE = path.join(HARNESS_DIR, 'tool-count.json');
+
+// C-WORK-01: worktree 内首次启动时 .harness/ 不存在，先 mkdir -p
+try { fs.mkdirSync(HARNESS_DIR, { recursive: true }); } catch {}
 
 // 1. 重置阶段为 PLAN（新 session 从 PLAN 开始）
 // 防护: 如果 stage 文件存在且是近 5 分钟内创建的，说明有另一个 session 在工作，不重置
