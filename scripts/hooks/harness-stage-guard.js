@@ -45,6 +45,11 @@ const STAGE_FILE = path.join(ROOT, '.harness/current-stage.json');
 const STALE_MS = 2 * 60 * 60 * 1000; // 2 hours
 const MAX_STDIN = 1024 * 1024;
 
+// C-WORK-01: worktree 内 .harness/ 可能不存在，写入前先 mkdir -p
+// 这避免下面 appendFileSync(STAGE_HISTORY_FILE) / writeFileSync(TOOL_COUNT_FILE)
+// 在 .harness/ 缺失时 silently 失败（旧代码靠 try-catch 吞，导致状态不一致）
+try { fs.mkdirSync(path.join(ROOT, '.harness'), { recursive: true }); } catch {}
+
 // 安全文件读取: 拒绝 symlink 防止 bypass attack。
 // #30 治理: 攻击者把 .harness/current-stage.json symlink 到外部受控文件可以
 // 操纵 stage state. 用 lstat 检查并拒绝 symlink, 视为读取失败。
