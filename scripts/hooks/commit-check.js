@@ -28,28 +28,38 @@ process.stdin.on('end', () => {
     // === 检查 1+2: git commit 必须包含 Co-Authored-By + subject 匹配 preset ===
     if (/git\s+commit/.test(cmd)) {
       // 从命令中提取 commit message
-      // VH-18 F2: 与 git 一致——多个 -m / --message= 之间用 "\n\n" 拼接
-      //   （git 的实际行为）。旧代码只取第一个 -m，导致：
-      //     git commit -m "subj" -m "body+coauthor"
-      //   形式被 commit-check 误判为缺 Co-Authored-By（codex review feedback）。
-      // 覆盖顺序：heredoc (取首段) → 所有 -m / --message= 拼接
+      // VH-18 F2 / R2-2: 与 git 一致——多个 -m / --message= 之间用 "\n\n" 拼接
+      //   （git 的实际行为）。旧代码只取第一个 -m → 误判缺 Co-Authored-By；
+      //   v1 分 3 趟 regex（双引、单引、--message=）顺序错乱，混用引号时
+      //   `git commit -m 'subj' -m "trailer"` 拼成 `trailer\n\nsubj`，
+      //   subject 被识别成 trailer。
+      //   v2 (本版) 用单个全局 regex 一次扫所有 token，按 match.index
+      //   自然顺序迭代，参数顺序 == git 实际语义。
+      // 覆盖顺序：heredoc (取首段) → 所有 -m / --message= 按出现顺序拼接
       let msg = '';
       let m;
       m = cmd.match(/<<['"]?EOF([\s\S]*?)EOF/);
       if (m) msg = m[1];
       if (!msg) {
+        // 单 regex 覆盖 -m "..." / -m '...' / --message="..." / --message='...' / --message=bare
+        // 捕获组语义：
+        //   2 = -m "..." 内容
+        //   3 = -m '...' 内容
+        //   5 = --message="..." 内容
+        //   6 = --message='...' 内容
+        //   7 = --message=bare 内容
+        const re = /(?:^|\s)(?:-m\s+("([\s\S]*?)(?<!\\)"|'([\s\S]*?)')|--message=("([^"]*)"|'([^']*)'|(\S+)))/g;
         const segs = [];
-        // -m "..."
-        let re = /(?:^|\s)-m\s+"([\s\S]*?)(?<!\\)"/g;
         let mm;
-        while ((mm = re.exec(cmd)) !== null) segs.push(mm[1]);
-        // -m '...'
-        re = /(?:^|\s)-m\s+'([\s\S]*?)'/g;
-        while ((mm = re.exec(cmd)) !== null) segs.push(mm[1]);
-        // --message="..." / --message='...' / --message=bare
-        re = /--message=("([^"]*)"|'([^']*)'|(\S+))/g;
-        while ((mm = re.exec(cmd)) !== null) segs.push(mm[2] || mm[3] || mm[4] || '');
-        // git 在多个 -m 之间插入空行
+        while ((mm = re.exec(cmd)) !== null) {
+          const seg = mm[2] !== undefined ? mm[2]
+                    : mm[3] !== undefined ? mm[3]
+                    : mm[5] !== undefined ? mm[5]
+                    : mm[6] !== undefined ? mm[6]
+                    : mm[7] !== undefined ? mm[7]
+                    : '';
+          segs.push(seg);
+        }
         if (segs.length > 0) msg = segs.join('\n\n');
       }
 

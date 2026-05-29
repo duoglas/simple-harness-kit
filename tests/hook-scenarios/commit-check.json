@@ -244,5 +244,35 @@
       "stderrNot": ["缺少 Co-Authored-By", "格式不符合"],
       "stdout": "empty"
     }
+  },
+  {
+    "name": "commit-check: 混用单/双引号 -m → subject 顺序正确 (VH-18 R2-2 保序)",
+    "hook": "commit-check.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "generic" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'feat: add x' -m \"Co-Authored-By: Claude Code (claude-opus-4-7) code\"" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["Subject 不符合", "缺少 Co-Authored-By", "格式不符合"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: 混用 -m 与 --message= → 保留出现顺序 (VH-18 R2-2)",
+    "hook": "commit-check.js",
+    "kitPresets": true,
+    "env": { "HARNESS_PRESET": "generic" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'feat: add y' --message='body' --message=\"Co-Authored-By: Claude Code (claude-opus-4-7) code\"" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["Subject 不符合", "缺少 Co-Authored-By", "格式不符合"],
+      "stdout": "empty"
+    }
   }
 ]
