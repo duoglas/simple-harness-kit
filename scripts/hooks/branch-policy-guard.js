@@ -149,7 +149,7 @@ function extractCommitType(cmd) {
   // Conventional Commits: "feat: ..." or "feat(scope): ..."
   let t = firstLine.match(/^(\w+)(?:\([^)]+\))?:\s/);
   if (t) return t[1];
-  // THS-style or task-id-prefixed: "<digits> <type> ..."
+  // Task-ID-prefixed (loose ticket style): "<TICKET> <type> ..." (e.g., "PROJ-42 feat add x")
   t = firstLine.match(/^[A-Z0-9-]+\s+(\w+)\s+\S/);
   if (t) return t[1];
   return null;

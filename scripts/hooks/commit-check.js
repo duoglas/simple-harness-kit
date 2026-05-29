@@ -27,23 +27,30 @@ process.stdin.on('end', () => {
 
     // === 检查 1+2: git commit 必须包含 Co-Authored-By + subject 匹配 preset ===
     if (/git\s+commit/.test(cmd)) {
-      // 从命令中提取 commit message — 覆盖更多 -m / --message= 形式
-      // 顺序：heredoc → -m "..." → -m '...' → --message=...
+      // 从命令中提取 commit message
+      // VH-18 F2: 与 git 一致——多个 -m / --message= 之间用 "\n\n" 拼接
+      //   （git 的实际行为）。旧代码只取第一个 -m，导致：
+      //     git commit -m "subj" -m "body+coauthor"
+      //   形式被 commit-check 误判为缺 Co-Authored-By（codex review feedback）。
+      // 覆盖顺序：heredoc (取首段) → 所有 -m / --message= 拼接
       let msg = '';
       let m;
       m = cmd.match(/<<['"]?EOF([\s\S]*?)EOF/);
       if (m) msg = m[1];
       if (!msg) {
-        m = cmd.match(/(?:^|\s)-m\s+"([\s\S]*?)(?<!\\)"/);
-        if (m) msg = m[1];
-      }
-      if (!msg) {
-        m = cmd.match(/(?:^|\s)-m\s+'([\s\S]*?)'/);
-        if (m) msg = m[1];
-      }
-      if (!msg) {
-        m = cmd.match(/--message=("([^"]*)"|'([^']*)'|(\S+))/);
-        if (m) msg = m[2] || m[3] || m[4] || '';
+        const segs = [];
+        // -m "..."
+        let re = /(?:^|\s)-m\s+"([\s\S]*?)(?<!\\)"/g;
+        let mm;
+        while ((mm = re.exec(cmd)) !== null) segs.push(mm[1]);
+        // -m '...'
+        re = /(?:^|\s)-m\s+'([\s\S]*?)'/g;
+        while ((mm = re.exec(cmd)) !== null) segs.push(mm[1]);
+        // --message="..." / --message='...' / --message=bare
+        re = /--message=("([^"]*)"|'([^']*)'|(\S+))/g;
+        while ((mm = re.exec(cmd)) !== null) segs.push(mm[2] || mm[3] || mm[4] || '');
+        // git 在多个 -m 之间插入空行
+        if (segs.length > 0) msg = segs.join('\n\n');
       }
 
       if (msg) {

@@ -1,6 +1,6 @@
 ---
 name: git-commit
-description: AI 智能生成 commit message 并分批提交。读取 active preset 的 subject 格式、type 枚举、分支规则、业务词归一表，自动适配 generic / ths-example / 公司自定义 preset。**不自动 push** —— push 时机交回 shk 的 verification-gate（仅 REVIEW 阶段放行）。Use when 用户说提交、commit、git commit、分批提交、生成 commit message 等。
+description: AI 智能生成 commit message 并分批提交。读取 active preset 的 subject 格式、type 枚举、分支规则、业务词归一表，自动适配 generic / example-company / 公司自定义 preset。**不自动 push** —— push 时机交回 shk 的 verification-gate（仅 REVIEW 阶段放行）。Use when 用户说提交、commit、git commit、分批提交、生成 commit message 等。
 ---
 
 # git-commit
@@ -53,7 +53,7 @@ node scripts/hooks/load-preset.js
 | `commit_format.type_enum` | 候选 type 列表 |
 | `commit_format.type_blocked_on_branch` | type→[branch] 禁用表（支持 `!` 取反） |
 | `commit_format.type_required_on_branch` | branch→[type] allowlist |
-| `commit_format.title_hints` | 业务词归一表（可选；ths-example 有，generic 没有） |
+| `commit_format.title_hints` | 业务词归一表（可选；公司自定义 preset 可能提供，generic 没有） |
 
 > 没有 `HARNESS_PRESET` / `.harness.local.json` / `.claude/settings.json` 配置时，loader fallback 到 `generic`。
 
@@ -66,7 +66,7 @@ git log -1 --format=%B
 按 active preset 的 `subject_regex` 解析第一行，提取：
 
 - **generic / Conventional**：`<type>(scope?): subject` → `LAST_TYPE` = 第 1 个捕获组
-- **ths-example（同顺云）**：`{任务ID?} {type} {title}` → `LAST_TASKID` + `LAST_TYPE`
+- **任务 ID 前缀风格**（公司自定义 preset 可能采用）：`{任务ID?} {type} {title}` → `LAST_TASKID` + `LAST_TYPE`
 
 仅作为下一步"前缀复用"的默认建议。
 
@@ -87,16 +87,16 @@ git log -1 --format=%B
 - `type_blocked_on_branch[type]` 任一 pattern 匹配 `$BRANCH`（含 `!pattern` 取反）→ 该 type 在该分支被禁
 - `type_required_on_branch` 中存在 pattern 匹配 `$BRANCH` 而 `type` 不在该 pattern 的 allowlist → 该 type 在该分支被禁
 
-> 例：ths-example 下：
+> 例：某公司 preset 下：
 > - `master` 分支不能用 `fix`（`fix: ['!fix-*']`）
-> - `fix-296711` 分支只能用 `fix` 或 `test`（`fix-*: ['fix','test']`）
+> - `fix-PROJ-42` 分支只能用 `fix` 或 `test`（`fix-*: ['fix','test']`）
 > - `release-20260429` 分支不能用 `feat`（`feat: ['release-*','fix-*']`）
 
 被禁 → 🔒 提示用户重选 type 或换分支。**严禁绕过**——`branch-policy-guard.js` 同时会在 `git commit` 时 exit 2 阻断。
 
 ### 4.3 任务 ID
 
-仅当 active preset 的 `subject_regex` 允许任务 ID 段（如 ths-example 的 `(?:\S+\s+)?` 可选段）时执行：
+仅当 active preset 的 `subject_regex` 允许任务 ID 段（例如形如 `(?:\S+\s+)?` 的可选段）时执行：
 
 - `LAST_TASKID` 仍有效 → 复用
 - 否则 🔒 输入：`请输入任务号（可跳过）`
@@ -157,7 +157,7 @@ Co-Authored-By: Claude Code (claude-opus-4-6) code
 
 扫描本批次的 diff / 文件名 / 目录名，命中任一触发词 → 把对应业务词记为本批次的 **module hint**。
 
-> 例：ths-example 的 `title_hints = {"审核见证": ["审批","待办","渠道"], ...}`，diff 命中 `src/audit/todo-list.ts` → module hint = `审核见证`。
+> 例：某公司 preset 的 `title_hints = {"billing": ["invoice","payment","charge"], ...}`，diff 命中 `src/billing/invoice.ts` → module hint = `billing`。
 
 `generic` / `example-company` preset 没有 `title_hints` → 跳过本步骤。
 
@@ -175,8 +175,8 @@ Co-Authored-By: Claude Code (claude-opus-4-6) code
 
 按 active preset：
 
-- **generic / Conventional**：`{type}({module-hint})?: {title}`。如有 module hint 可作 scope：`feat(audit): 新增待办过滤`
-- **ths-example（同顺云）**：`{任务ID?} {type} {[module-hint ]title}`，**禁止括号和冒号**。module hint 直接前置进 title：`296711 feat 审核见证 新增待办过滤`
+- **generic / Conventional**：`{type}({module-hint})?: {title}`。如有 module hint 可作 scope：`feat(billing): add invoice filter`
+- **任务 ID 前缀风格**（公司自定义 preset 可能采用）：`{任务ID?} {type} {[module-hint ]title}`。是否允许括号/冒号取决于该 preset 的 `subject_regex`。module hint 可前置进 title：`PROJ-42 feat billing add invoice filter`
 - 其他公司 preset：按其 `format_description` 拼
 
 拼完用 active `subject_regex` 自校验，不通过则修正。
@@ -199,16 +199,16 @@ Co-Authored-By: {Tool} ({model-id}) {code|test|fix}
 === 提交计划 ===
 共 X 文件 / Y 行 / N 批：
 
-[1/N] 文件: src/audit/todo-list.ts src/audit/filter.ts
+[1/N] 文件: src/billing/invoice.ts src/billing/filter.ts
       message:
-        296711 feat 审核见证 新增待办过滤
-        - 待办列表加渠道筛选
+        PROJ-42 feat billing add invoice filter
+        - 发票列表加渠道筛选
         - 默认按更新时间倒序
         Co-Authored-By: Claude Code (claude-opus-4-6) code
 
-[2/N] 文件: src/audit/__tests__/todo-list.test.ts
+[2/N] 文件: src/billing/__tests__/invoice.test.ts
       message:
-        296711 test 审核见证 待办过滤单测
+        PROJ-42 test billing invoice filter unit tests
         Co-Authored-By: Claude Code (claude-opus-4-6) test
 
 确认执行？(y/n)
@@ -256,8 +256,8 @@ git commit -m "<subject>" -m "<body+coauthor>"
 
 ```
 === 提交总结 ===
-[1] <hash> 296711 feat 审核见证 新增待办过滤
-[2] <hash> 296711 test 审核见证 待办过滤单测
+[1] <hash> PROJ-42 feat billing add invoice filter
+[2] <hash> PROJ-42 test billing invoice filter unit tests
 
 未推送本地领先: 2 个 commit
 下一步: 到 REVIEW 阶段时由 verification-gate 提醒 push

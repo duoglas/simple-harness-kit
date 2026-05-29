@@ -3,6 +3,7 @@
     "name": "stage-guard: 无 stage 文件 → 阻止",
     "hook": "harness-stage-guard.js",
     "stdin": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
+    "setup": { ".harness/.gitkeep": "" },
     "expect": {
       "exitCode": 2,
       "stderr": ["未声明当前 Harness 阶段"]
@@ -36,6 +37,7 @@
         "content": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"bootstrap\"}"
       }
     },
+    "setup": { ".harness/.gitkeep": "" },
     "expect": {
       "exitCode": 0,
       "stderr": ["正在创建阶段声明"]
@@ -629,6 +631,7 @@
         "content": "{\"stage\":\"PLAN\",\"since\":\"2099-01-01T00:00:00Z\",\"task\":\"future bootstrap\"}"
       }
     },
+    "setup": { ".harness/.gitkeep": "" },
     "expect": {
       "exitCode": 2,
       "stderr": ["since 字段是未来时间"]
@@ -644,6 +647,7 @@
         "content": "{\"stage\":\"PLAN\",\"task\":\"no since\"}"
       }
     },
+    "setup": { ".harness/.gitkeep": "" },
     "expect": {
       "exitCode": 2,
       "stderr": ["since 字段缺失"]
