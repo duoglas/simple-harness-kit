@@ -224,12 +224,20 @@ function runScenario(scenario) {
     let stderr = '';
     let exitCode = 0;
 
+    // cwdSub: scenario 可以把 hook 的 cwd 设为 tmpDir 的子目录（必须先在
+    //   setup 里创建出来）。用于测 find-root 的 worktree 边界识别等需要
+    //   特定 cwd 模式的场景。默认仍是 tmpDir 根。
+    let runCwd = tmpDir;
+    if (typeof scenario.cwdSub === 'string' && scenario.cwdSub.length > 0) {
+      runCwd = path.join(tmpDir, scenario.cwdSub);
+    }
+
     try {
       const result = require('child_process').spawnSync(
         process.execPath, [hookPath],
         {
           input: stdinData,
-          cwd: tmpDir,
+          cwd: runCwd,
           env,
           timeout: 5000,
           encoding: 'utf8',
@@ -422,6 +430,54 @@ if (failures.length > 0) {
   console.log();
 }
 
+// ── find-root unit tests (VH-18 C-WORK-02, F5) ──
+// 纯函数 detectWorktreeRoot / isLegitimateHarnessRoot 的边界测试。
+// 集成路径见 tests/hook-scenarios/find-root.json；此处只覆盖跨平台路径
+// 与 Unicode-safe edge case（hook-scenarios 在 Unix 文件系统跑，
+// Windows 反斜杠路径无法用 cwd 表达，必须纯函数测）。
+const { detectWorktreeRoot, isLegitimateHarnessRoot } = require('../scripts/hooks/find-root');
+const findRootUnit = (() => {
+  const results = [];
+  const exp = (name, got, want) => {
+    const ok = got === want;
+    results.push({ name, ok, reason: ok ? '' : `got ${JSON.stringify(got)} want ${JSON.stringify(want)}` });
+  };
+  exp('detectWorktreeRoot: Unix worktree root', detectWorktreeRoot('/main/.claude/worktrees/foo'), '/main/.claude/worktrees/foo');
+  exp('detectWorktreeRoot: Unix worktree subdir', detectWorktreeRoot('/main/.claude/worktrees/foo/src/x.js'), '/main/.claude/worktrees/foo');
+  exp('detectWorktreeRoot: Unix non-worktree', detectWorktreeRoot('/main/random/cwd'), null);
+  exp('detectWorktreeRoot: 嵌套 worktree → 最内层', detectWorktreeRoot('/main/.claude/worktrees/a/.claude/worktrees/b/x'), '/main/.claude/worktrees/a/.claude/worktrees/b');
+  exp('detectWorktreeRoot: Windows worktree root (F5)', detectWorktreeRoot('C:\\repo\\.claude\\worktrees\\agent-a'), 'C:/repo/.claude/worktrees/agent-a');
+  exp('detectWorktreeRoot: Windows worktree subdir (F5)', detectWorktreeRoot('C:\\repo\\.claude\\worktrees\\agent-a\\src'), 'C:/repo/.claude/worktrees/agent-a');
+  exp('detectWorktreeRoot: Windows non-worktree (F5)', detectWorktreeRoot('C:\\repo\\foo'), null);
+  exp('detectWorktreeRoot: empty string', detectWorktreeRoot(''), null);
+  exp('detectWorktreeRoot: null input', detectWorktreeRoot(null), null);
+  // isLegitimateHarnessRoot — 用 /tmp 沙盒
+  const tmpFs = require('fs');
+  const tmpPath = require('path');
+  const tmpOs = require('os');
+  const sandbox = tmpFs.mkdtempSync(tmpPath.join(tmpOs.tmpdir(), 'find-root-unit-'));
+  const wtPath = tmpPath.join(sandbox, '.claude/worktrees/wt-a');
+  const withHarness = tmpPath.join(sandbox, 'p1');
+  tmpFs.mkdirSync(wtPath, { recursive: true });
+  tmpFs.mkdirSync(tmpPath.join(withHarness, '.harness'), { recursive: true });
+  exp('isLegitimateHarnessRoot: 普通空目录 → false (F3)', isLegitimateHarnessRoot(sandbox), false);
+  exp('isLegitimateHarnessRoot: worktree-pattern 目录 → true', isLegitimateHarnessRoot(wtPath), true);
+  exp('isLegitimateHarnessRoot: 已存 .harness/ → true', isLegitimateHarnessRoot(withHarness), true);
+  exp('isLegitimateHarnessRoot: 不存在路径 → false', isLegitimateHarnessRoot('/nonexistent/abc/xyz'), false);
+  try { tmpFs.rmSync(sandbox, { recursive: true, force: true }); } catch {}
+  return {
+    pass: results.filter(r => r.ok).length,
+    fail: results.filter(r => !r.ok).length,
+    results,
+  };
+})();
+console.log('  find-root Unit Tests (VH-18)\n');
+for (const r of findRootUnit.results) {
+  if (r.ok) console.log(`  PASS  ${r.name}`);
+  else { console.log(`  FAIL  ${r.name}`); console.log(`        ${r.reason}`); }
+}
+console.log(`\n  ${findRootUnit.pass} passed, ${findRootUnit.fail} failed, ${findRootUnit.results.length} total\n`);
+
 // ── Template Integrity Tests ──
 // 校验 templates/settings-json.tmpl 等 kit 模板文件的结构完整性，
 // 防止模板层漂移潜伏到 E2E 才被发现。详见 tests/template-integrity.js。
@@ -548,9 +604,9 @@ try {
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
-const totalFailed = failed + tpl.fail + scriptedFailed + smokeFailed + initSmokeFailed;
-const totalTests = scenarios.length + tpl.results.length + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalFailed = failed + tpl.fail + findRootUnit.fail + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + scriptedTotal + smokeTotal + initSmokeTotal;
 console.log(`  ══════════════════════════════`);
-console.log(`  总计: ${passed + tpl.pass + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
+console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
 
 process.exit(totalFailed > 0 ? 1 : 0);

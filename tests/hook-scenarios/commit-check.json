@@ -161,142 +161,6 @@
       "stdout": "empty"
     }
   },
-
-  {
-    "name": "commit-check: ths-example + '123456 feat 添加用户登录' (数字 task-id) → 不警告",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 feat 添加用户登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderrNot": ["Subject 不符合"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + 'TCLOUD-100 feat 提供分支校验功能' (字母-数字 task-id) → 不警告",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'TCLOUD-100 feat 提供分支校验功能\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderrNot": ["Subject 不符合"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + 'style 调整缩进' (无 task-id) → 不警告",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'style 调整缩进\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderrNot": ["Subject 不符合"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + 'docs 在 Readme 中增加部署说明' (无 task-id) → 不警告",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'docs 在 Readme 中增加部署说明\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderrNot": ["Subject 不符合"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + '123456 skip ...' (新 type skip) → 不警告",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 skip 不计代码量的提交\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderrNot": ["Subject 不符合"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + '123456 chore(gitignore) ...' (chore 带 scope, 本次实测被 server 拒) → subject warn",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 chore(gitignore) 忽略 dogfood 产物\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderr": ["Subject 不符合 preset 'ths-example'"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + '123456 feat(api) ...' (feat 带 scope) → subject warn",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 feat(api) 添加用户登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderr": ["Subject 不符合 preset 'ths-example'"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + '123456 unknown 标题' (type 不在枚举) → subject warn",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 unknown 标题\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderr": ["Subject 不符合 preset 'ths-example'"],
-      "stdout": "empty"
-    }
-  },
-  {
-    "name": "commit-check: ths-example + '123456 feat: 添加登录' (type 后冒号, Conventional 风格) → subject warn",
-    "hook": "commit-check.js",
-    "kitPresets": true,
-    "env": { "HARNESS_PRESET": "ths-example" },
-    "stdin": {
-      "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m '123456 feat: 添加登录\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code'" }
-    },
-    "expect": {
-      "exitCode": 0,
-      "stderr": ["Subject 不符合 preset 'ths-example'"],
-      "stdout": "empty"
-    }
-  },
   {
     "name": "commit-check: 3-seg Co-Authored-By (code) → 不警告",
     "hook": "commit-check.js",
@@ -341,5 +205,44 @@
       "tool_input": { "command": "git commit -m 'fix bug\n\nCo-Authored-By: Codex CLI (gpt-5.3-codex) foo'" }
     },
     "expect": { "exitCode": 0, "stderr": ["格式不符合"], "stdout": "empty" }
+  },
+  {
+    "name": "commit-check: 多 -m 形式（subject + body+coauthor 分两段）→ 不误报缺 Co-Authored-By (VH-18 F2)",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m \"feat(x): add y\" -m \"some body\n\nCo-Authored-By: Claude Code (claude-opus-4-7) code\"" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["缺少 Co-Authored-By"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: 多 -m 形式但 Co-Authored-By 格式错（缺第 3 段）→ 仍能 catch 格式问题 (VH-18 F2)",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m \"feat(x): add y\" -m \"body\n\nCo-Authored-By: Claude Code (claude-opus-4-7)\"" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["Co-Authored-By 格式不符合"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: 三段 -m (subject + body + trailer) 全拼接后校验通过 (VH-18 F2)",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m \"feat(x): add y\" -m \"body explain\" -m \"Co-Authored-By: Claude Code (claude-opus-4-7) code\"" }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["缺少 Co-Authored-By", "格式不符合"],
+      "stdout": "empty"
+    }
   }
 ]

@@ -1,0 +1,88 @@
+[
+  {
+    "name": "find-root: session-start 在 worktree-pattern 路径 → 创建 .harness/ + 输出 banner (C-WORK-01/02)",
+    "hook": "harness-session-start.js",
+    "stdin": {},
+    "setup": {
+      ".claude/worktrees/wt-x/.gitkeep": ""
+    },
+    "cwdSub": ".claude/worktrees/wt-x",
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["HARNESS MODE ACTIVE"],
+      "files": {
+        ".claude/worktrees/wt-x/.harness/current-stage.json": { "contains": "PLAN" }
+      }
+    }
+  },
+  {
+    "name": "find-root: session-start 在 worktree subdir → find-root 停 worktree 边界 (C-WORK-02)",
+    "hook": "harness-session-start.js",
+    "stdin": {},
+    "setup": {
+      ".claude/worktrees/wt-y/src/foo/.gitkeep": ""
+    },
+    "cwdSub": ".claude/worktrees/wt-y/src/foo",
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["HARNESS MODE ACTIVE"],
+      "files": {
+        ".claude/worktrees/wt-y/.harness/current-stage.json": { "contains": "PLAN" },
+        ".claude/worktrees/wt-y/src/foo/.harness/current-stage.json": { "exists": false }
+      }
+    }
+  },
+  {
+    "name": "find-root: session-start 在普通空目录 → 不创建 .harness/ 不输出 banner (VH-18 F3)",
+    "hook": "harness-session-start.js",
+    "stdin": {},
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["HARNESS MODE ACTIVE"],
+      "files": {
+        ".harness/current-stage.json": { "exists": false }
+      }
+    }
+  },
+  {
+    "name": "find-root: session-start 在已存 .harness/ 的项目根 → 走正常 bootstrap 路径",
+    "hook": "harness-session-start.js",
+    "stdin": {},
+    "setup": {
+      ".harness/.gitkeep": ""
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["HARNESS MODE ACTIVE"],
+      "files": {
+        ".harness/current-stage.json": { "contains": "PLAN" }
+      }
+    }
+  },
+  {
+    "name": "find-root: stage-guard 在普通空目录 → silent exit 0 不污染 (VH-18 F3)",
+    "hook": "harness-stage-guard.js",
+    "stdin": { "tool_name": "Bash", "tool_input": { "command": "echo hi" } },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["HARNESS MODE", "Harness"],
+      "files": {
+        ".harness/current-stage.json": { "exists": false },
+        ".harness/stage-history.jsonl": { "exists": false }
+      }
+    }
+  },
+  {
+    "name": "find-root: stage-guard 在 worktree-pattern 路径 + 无 stage → Bootstrap 口提醒",
+    "hook": "harness-stage-guard.js",
+    "stdin": { "tool_name": "Bash", "tool_input": { "command": "echo hi" } },
+    "setup": {
+      ".claude/worktrees/wt-z/.gitkeep": ""
+    },
+    "cwdSub": ".claude/worktrees/wt-z",
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["未声明当前 Harness 阶段"]
+    }
+  }
+]
