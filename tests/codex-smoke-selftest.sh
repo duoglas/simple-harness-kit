@@ -8,8 +8,8 @@
 # 调用关系:
 #   codex-smoke-selftest.sh
 #     └─ SMOKE_INJECT_BAD_HOOK=1 codex-smoke.sh
-#          ├─ 拷 hooks 后覆盖 safety-guard.js 为 stdout 写非法 JSON 的版本
-#          └─ 跑 codex exec，断言不应含 "hook: * Failed" → 因为坏 hook 存在 → FAIL
+#          ├─ 拷 hooks 后覆盖 harness-session-start.js 为 stdout 写非法 JSON 的版本
+#          └─ 跑 codex exec，断言不应含 "hook: SessionStart Failed" → 因为坏 hook 存在 → FAIL
 #   本脚本断言 codex-smoke.sh exit != 0
 #
 # 行为:
@@ -41,6 +41,16 @@ SMOKE_EXIT=$?
 set -e
 
 if [ "$SMOKE_EXIT" -eq 0 ]; then
+  if grep -q "SKIP: Codex 未执行项目 .codex/hooks.json 的 sentinel hook" /tmp/codex-smoke-selftest.log; then
+    if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
+      echo "[codex-smoke-selftest] FAIL: CODEX_REQUIRED=1，但 Codex 未执行项目 hooks，无法验证 bad hook 捕获能力。" >&2
+      tail -n 40 /tmp/codex-smoke-selftest.log >&2
+      exit 1
+    fi
+    echo "[codex-smoke-selftest] SKIP: 当前 Codex runtime 未执行项目 hooks；selftest 不适用。" >&2
+    exit 0
+  fi
+
   echo "[codex-smoke-selftest] FAIL: 注入坏 hook 后 codex-smoke.sh 仍 exit 0，" >&2
   echo "  说明 smoke 的断言规则失效 —— 未来 VH-13 级 regression 会静默通过。" >&2
   echo "  ────── smoke 输出 ──────" >&2
@@ -48,9 +58,11 @@ if [ "$SMOKE_EXIT" -eq 0 ]; then
   exit 1
 fi
 
-# 额外断言：smoke 日志里应该含预期失败标记
-if ! grep -qE "FAIL: 日志中发现 'hook: .* Failed'" /tmp/codex-smoke-selftest.log; then
-  echo "[codex-smoke-selftest] WARN: smoke 正确 exit $SMOKE_EXIT，但未报出预期的 'hook: * Failed' 匹配。" >&2
+# 额外断言：smoke 日志里应该含预期失败标记。这里固定检查
+# SessionStart，因为 Codex 0.134 下 PreToolUse:Bash 不再是本 smoke prompt 的
+# 稳定触发点。
+if ! grep -qE "FAIL: 日志中发现 'hook: SessionStart Failed'|invalid session start JSON output|invalid session-start JSON output|hook returned invalid" /tmp/codex-smoke-selftest.log; then
+  echo "[codex-smoke-selftest] WARN: smoke 正确 exit $SMOKE_EXIT，但未报出预期的 SessionStart hook 失败匹配。" >&2
   echo "  可能 Codex 改了失败显示格式；请检查 smoke 的 CHECK_PATTERNS 并更新。" >&2
   echo "  ────── smoke 输出 tail ──────" >&2
   tail -n 30 /tmp/codex-smoke-selftest.log >&2

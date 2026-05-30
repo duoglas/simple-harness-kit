@@ -81,17 +81,46 @@ fi
 # 拷所有 hook 脚本
 cp "$KIT_ROOT/scripts/hooks/"*.js "$TMP_DIR/scripts/hooks/"
 
-# 反向自测：注入一个 "坏" hook 覆盖 safety-guard.js
-# 用于验证 smoke 本身能捕获 VH-13 类 regression。由 codex-smoke-selftest.sh 触发。
+# 注入 smoke 专用 sentinel hook：只写 .harness/codex-smoke-hooks.log，不影响
+# harness 正常 hook 行为。这样 smoke 不再依赖 Codex UI 的 "hook: X"
+# lifecycle 文本，而是直接证明项目 .codex/hooks.json 里的 command 被执行过。
+SMOKE_HOOK_LOG="$TMP_DIR/.harness/codex-smoke-hooks.log"
+node - "$TMP_DIR/.codex/hooks.json" <<'NODE'
+const fs = require('fs');
+const hooksPath = process.argv[2];
+const data = JSON.parse(fs.readFileSync(hooksPath, 'utf8'));
+data.hooks ||= {};
+function prepend(eventName) {
+  data.hooks[eventName] ||= [];
+  data.hooks[eventName].unshift({
+    hooks: [{
+      type: 'command',
+      command: `node -e "require('fs').appendFileSync('.harness/codex-smoke-hooks.log','${eventName}\\n')"`
+    }],
+    description: `codex-smoke sentinel for ${eventName}`
+  });
+}
+prepend('SessionStart');
+prepend('Stop');
+fs.writeFileSync(hooksPath, JSON.stringify(data, null, 2) + '\n');
+NODE
+
+# 反向自测：注入一个 "坏" hook 覆盖 SessionStart 的 harness-session-start.js。
+#
+# 历史上这里覆盖 safety-guard.js (PreToolUse:Bash)，但 Codex 0.134 的
+# `codex exec "Read README.md"` 路径不稳定触发 PreToolUse:Bash：它会稳定触发
+# SessionStart / UserPromptSubmit / Stop。selftest 必须挂在"必触发"hook 上，
+# 否则 smoke 会静默变成 no-op。
+# 由 codex-smoke-selftest.sh 触发。
 if [ "${SMOKE_INJECT_BAD_HOOK:-0}" = "1" ]; then
-  cat > "$TMP_DIR/scripts/hooks/safety-guard.js" <<'BADEOF'
+  cat > "$TMP_DIR/scripts/hooks/harness-session-start.js" <<'BADEOF'
 #!/usr/bin/env node
-// SMOKE SELFTEST: 故意坏掉的 hook，stdout 写非法 schema JSON，触发
-// Codex "hook returned invalid pre-tool-use JSON output"。
+// SMOKE SELFTEST: 故意坏掉的必触发 hook，stdout 写非法 JSON，触发
+// Codex "hook returned invalid session start JSON output"。
 let raw=''; process.stdin.on('data',c=>raw+=c);
-process.stdin.on('end',()=>{ process.stdout.write('{"not_a_valid_codex_field": true}\n'); });
+process.stdin.on('end',()=>{ process.stdout.write('not-json\\n'); });
 BADEOF
-  echo "[codex-smoke] SMOKE_INJECT_BAD_HOOK=1：已注入坏 safety-guard.js" >&2
+  echo "[codex-smoke] SMOKE_INJECT_BAD_HOOK=1：已注入坏 harness-session-start.js" >&2
 fi
 
 # 建最小 README.md（给 "Read README.md" 有内容读）
@@ -160,6 +189,7 @@ CHECK_PATTERNS=(
   "hook returned invalid"
   "invalid pre-tool-use JSON output"
   "invalid post-tool-use JSON output"
+  "invalid session start JSON output"
   "invalid session-start JSON output"
   "invalid stop JSON output"
   "invalid user-prompt-submit JSON output"
@@ -170,6 +200,44 @@ for pattern in "${CHECK_PATTERNS[@]}"; do
     FAILURES=$((FAILURES+1))
   fi
 done
+
+if [ "$FAILURES" -gt 0 ]; then
+  echo "[codex-smoke] ────── codex 运行日志（截取 tail）──────" >&2
+  tail -n 80 "$RUN_LOG" >&2
+  echo "[codex-smoke] ────── 日志结束 ──────" >&2
+  echo "[codex-smoke] $FAILURES 项断言失败。" >&2
+  exit 1
+fi
+
+# smoke 不能只断言"没失败"；还必须证明项目 hooks 真的跑过。否则 Codex
+# feature flag / hooks.json 路径 / matcher 行为变化时，测试会静默变成 no-op。
+#
+# Codex 0.134 在部分 exec 环境中只显示全局/插件 hook lifecycle marker，
+# 但不会执行项目 .codex/hooks.json command。默认本地运行把这种情况记为
+# SKIP，避免把 Codex runtime 兼容性漂移误报成 hook 脚本 regression；
+# CODEX_REQUIRED=1 时升级为 FAIL，供 CI/发版前强制检查使用。
+if [ ! -f "$SMOKE_HOOK_LOG" ]; then
+  if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
+    echo "[codex-smoke] FAIL: Codex 未执行项目 .codex/hooks.json 的 sentinel hook；CODEX_REQUIRED=1 要求强制验证。" >&2
+    FAILURES=$((FAILURES+1))
+  else
+    echo "[codex-smoke] SKIP: Codex 未执行项目 .codex/hooks.json 的 sentinel hook；跳过项目 hook runtime 断言。" >&2
+    echo "[codex-smoke]       这通常表示当前 Codex exec runtime 不加载 project hooks，或 hooks trust/config 行为已变化。" >&2
+    echo "[codex-smoke] PASS (skip project-hook assertions)"
+    exit 0
+  fi
+else
+  REQUIRED_HOOK_MARKERS=(
+    "SessionStart"
+    "Stop"
+  )
+  for marker in "${REQUIRED_HOOK_MARKERS[@]}"; do
+    if ! grep -Fxq "$marker" "$SMOKE_HOOK_LOG"; then
+      echo "[codex-smoke] FAIL: sentinel 日志中没有必需 hook 标记 '$marker'，smoke 可能没有真正触发该 hook。" >&2
+      FAILURES=$((FAILURES+1))
+    fi
+  done
+fi
 
 if [ "$FAILURES" -gt 0 ]; then
   echo "[codex-smoke] ────── codex 运行日志（截取 tail）──────" >&2
