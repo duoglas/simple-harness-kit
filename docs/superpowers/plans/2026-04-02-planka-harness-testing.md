@@ -25,7 +25,7 @@ gh repo fork plankanban/planka --clone=false
 - [ ] **Step 2: Clone fork 到本地**
 
 ```bash
-cd ~/ops/ths-harness
+cd ~/ops/harness-dogfood
 git clone git@github.com:<your-username>/planka.git
 cd planka
 ```
@@ -59,7 +59,7 @@ Expected: 文件都存在，结构符合预期
 
 告诉 Claude Code：
 ```
-Read ~/ops/ths-harness/simple-harness-kit/init-prompt.md and the methodology/ directory.
+Read ~/ops/harness-dogfood/simple-harness-kit/init-prompt.md and the methodology/ directory.
 Initialize Harness for this project (Planka).
 ```
 
@@ -547,7 +547,7 @@ git diff harness-test/claude-code~10..HEAD
 ### Task 13: 记录偏差和方法论反馈
 
 **Files:**
-- Create: `~/ops/ths-harness/simple-harness-kit/examples/experiment-c-planka/` — 实测报告
+- Create: `~/ops/harness-dogfood/simple-harness-kit/examples/experiment-c-planka/` — 实测报告
 
 - [ ] **Step 1: 撰写实测报告**
 
@@ -561,7 +561,7 @@ git diff harness-test/claude-code~10..HEAD
 - [ ] **Step 2: Commit 报告到 simple-harness-kit**
 
 ```bash
-cd ~/ops/ths-harness/simple-harness-kit
+cd ~/ops/harness-dogfood/simple-harness-kit
 git add examples/experiment-c-planka/
 git commit -m "docs: Experiment C — Planka harness testing report (Claude Code)"
 ```

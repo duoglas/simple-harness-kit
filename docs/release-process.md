@@ -40,7 +40,7 @@ REVIEW → push commit + push tag
 
 ### Step 0: Dogfooding Feedback Sync（强制, 2026-04-08 VH-09 后加入）
 
-**必须先做**。这一步确保 dogfooding workspace (`ths-harness`) 产生的 meta learning 已经反哺到 kit 产品仓库。
+**必须先做**。这一步确保 dogfooding workspace (`harness-dogfood`) 产生的 meta learning 已经反哺到 kit 产品仓库。
 
 ```bash
 # 检查 workspace 和 kit constraints 同步

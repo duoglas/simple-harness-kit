@@ -6,8 +6,20 @@
 #               "invalid pre-tool-use JSON output"。教训是 "Codex runtime 必须机器守门，不能靠
 #               用户手动测出来" (C-GATE-08 提案)。本脚本在 kit 本地复现并预防回归。
 #
+# 已知限制 (VH-18 R3 调查结论)：
+#   Codex 0.134.x exec 模式使用 TUI trust 时建立的 hook 缓存。任何未经 TUI trust
+#   对话框注册（hooks.state hash 缺失）的 hook entry 在 exec 模式下不会执行——
+#   即使设置 --dangerously-bypass-hook-trust 也不例外（该 flag 只跳过已注册 entry
+#   的 hash 验证，不能让未注册 entry 执行）。
+#   因此，smoke 无法通过 runtime 注入来"证明 project hook command 真实执行"。
+#   当前 C-GATE-08 在 exec 模式下只能降级为 DEGRADED：确认 codex runtime
+#   完成一次启动且没有出现 "hook (failed)" / invalid JSON 告警；project-level
+#   hook 的正确性由 tests/run.js hook-scenarios 覆盖（195 PASS）。
+#
 # 行为:
-#   - codex 可用 → 跑冒烟，断言 stderr/stdout 干净，exit 0
+#   - codex 可用且 exit 0 → 跑冒烟，断言无 hook (failed) 告警，DEGRADED + exit 0
+#   - codex 非 0 + CODEX_REQUIRED != 1 → DEGRADED + warn (exit 0)
+#   - codex 非 0 + CODEX_REQUIRED == 1 → FAIL (exit 1)
 #   - codex 不可用 + CODEX_REQUIRED != 1 → SKIP + warn (exit 0)
 #   - codex 不可用 + CODEX_REQUIRED == 1 → FAIL (exit 1)
 #
@@ -17,18 +29,16 @@
 #   SMOKE_DEBUG=1 bash tests/codex-smoke.sh       # 打印 tmp 目录位置 + 保留产物
 #
 # 退出码:
-#   0 — PASS 或 SKIP
+#   0 — DEGRADED / SKIP
 #   1 — FAIL (断言命中)
 #   2 — 环境/准备阶段错误
 
 set -u
 
 KIT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PROMPT="Read README.md"                         # 多 hook 触发：SessionStart + PreToolUse:Read + PostToolUse:Read + Stop
+PROMPT="Read README.md"
 TIMEOUT_SEC="${SMOKE_TIMEOUT:-180}"
 
-# timeout 命令在 macOS 默认不存在（GNU coreutils 的 gtimeout 需 brew install coreutils）。
-# 检测并回退：gtimeout > timeout > 无（直接跑不限时，靠外层 run.js 统一管理 hung）。
 if command -v timeout >/dev/null 2>&1; then
   TIMEOUT_CMD=(timeout "$TIMEOUT_SEC")
 elif command -v gtimeout >/dev/null 2>&1; then
@@ -81,17 +91,18 @@ fi
 # 拷所有 hook 脚本
 cp "$KIT_ROOT/scripts/hooks/"*.js "$TMP_DIR/scripts/hooks/"
 
-# 反向自测：注入一个 "坏" hook 覆盖 safety-guard.js
-# 用于验证 smoke 本身能捕获 VH-13 类 regression。由 codex-smoke-selftest.sh 触发。
+# SMOKE_INJECT_BAD_HOOK=1：覆盖 harness-session-start.js 为 stdout 写非法 JSON 的版本。
+# 注：因已知限制，exec 模式不加载 project .codex/hooks.json，所以此注入仅在
+# selftest 的 SKIP 检测路径生效（smoke 会报 SKIP: hooks 未执行，selftest 据此判定）。
+# 自测逻辑保留在 selftest.sh 中，为未来 Codex 版本改善兼容性预留入口。
 if [ "${SMOKE_INJECT_BAD_HOOK:-0}" = "1" ]; then
-  cat > "$TMP_DIR/scripts/hooks/safety-guard.js" <<'BADEOF'
+  cat > "$TMP_DIR/scripts/hooks/harness-session-start.js" <<'BADEOF'
 #!/usr/bin/env node
-// SMOKE SELFTEST: 故意坏掉的 hook，stdout 写非法 schema JSON，触发
-// Codex "hook returned invalid pre-tool-use JSON output"。
+// SMOKE SELFTEST: 故意坏掉的 hook，stdout 写非法 JSON
 let raw=''; process.stdin.on('data',c=>raw+=c);
-process.stdin.on('end',()=>{ process.stdout.write('{"not_a_valid_codex_field": true}\n'); });
+process.stdin.on('end',()=>{ process.stdout.write('not-json\n'); });
 BADEOF
-  echo "[codex-smoke] SMOKE_INJECT_BAD_HOOK=1：已注入坏 safety-guard.js" >&2
+  echo "[codex-smoke] SMOKE_INJECT_BAD_HOOK=1：已注入坏 harness-session-start.js（仅在 hooks 真实执行时有效）" >&2
 fi
 
 # 建最小 README.md（给 "Read README.md" 有内容读）
@@ -117,14 +128,12 @@ echo "{\"stage\":\"EXECUTE\",\"t\":\"$NOW\"}" > "$TMP_DIR/.harness/stage-history
 RUN_LOG="$TMP_DIR/codex-run.log"
 echo "[codex-smoke] 运行 codex exec (prompt=$PROMPT, timeout=${TIMEOUT_SEC}s)..." >&2
 
-# 注意: codex exec 输出 session 记录到 stderr，最终响应到 stdout。
-# hook (failed) 告警打到 stderr，所以两路都要抓。
 set +e
 (
   cd "$TMP_DIR" && \
   ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} codex exec \
     --dangerously-bypass-approvals-and-sandbox \
-    --enable codex_hooks \
+    --enable hooks \
     --skip-git-repo-check \
     --ephemeral \
     "$PROMPT"
@@ -145,11 +154,8 @@ fi
 # 核心断言：不能出现 hook 执行失败相关告警
 #
 # Codex 根据模式显示不同粒度的错误:
-#   - codex exec: 简化形式 "hook: PreToolUse Failed" (首字母大写)
-#   - codex (TUI): 详细形式 "PreToolUse hook (failed)\n  error: hook returned invalid pre-tool-use JSON output"
-# 两者底层都是 output_parser.rs 的 parse_json 返回 None 或 schema 不匹配。
-#
-# 我们断言两种形式的关键标识都不出现。
+#   - codex exec: 简化形式 "hook: PreToolUse Failed"
+#   - codex (TUI): 详细形式 "hook returned invalid pre-tool-use JSON output"
 CHECK_PATTERNS=(
   "hook: SessionStart Failed"
   "hook: UserPromptSubmit Failed"
@@ -160,6 +166,7 @@ CHECK_PATTERNS=(
   "hook returned invalid"
   "invalid pre-tool-use JSON output"
   "invalid post-tool-use JSON output"
+  "invalid session start JSON output"
   "invalid session-start JSON output"
   "invalid stop JSON output"
   "invalid user-prompt-submit JSON output"
@@ -179,13 +186,32 @@ if [ "$FAILURES" -gt 0 ]; then
   exit 1
 fi
 
-# 额外宽松断言：exit 非 0 也视为疑似故障（除非是已知的 timeout 已处理）
+# exec 根本没跑起来时，不能把 smoke 宣称为 PASS。
+# 非强制本地模式可以 DEGRADED 退出，强制模式必须 FAIL。
 if [ "$RUN_EXIT" -ne 0 ]; then
-  echo "[codex-smoke] WARN: codex 非 0 退出（exit=${RUN_EXIT}），但未命中 hook (failed) 类告警；记录以便调查。" >&2
-  echo "[codex-smoke] 日志 tail:" >&2
+  if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
+    echo "[codex-smoke] FAIL: codex 非 0 退出（exit=${RUN_EXIT}），CODEX_REQUIRED=1 要求一次有效 runtime smoke。" >&2
+    tail -n 80 "$RUN_LOG" >&2
+    exit 1
+  fi
+  echo "[codex-smoke] DEGRADED: codex 非 0 退出（exit=${RUN_EXIT}），未完成有效 runtime smoke；非强制模式不阻塞。" >&2
   tail -n 30 "$RUN_LOG" >&2
-  # 非 hook 失败的 exit 不判 FAIL，避免 codex 本身抖动（如 rate limit）把本测试钉死
+  exit 0
 fi
 
-echo "[codex-smoke] PASS"
+# 观察性注释：project hooks 未执行属已知限制，不作为 FAIL 条件
+# （exec 模式需要 TUI trust 对话注册 hooks.state hash，runtime 注入无法绕过）
+if grep -q "hook: SessionStart Completed" "$RUN_LOG"; then
+  echo "[codex-smoke] INFO: Codex lifecycle hook marker 存在，且未发现 hook failure marker。" >&2
+fi
+
+# SMOKE_INJECT_BAD_HOOK=1 且 smoke 仍 PASS → exec 模式未加载 project hooks（已知限制）。
+# selftest.sh 检测此消息并输出 SKIP（而非 FAIL），表示 bad-hook 捕获机制无法在当前 Codex
+# 版本验证，但 smoke 本身的无错断言路径正常。
+if [ "${SMOKE_INJECT_BAD_HOOK:-0}" = "1" ]; then
+  echo "[codex-smoke] DEGRADED: sentinel hook 未执行（坏 hook 未被 smoke 捕获；exec 模式已知限制）" >&2
+  exit 0
+fi
+
+echo "[codex-smoke] DEGRADED: project .codex/hooks.json command 未被 exec 模式验证；仅确认本次 codex run 无 hook failure marker。"
 exit 0

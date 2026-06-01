@@ -1,7 +1,7 @@
 #!/bin/bash
 # tests/scripts/run-all.sh — 脚本化测试矩阵主 runner
 #
-# 用途: 串联跑 7 个维度脚本 + 元防御检查 (L1 语法 / L6 multi-shell).
+# 用途: 串联跑核心维度脚本 + 元防御检查 (L1 语法 / L6 multi-shell).
 # 退出码: 0 = 全 PASS, 非零 = 有 FAIL 或异常.
 #
 # 用法:
@@ -74,7 +74,7 @@ echo ""
 echo "── Meta L1: bash -n 语法检查 ──"
 
 L1_FAIL=0
-for f in "$SCRIPT_DIR"/0[1-7]-*.sh "$SCRIPT_DIR/run-all.sh"; do
+for f in "$SCRIPT_DIR"/0[1-9]-*.sh "$SCRIPT_DIR"/1[0-9]-*.sh "$SCRIPT_DIR/run-all.sh"; do
   if [ -f "$f" ]; then
     if bash -n "$f" 2>/dev/null; then
       echo "  ok   $(basename "$f")"
@@ -89,7 +89,7 @@ done
 if [ $HAS_SHELLCHECK -eq 1 ]; then
   echo ""
   echo "── Meta L1+: shellcheck (optional, warning only) ──"
-  for f in "$SCRIPT_DIR"/0[1-7]-*.sh "$SCRIPT_DIR/run-all.sh"; do
+  for f in "$SCRIPT_DIR"/0[1-9]-*.sh "$SCRIPT_DIR"/1[0-9]-*.sh "$SCRIPT_DIR/run-all.sh"; do
     if [ -f "$f" ]; then
       # shellcheck 失败只警告, 不阻塞
       if shellcheck -x "$f" >/dev/null 2>&1; then
@@ -123,6 +123,9 @@ DIMS=(
 
 # 维度 08: 内容质量 — 纯脚本化 (不依赖 codex), 与 01-07 同级别必跑
 DIMS+=("08-content-quality.sh")
+
+# 维度 11: codex-smoke 契约 — 用 fake codex 验证脚本退出码/输出语义，不依赖真实 Codex runtime
+DIMS+=("11-codex-smoke-contract.sh")
 
 # 维度 09-10 依赖 codex AI runtime, 不进常规 CI, 只在 release 前手动跑:
 #   bash tests/scripts/09-behavior-observation.sh

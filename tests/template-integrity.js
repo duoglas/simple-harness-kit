@@ -27,7 +27,7 @@ const INIT_PROMPT = path.join(KIT_ROOT, 'init-prompt.md');
 const REQUIRED_WIRING_FILE = path.join(__dirname, 'required-wiring.json');
 const HARNESS_INIT_SKILL = path.join(KIT_ROOT, 'skills', 'harness-init', 'SKILL.md');
 const KIT_CONSTRAINTS = path.join(KIT_ROOT, 'docs', 'constraints.md');
-// Workspace constraints 位于 kit 的父目录 (ths-harness/docs/constraints.md)
+// Workspace constraints 位于 kit 的父目录 (harness-dogfood/docs/constraints.md)
 // 注意: T10 只有在 workspace 存在时才运行 (kit 独立 clone 时 workspace 不存在)
 const WORKSPACE_CONSTRAINTS = path.resolve(KIT_ROOT, '..', 'docs', 'constraints.md');
 const WORKSPACE_RULES_DIR = path.resolve(KIT_ROOT, '..', '.claude', 'rules');
@@ -431,7 +431,7 @@ function runTemplateIntegrityTests() {
   });
 
   // ── T10: workspace vs kit constraints.md meta 约束同步检测 (C-META-04) ──
-  // VH-09 治理: kit 产品仓库 docs/constraints.md 和 workspace ths-harness/docs/constraints.md
+  // VH-09 治理: kit 产品仓库 docs/constraints.md 和 workspace harness-dogfood/docs/constraints.md
   // 必须保持 "所有 kit-level meta 约束和 VH 历史同步". workspace 有的 kit-level C-* 和 VH-*,
   // kit 仓库必须都有 (kit 仓库可以额外有, 但不能少).
   //
