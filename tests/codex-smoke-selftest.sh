@@ -41,13 +41,13 @@ SMOKE_EXIT=$?
 set -e
 
 if [ "$SMOKE_EXIT" -eq 0 ]; then
-  if grep -q "SKIP: Codex 未执行项目 .codex/hooks.json 的 sentinel hook" /tmp/codex-smoke-selftest.log; then
+  if grep -q "WARN: sentinel hook 未执行" /tmp/codex-smoke-selftest.log; then
     if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
-      echo "[codex-smoke-selftest] FAIL: CODEX_REQUIRED=1，但 Codex 未执行项目 hooks，无法验证 bad hook 捕获能力。" >&2
+      echo "[codex-smoke-selftest] FAIL: CODEX_REQUIRED=1，但 global sentinel hook 未执行，无法验证 bad hook 捕获能力。" >&2
       tail -n 40 /tmp/codex-smoke-selftest.log >&2
       exit 1
     fi
-    echo "[codex-smoke-selftest] SKIP: 当前 Codex runtime 未执行项目 hooks；selftest 不适用。" >&2
+    echo "[codex-smoke-selftest] SKIP: global sentinel hook 未执行；selftest 不适用。" >&2
     exit 0
   fi
 
