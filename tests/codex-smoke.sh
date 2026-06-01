@@ -11,13 +11,15 @@
 #   对话框注册（hooks.state hash 缺失）的 hook entry 在 exec 模式下不会执行——
 #   即使设置 --dangerously-bypass-hook-trust 也不例外（该 flag 只跳过已注册 entry
 #   的 hash 验证，不能让未注册 entry 执行）。
-#   因此，smoke 无法通过 runtime 注入来"证明 hook command 真实执行"；
-#   C-GATE-08 的验证目标退化为：全局已信任 hook（vibe-island 等）执行期间
-#   不产生 "hook (failed)" 告警，即 harness hook 脚本格式兼容性仍机器守门。
-#   project-level hook 的正确性由 tests/run.js hook-scenarios 覆盖（195 PASS）。
+#   因此，smoke 无法通过 runtime 注入来"证明 project hook command 真实执行"。
+#   当前 C-GATE-08 在 exec 模式下只能降级为 DEGRADED：确认 codex runtime
+#   完成一次启动且没有出现 "hook (failed)" / invalid JSON 告警；project-level
+#   hook 的正确性由 tests/run.js hook-scenarios 覆盖（195 PASS）。
 #
 # 行为:
-#   - codex 可用 → 跑冒烟，断言无 hook (failed) 告警，exit 0
+#   - codex 可用且 exit 0 → 跑冒烟，断言无 hook (failed) 告警，DEGRADED + exit 0
+#   - codex 非 0 + CODEX_REQUIRED != 1 → DEGRADED + warn (exit 0)
+#   - codex 非 0 + CODEX_REQUIRED == 1 → FAIL (exit 1)
 #   - codex 不可用 + CODEX_REQUIRED != 1 → SKIP + warn (exit 0)
 #   - codex 不可用 + CODEX_REQUIRED == 1 → FAIL (exit 1)
 #
@@ -27,7 +29,7 @@
 #   SMOKE_DEBUG=1 bash tests/codex-smoke.sh       # 打印 tmp 目录位置 + 保留产物
 #
 # 退出码:
-#   0 — PASS 或 SKIP
+#   0 — DEGRADED / SKIP
 #   1 — FAIL (断言命中)
 #   2 — 环境/准备阶段错误
 
@@ -184,24 +186,32 @@ if [ "$FAILURES" -gt 0 ]; then
   exit 1
 fi
 
-# 额外宽松断言：exit 非 0 也视为疑似故障
+# exec 根本没跑起来时，不能把 smoke 宣称为 PASS。
+# 非强制本地模式可以 DEGRADED 退出，强制模式必须 FAIL。
 if [ "$RUN_EXIT" -ne 0 ]; then
-  echo "[codex-smoke] WARN: codex 非 0 退出（exit=${RUN_EXIT}），但未命中 hook (failed) 告警；记录以便调查。" >&2
+  if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
+    echo "[codex-smoke] FAIL: codex 非 0 退出（exit=${RUN_EXIT}），CODEX_REQUIRED=1 要求一次有效 runtime smoke。" >&2
+    tail -n 80 "$RUN_LOG" >&2
+    exit 1
+  fi
+  echo "[codex-smoke] DEGRADED: codex 非 0 退出（exit=${RUN_EXIT}），未完成有效 runtime smoke；非强制模式不阻塞。" >&2
   tail -n 30 "$RUN_LOG" >&2
+  exit 0
 fi
 
 # 观察性注释：project hooks 未执行属已知限制，不作为 FAIL 条件
 # （exec 模式需要 TUI trust 对话注册 hooks.state hash，runtime 注入无法绕过）
 if grep -q "hook: SessionStart Completed" "$RUN_LOG"; then
-  echo "[codex-smoke] INFO: 全局已信任 hook 执行正常（无 hook 失败，C-GATE-08 核心断言通过）" >&2
+  echo "[codex-smoke] INFO: Codex lifecycle hook marker 存在，且未发现 hook failure marker。" >&2
 fi
 
 # SMOKE_INJECT_BAD_HOOK=1 且 smoke 仍 PASS → exec 模式未加载 project hooks（已知限制）。
 # selftest.sh 检测此消息并输出 SKIP（而非 FAIL），表示 bad-hook 捕获机制无法在当前 Codex
 # 版本验证，但 smoke 本身的无错断言路径正常。
 if [ "${SMOKE_INJECT_BAD_HOOK:-0}" = "1" ]; then
-  echo "[codex-smoke] WARN: sentinel hook 未执行（坏 hook 未被 smoke 捕获；exec 模式已知限制）" >&2
+  echo "[codex-smoke] DEGRADED: sentinel hook 未执行（坏 hook 未被 smoke 捕获；exec 模式已知限制）" >&2
+  exit 0
 fi
 
-echo "[codex-smoke] PASS"
+echo "[codex-smoke] DEGRADED: project .codex/hooks.json command 未被 exec 模式验证；仅确认本次 codex run 无 hook failure marker。"
 exit 0

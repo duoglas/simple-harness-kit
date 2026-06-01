@@ -43,7 +43,7 @@
  * 每个场景在独立临时目录中运行，互不干扰。
  */
 
-const { execFileSync, execFile } = require('child_process');
+const { execFileSync, execFile, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -86,6 +86,24 @@ function loadScenarios() {
     }
   }
   return scenarios;
+}
+
+function runBashScript(script, options = {}) {
+  const res = spawnSync('bash', [script], {
+    encoding: 'utf8',
+    maxBuffer: 20 * 1024 * 1024,
+    ...options,
+  });
+  if (res.stdout) process.stdout.write(res.stdout);
+  if (res.stderr) process.stderr.write(res.stderr);
+  return {
+    ...res,
+    combinedOutput: `${res.stdout || ''}${res.stderr || ''}`,
+  };
+}
+
+function isDegradedOrSkipped(output) {
+  return /\b(DEGRADED|SKIP)\b/.test(output);
 }
 
 // ── 创建临时目录并预置文件 ──
@@ -541,8 +559,7 @@ try {
     console.log('  Codex Runtime Smoke (C-GATE-08)\n');
     const env = { ...process.env };
     // run.js 里默认不升级；CI 通过 CODEX_REQUIRED=1 外部注入
-    const res = require('child_process').spawnSync('bash', [smokeScript], {
-      stdio: 'inherit',
+    const res = runBashScript(smokeScript, {
       env,
       timeout: 5 * 60 * 1000,
     });
@@ -553,8 +570,7 @@ try {
     } else {
       // 反向自测：确保 smoke 本身能捕获 bad hook
       if (fs.existsSync(selftestScript)) {
-        const st = require('child_process').spawnSync('bash', [selftestScript], {
-          stdio: 'inherit',
+        const st = runBashScript(selftestScript, {
           env,
           timeout: 5 * 60 * 1000,
         });
@@ -562,11 +578,17 @@ try {
         if (st.status !== 0) {
           smokeFailed += 1;
           console.log(`\n  Codex Smoke Selftest FAIL (exit ${st.status})\n`);
+        } else if (isDegradedOrSkipped(res.combinedOutput) || isDegradedOrSkipped(st.combinedOutput)) {
+          console.log(`\n  Codex Smoke DEGRADED / SKIP (当前 runtime 未完整验证 project hook command)\n`);
         } else {
           console.log(`\n  Codex Smoke + Selftest PASS\n`);
         }
       } else {
-        console.log(`\n  Codex Smoke PASS (selftest 脚本缺失)\n`);
+        if (isDegradedOrSkipped(res.combinedOutput)) {
+          console.log(`\n  Codex Smoke DEGRADED / SKIP (selftest 脚本缺失)\n`);
+        } else {
+          console.log(`\n  Codex Smoke PASS (selftest 脚本缺失)\n`);
+        }
       }
     }
   } else {
