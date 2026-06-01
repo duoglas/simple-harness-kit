@@ -75,9 +75,9 @@ stage-guard 对所有匹配的工具都会执行统一流程：
 
 事件的"注册"指具体配置文件顶层 key 是否存在。
 
-"本项目" 在本节专指 simple-harness-kit 这个 kit 仓库；"使用方"指任何用此 kit init 出来的项目（如工作区 ths-harness）。symbols：`✓` = 模板和主要 settings.json 都注册；`○` = 某一处注册、其他处未同步；`—` = 故意不覆盖；`gap` = 待评估。
+"本项目" 在本节专指 simple-harness-kit 这个 kit 仓库；"使用方"指任何用此 kit init 出来的项目（如工作区 harness-dogfood）。symbols：`✓` = 模板和主要 settings.json 都注册；`○` = 某一处注册、其他处未同步；`—` = 故意不覆盖；`gap` = 待评估。
 
-| 事件 | templates/settings-json.tmpl | 使用方 .claude/settings.json（例: ths-harness 工作区） | init-prompt.md (最小集) | 脚本 | 用途 |
+| 事件 | templates/settings-json.tmpl | 使用方 .claude/settings.json（例: harness-dogfood 工作区） | init-prompt.md (最小集) | 脚本 | 用途 |
 |------|:---:|:---:|:---:|---|------|
 | SessionStart | ✓ | ✓ | ✓ | harness-session-start.js | 新 session 初始化、重置陈旧 stage、输出 banner |
 | PreToolUse | ✓ | ✓ | ✓ | stage-guard / safety-guard / verification-gate / delivery-review / commit-check / agent-check / context-monitor | 核心拦截点 |
@@ -157,7 +157,7 @@ stage-guard 对所有匹配的工具都会执行统一流程：
 
 5. **是否要同时更新意图和注册？**
    - 先决定是否纳入对应脚本的数组/逻辑（意图）
-   - 再决定是否在模板（`templates/settings-json.tmpl`）和使用方 settings.json（例: ths-harness 工作区 `.claude/settings.json`）挂 matcher（注册）
+   - 再决定是否在模板（`templates/settings-json.tmpl`）和使用方 settings.json（例: harness-dogfood 工作区 `.claude/settings.json`）挂 matcher（注册）
    - 只改其中一处就是漂移
 
 6. **同步更新矩阵** — 本文档是审计工具，任何新增/修改 Hook 覆盖都要同步。
@@ -176,6 +176,6 @@ stage-guard 对所有匹配的工具都会执行统一流程：
 - 本矩阵（`methodology/15-hook-coverage-matrix.md`）
 
 **按范围同步**:
-- `.claude/settings.json` — 使用方工作区（如 ths-harness dogfooding workspace）配置，仅当改动对该工作区有效时同步
+- `.claude/settings.json` — 使用方工作区（如 harness-dogfood dogfooding workspace）配置，仅当改动对该工作区有效时同步
 - `init-prompt.md` — **最小配置示例**，仅同步"必选"级别的 hook；可选 hook 不必出现
 - `methodology/05-hook-enforcement.md` — 方法论文档，settings.json 示例建议只保留精简版并显式指向本矩阵和模板，避免三份竞争性真实源

@@ -6,7 +6,7 @@
 - [ ] **v0.9.0 release 收尾**：等切回 master 后 `tests/pre-release-check.sh` 全绿 → tag → push → 同步 dogfooding workspace
 - [ ] **`tests/hook-scenarios/branch-policy-guard.json`** — 新 hook 还没有 scenario 覆盖（手动验证已通过 5/5：master / --all / feature-* block；personal / 非 push 放行）
 - [ ] **`tests/run.js` stage-guard symlink 测试在 Windows 缺 SeCreateSymbolicLinkPrivilege 时崩**：当前 `pre-release-check.sh` 在 Win 非管理员 / 未开 Developer Mode 的机器上无法跑完，需要 setupTempDir 检测 symlink 权限 fallback 跳过
-- [ ] **example-company preset → THS 实物 preset**（属于 THS 私有 repo 的事，跨仓库工作）
+- [ ] **example-company preset → company-private 实物 preset**（属于私有 overlay repo 的事，跨仓库工作）
 
 ## 近期
 
@@ -16,7 +16,7 @@
 - [ ] **e2e 环境搭建指南 (M-13)** — init 时检测 docker-compose 等配置，生成快速启动指南
 - [x] ~~**Release 时同步模板到本项目**~~ — 已通过删除 templates/hooks/ 解决，scripts/hooks/ 为唯一源 (v0.6.1)
 - [x] ~~**Codex init AGENTS.md 未落盘**~~ — init-prompt.md 补注 codex 必须使用 `--full-auto` 或 `-s workspace-write` (v0.6.1)
-- [x] ~~**E2E 验收 agent 的 CWD 清理**~~ — 工作区 (ths-harness) 的 .claude/settings.json Hook 命令添加 find-root 前置脚本，从任意 CWD 自动定位项目根 (v0.6.1)
+- [x] ~~**E2E 验收 agent 的 CWD 清理**~~ — 工作区 (harness-dogfood) 的 .claude/settings.json Hook 命令添加 find-root 前置脚本，从任意 CWD 自动定位项目根 (v0.6.1)
 
 ## 持续学习改进（设计文档: docs/design/continuous-learning-improvements.md）
 

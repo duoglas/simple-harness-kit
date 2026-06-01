@@ -133,7 +133,7 @@ v0.7.0 发布后用户连续反馈两个 P0 低级 bug:
 
 1. **只测"从零状态"**: install.sh 的测试从未跑二次执行, 嵌套行为永远不触发
 2. **静态内容检查替代运行时解析**: SKILL.md 的测试只检查"文件里有没有某些关键 token", 不检查"路径在真实用户 cwd 下能不能打开"
-3. **dogfooding 环境特殊性**: ths-harness workspace 恰好把 simple-harness-kit 作为子目录, cwd-relative 路径在作者机器上能 work, 完美掩盖 bug
+3. **dogfooding 环境特殊性**: harness-dogfood workspace 恰好把 simple-harness-kit 作为子目录, cwd-relative 路径在作者机器上能 work, 完美掩盖 bug
 4. **Sub-agent 实验假 PASS**: 本 session 早期跑 dogfooding 实验时, 在 sub-agent prompt 里**手工提供**了 kit 绝对路径, sub-agent 据此成功读文件。实验"全 PASS" ≠ SKILL.md 写得对 — 只证明"sub-agent 按我给的路径读文件的能力"。这是 VH-05 "mock 通过不代表真实生效"的 sub-agent 层重演
 
 ### 新的 F 层铁律（由 F4 扩展）

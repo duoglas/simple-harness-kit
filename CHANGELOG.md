@@ -327,7 +327,7 @@ bash install.sh   # 幂等安装，新版本不会再产生嵌套
 - 新增约束 (7)：C-SKILL-01 / C-SKILL-02 / C-SKILL-03 / C-TEST-04 / C-TEST-05 / C-TEST-06 / C-HOOK-07
 - 扩展约束 (2)：C-GATE-02 (3-random-dir + sub-agent 反模式) + C-GATE-04 (4 层验收矩阵: 机制+内容+行为+产出)
 - 新增 VH：VH-10（路径/幂等, 5 层失效分析）+ VH-11（模板内容质量, "机制完整 ≠ 产出有效"）
-- workspace (`ths-harness`) ↔ kit 两份 constraints.md 同步双写（C-META-04 守门）
+- workspace (`harness-dogfood`) ↔ kit 两份 constraints.md 同步双写（C-META-04 守门）
 
 ### 质量工程成果
 
@@ -572,7 +572,7 @@ bash ~/path/to/simple-harness-kit/tests/e2e-acceptance-validate.sh
 - 经过多轮 Codex 交叉验收（每个变更 2-5 轮）确保实现与文档一致
 - 5 个 commit 的端到端验收发现 P0 模板缺陷，证明矩阵审计的价值
 - 13 个 hook `@version` 全部统一 bump 到 0.7.0 (释放本 release)
-- VH-08 修复同时引入 4 条新约束（C-INIT-04 / C-GATE-06 / C-GATE-05a 在使用方 ths-harness 工作区，VH-08 在 history）—— 这些是工作区本地配置，不在 kit 仓库内
+- VH-08 修复同时引入 4 条新约束（C-INIT-04 / C-GATE-06 / C-GATE-05a 在使用方 harness-dogfood 工作区，VH-08 在 history）—— 这些是工作区本地配置，不在 kit 仓库内
 
 ## [0.6.0] — Hook 路径定位修复
 
