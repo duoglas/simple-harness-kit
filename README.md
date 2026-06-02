@@ -27,7 +27,7 @@ bash ~/simple-harness-kit/install.sh
 `install.sh` will:
 - Install skills to `~/.claude/skills/` and/or `~/.codex/skills/` (auto-detect, or `--target claude|codex|both`)
 - Write `~/.simple-harness-kit-root` so `harness-init` can auto-locate the kit later
-- (Codex only) Ask if you want `alias codex='codex --enable codex_hooks --full-auto'` written to `~/.zshrc` / `~/.bashrc` — recommended; covers both `init` and daily use in one alias
+- (Codex only) Ask if you want `alias codex='codex --enable hooks --sandbox workspace-write --ask-for-approval on-request'` written to `~/.zshrc` / `~/.bashrc` — recommended; enables hooks and uses the current explicit sandbox/approval flags
 
 Update: `git -C ~/simple-harness-kit pull && bash ~/simple-harness-kit/install.sh`
 
@@ -44,7 +44,7 @@ claude              # start TUI
 # Codex (must be TUI mode — exec/non-interactive deadlocks at kit lookup):
 codex               # if you accepted the alias in Step 1, this is enough
 # OR if no alias:
-codex --full-auto --enable codex_hooks
+codex --enable hooks --sandbox workspace-write --ask-for-approval on-request
 # then in TUI:
 $harness-init       # NOTE: $ not / — Codex skill trigger sigil is $
 ```
@@ -167,7 +167,7 @@ We surveyed three layers: **agent frameworks** (DeerFlow/LangGraph/CrewAI — bu
 | Tool | Hook Support | Status |
 |------|-------------|--------|
 | **Claude Code** | Native PreToolUse/PostToolUse | **Verified** (Exp A/B/C) |
-| **Codex CLI** | Native hooks (`codex_hooks` flag required) | **Verified** (Exp C + cross-test) |
+| **Codex CLI** | Native hooks (`hooks` flag required) | **Verified** (Exp C + cross-test) |
 | **Gemini CLI** | v0.26+ BeforeTool/AfterTool | Untested |
 | **Cursor** | v1.7+ hooks | Untested |
 | **OpenCode** | Plugin API (needs rewrite) | Untested |

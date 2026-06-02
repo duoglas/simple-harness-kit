@@ -6,7 +6,7 @@
 #   - AI 是否产出了 VERIFICATION REPORT 或等价报告
 #   - AI 是否引用了 constraints
 #
-# 本维度用 codex --full-auto 跑一个小任务, 然后 grep codex 输出
+# 本维度用 codex --enable hooks --sandbox workspace-write --ask-for-approval on-request 跑一个小任务, 然后 grep codex 输出
 # 检查行为痕迹. 这不是 100% 精确 (AI 行为有随机性), 但能检测到
 # "完全不做 TDD" vs "至少尝试做 TDD" 的区别 (VH-11 的核心问题).
 #
@@ -63,7 +63,7 @@ TESTJS
 
 # 先 init harness
 INIT_PROMPT="Read $TMP_KIT/init-prompt.md and $TMP_KIT/methodology/. Init harness for this Node.js project. Use $TMP_KIT/templates/ and $TMP_KIT/scripts/hooks/. Do NOT run validate.sh."
-echo "$INIT_PROMPT" | timeout 300 codex exec --full-auto --skip-git-repo-check --cd "$TMP_PROJ" - >/dev/null 2>&1 || true
+echo "$INIT_PROMPT" | timeout 300 codex exec --dangerously-bypass-approvals-and-sandbox --enable hooks --skip-git-repo-check --cd "$TMP_PROJ" - >/dev/null 2>&1 || true
 
 if [ ! -f "$TMP_PROJ/.claude/rules/qa-standards.md" ]; then
   echo "  SKIP [09-behavior] init 未成功, 跳过行为观测"
@@ -72,7 +72,7 @@ fi
 
 # 给一个标准化任务: "加一个 subtract 函数 + 测试"
 TASK="Add a subtract(a,b) function to src/calc.js and a test for it in test/calc.test.js. Follow qa-standards.md strictly — TDD: write the failing test FIRST, then implement."
-TASK_OUT=$(echo "$TASK" | timeout 300 codex exec --full-auto --skip-git-repo-check --cd "$TMP_PROJ" - 2>&1) || true
+TASK_OUT=$(echo "$TASK" | timeout 300 codex exec --dangerously-bypass-approvals-and-sandbox --enable hooks --skip-git-repo-check --cd "$TMP_PROJ" - 2>&1) || true
 
 # 行为痕迹检查
 TASK_OUT_FILE="$TMP_PROJ/.task-output.txt"

@@ -60,7 +60,7 @@ TESTJS
 
 # init harness
 INIT_PROMPT="Read $TMP_KIT/init-prompt.md and $TMP_KIT/methodology/. Init harness for this Node.js project. Use $TMP_KIT/templates/ and $TMP_KIT/scripts/hooks/. Do NOT run validate.sh."
-echo "$INIT_PROMPT" | timeout 300 codex exec --full-auto --skip-git-repo-check --cd "$TMP_PROJ" - >/dev/null 2>&1 || true
+echo "$INIT_PROMPT" | timeout 300 codex exec --dangerously-bypass-approvals-and-sandbox --enable hooks --skip-git-repo-check --cd "$TMP_PROJ" - >/dev/null 2>&1 || true
 
 if [ ! -f "$TMP_PROJ/.claude/rules/qa-standards.md" ]; then
   echo "  SKIP [10-output-quality] init 未成功, 跳过产出质量"
@@ -69,7 +69,7 @@ fi
 
 # 给任务: 加 subtract + 测试
 TASK="Add a subtract(a,b) function to src/calc.js and a test for it in test/calc.test.js. Follow qa-standards.md strictly. Run npm test to verify."
-echo "$TASK" | timeout 300 codex exec --full-auto --skip-git-repo-check --cd "$TMP_PROJ" - >/dev/null 2>&1 || true
+echo "$TASK" | timeout 300 codex exec --dangerously-bypass-approvals-and-sandbox --enable hooks --skip-git-repo-check --cd "$TMP_PROJ" - >/dev/null 2>&1 || true
 
 # 最终检验: 项目测试能不能通过
 cd "$TMP_PROJ"

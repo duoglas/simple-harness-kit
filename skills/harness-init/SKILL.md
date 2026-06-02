@@ -78,7 +78,7 @@ description: 为当前项目初始化完整的 Harness Engineering 配置（Rule
 - 直接写 `simple-harness-kit/...` 这样的 cwd-relative 路径（VH-10 问题 B）
 - 自动信任 cwd 向上搜索到的 `simple-harness-kit/`（VH-10 Codex gpt-5.4 round 3 F3 发现的 supply-chain 风险）
 
-**Codex 模式提示**：如果你检测到当前是 Codex `exec` (non-interactive) 模式（hook stdin 的 `permission_mode === "bypassPermissions"` 且无法等待用户输入），且优先级 (1) (2) 都没命中、(3) 多个候选需要用户选择 / 确认 → 直接退出并提示用户："Codex exec 模式无法交互回答 kit 路径，请改用 TUI: 关掉当前会话, 跑 `codex --full-auto`, 进入 TUI 后再输 `\$harness-init`"。强行猜路径或继续 = VH-15 类回归。
+**Codex 模式提示**：如果你检测到当前是 Codex `exec` (non-interactive) 模式（hook stdin 的 `permission_mode === "bypassPermissions"` 且无法等待用户输入），且优先级 (1) (2) 都没命中、(3) 多个候选需要用户选择 / 确认 → 直接退出并提示用户："Codex exec 模式无法交互回答 kit 路径，请改用 TUI: 关掉当前会话, 跑 `codex --enable hooks --sandbox workspace-write --ask-for-approval on-request`, 进入 TUI 后再输 `\$harness-init`"。强行猜路径或继续 = VH-15 类回归。
 
 ### Step 1: 读取真实源（全部 skill-relative，cwd 无关）
 
@@ -124,25 +124,26 @@ Step 3 生成了 Claude Code 的 `.claude/settings.json`。此步检测是否需
 
 ```
 检测到 Codex 环境，我会额外生成:
-  .codex/hooks.json — 从 settings.json 过滤 Codex 不支持的事件
+  .codex/hooks.json — canonical hooks 配置（顶层 hooks，无 deprecated alias）
 
 不需要 Codex 配置? 告诉我"跳过 Codex"。
 ```
 
 用户确认（或未反对）后，生成步骤：
 1. 读取刚生成的 `.claude/settings.json`
-2. 过滤掉 Codex 不支持的顶层事件（`PostToolUseFailure`、`StopFailure`、`TaskCompleted`、`SessionEnd`）
-3. 保留 Codex 支持的事件（`SessionStart`、`PreToolUse`、`PostToolUse`、`Stop`、`UserPromptSubmit`）
-4. **不过滤 matcher** — 非 Bash matcher 在 Codex 下静默跳过不报错，保留有利于未来 Codex 支持更多 tool_name 时自动生效
-5. 写入 `.codex/hooks.json`
+2. 用 `$KIT_ROOT/scripts/generate-codex-hooks.js` 派生 canonical `.codex/hooks.json`（顶层只含 `hooks`）
+3. 确认 `PreToolUse` stage guard matcher 覆盖 `Bash|apply_patch|mcp__.*`
+4. 确认包含 `PermissionRequest` guard，用官方 `decision.behavior` shape 拦截 PLAN 阶段权限升级
+5. 确认没有 deprecated feature alias
 6. 在输出中提醒：
 
 ```
 Codex 用户注意:
-  codex_hooks feature flag 必须启用才能触发 Hook。
+  hooks feature flag 必须启用才能触发 Hook。
   推荐在 ~/.codex/config.toml 中添加:
     [features]
-    codex_hooks = true
+    hooks = true
+  新增或变更 project-local hooks 后，请在新 session 里运行 /hooks 做 trust/review。
 ```
 
 **如未检测到 Codex** — 跳过此步，不生成 `.codex/hooks.json`。
@@ -160,12 +161,14 @@ node $KIT_ROOT/scripts/generate-codex-hooks.js --input .claude/settings.json --o
 2. **settings.json JSON 有效**: `node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`
 3. **hook 脚本存在**: settings.json 里每个 `command` 引用的 `scripts/hooks/xxx.js` 都有对应文件
 4. **CLAUDE.md 非空**: 大于 200 bytes
+5. **Codex harness 检查（如生成 `.codex/hooks.json`）**: JSON 顶层是 canonical `hooks`、不含 deprecated alias、`PreToolUse` matcher 含 `Bash|apply_patch|mcp__.*`、包含 `PermissionRequest`、hook command 引用的脚本存在且可执行/可读
 
 全部通过 → 输出:
 
 ```
 Harness init 完成 ✓
 下一步: 开新 session (当前 session 的 hook 不生效), 输入任务开始工作
+Codex: 如生成/更新了 .codex/hooks.json，请在新 session 里运行 /hooks trust/review
 如需深度验证: bash $KIT_ROOT/tests/e2e-acceptance-validate.sh
 ```
 
@@ -184,7 +187,7 @@ Harness init 完成 ✓
 
 ## Codex 用户
 
-Codex 用户执行 init 时必须使用 `--full-auto` 模式。Step 3.5 会自动检测 Codex 环境并生成 `.codex/hooks.json`。
+Codex 用户执行 init 时必须使用 TUI 模式；推荐启动参数为 `codex --enable hooks --sandbox workspace-write --ask-for-approval on-request`。Step 3.5 会自动检测 Codex 环境并生成 canonical `.codex/hooks.json`。
 
 如果 init 时未自动生成，可手动：
 ```bash

@@ -2,17 +2,31 @@
   {
     "name": "stage-guard: 无 stage 文件 → 阻止",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
-    "setup": { ".harness/.gitkeep": "" },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "ls"
+      }
+    },
+    "setup": {
+      ".harness/.gitkeep": ""
+    },
     "expect": {
       "exitCode": 2,
-      "stderr": ["未声明当前 Harness 阶段"]
+      "stderr": [
+        "未声明当前 Harness 阶段"
+      ]
     }
   },
   {
     "name": "stage-guard: stage 文件是 symlink → 拒绝读取 + 视为不存在 (#30)",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "ls"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": {
         "symlink_to": ".harness/attacker-controlled.json",
@@ -37,43 +51,66 @@
         "content": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"bootstrap\"}"
       }
     },
-    "setup": { ".harness/.gitkeep": "" },
+    "setup": {
+      ".harness/.gitkeep": ""
+    },
     "expect": {
       "exitCode": 0,
-      "stderr": ["正在创建阶段声明"]
+      "stderr": [
+        "正在创建阶段声明"
+      ]
     }
   },
   {
     "name": "stage-guard: PLAN 阶段首次调用 → 阻止（强制声明）",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Read", "tool_input": { "file_path": "foo.md" } },
+    "stdin": {
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "foo.md"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":0}"
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["这是本轮任务的第一次工具调用"]
+      "stderr": [
+        "这是本轮任务的第一次工具调用"
+      ]
     }
   },
   {
     "name": "stage-guard: PLAN + Read → 放行",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Read", "tool_input": { "file_path": "foo.md" } },
+    "stdin": {
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "foo.md"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["PLAN 阶段"],
+      "stderr": [
+        "PLAN 阶段"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: PLAN + Grep → 放行",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Grep", "tool_input": { "pattern": "foo" } },
+    "stdin": {
+      "tool_name": "Grep",
+      "tool_input": {
+        "pattern": "foo"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
@@ -86,14 +123,21 @@
   {
     "name": "stage-guard: PLAN + Bash → 阻止",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Bash", "tool_input": { "command": "npm test" } },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["PLAN 阶段禁止此操作"]
+      "stderr": [
+        "PLAN 阶段禁止此操作"
+      ]
     }
   },
   {
@@ -101,7 +145,9 @@
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "Write",
-      "tool_input": { "file_path": ".harness/current-plan.md" }
+      "tool_input": {
+        "file_path": ".harness/current-plan.md"
+      }
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
@@ -109,7 +155,322 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["允许写入"]
+      "stderr": [
+        "允许写入"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + Bash pwd → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "PLAN 阶段"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + Bash rg → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "rg foo"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "PLAN 阶段"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash npm install",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm install"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny",
+        "permissionDecisionReason",
+        "PreToolUse"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + apply_patch 普通文件",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "patch": "*** Begin Patch\n*** Update File: src/main.js\n@@\n-old\n+new\n*** End Patch\n"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex PermissionRequest + PLAN → decision.behavior block",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PermissionRequest",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm install"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "decision",
+        "behavior",
+        "block",
+        "reason",
+        "PLAN 阶段拒绝权限升级"
+      ],
+      "stdoutNot": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + apply_patch current-stage 防绕过",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "patch": "*** Begin Patch\n*** Update File: .harness/current-stage.json\n@@\n-{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}\n+{\"stage\":\"REVIEW\",\"since\":\"auto\",\"task\":\"bypass\"}\n*** End Patch\n"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny",
+        "current-stage.json"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash find -delete",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "find . -delete"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash newline chaining",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd\ntouch pwned"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash backtick substitution",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd `touch pwned`"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash quoted find delete",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "find . '-delete'"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash rg preprocessor",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "rg --pre 'touch pwned' needle ."
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + apply_patch current-plan → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "patch": "*** Begin Patch\n*** Update File: .harness/current-plan.md\n@@\n-old plan\n+new plan\n*** End Patch\n"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "允许写入"
+      ],
+      "stdout": "empty"
     }
   },
   {
@@ -117,7 +478,9 @@
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "Write",
-      "tool_input": { "file_path": "src/main.js" }
+      "tool_input": {
+        "file_path": "src/main.js"
+      }
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
@@ -125,62 +488,95 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["PLAN 阶段禁止此操作"]
+      "stderr": [
+        "PLAN 阶段禁止此操作"
+      ]
     }
   },
   {
     "name": "stage-guard: OFF → 放行 + 提醒",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Bash", "tool_input": { "command": "ls" } },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "ls"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"OFF\",\"since\":\"2026-04-03T00:00:00Z\",\"reason\":\"测试\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["Harness 模式已关闭"],
+      "stderr": [
+        "Harness 模式已关闭"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: EXECUTE → 放行 + 注入阶段要求",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Bash", "tool_input": { "command": "npm test" } },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "npm test"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["EXECUTE", "TDD"],
+      "stderr": [
+        "EXECUTE",
+        "TDD"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: 过期 stage → 放行 + 过期提醒",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Read", "tool_input": { "file_path": "foo.md" } },
+    "stdin": {
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "foo.md"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2020-01-01T00:00:00Z\",\"task\":\"old task\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["超过 2 小时"],
+      "stderr": [
+        "超过 2 小时"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: 无效 stage 值 → 阻止 + 修复指引 (T5)",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Read", "tool_input": { "file_path": "foo.md" } },
+    "stdin": {
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "foo.md"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"INVALID\",\"since\":\"2026-04-03T00:00:00Z\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["无效的阶段值", "修复方法", "Write"]
+      "stderr": [
+        "无效的阶段值",
+        "修复方法",
+        "Write"
+      ]
     }
   },
   {
@@ -199,7 +595,11 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["无效的 stage 值", "COMPLETE", "PLAN, SETUP, EXECUTE, VERIFY, REVIEW, FEEDBACK, OFF"]
+      "stderr": [
+        "无效的 stage 值",
+        "COMPLETE",
+        "PLAN, SETUP, EXECUTE, VERIFY, REVIEW, FEEDBACK, OFF"
+      ]
     }
   },
   {
@@ -218,20 +618,33 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["无效的 stage 值", "DONE"]
+      "stderr": [
+        "无效的 stage 值",
+        "DONE"
+      ]
     }
   },
   {
     "name": "stage-guard: 已有无效 stage 'COMPLETE' + Read → 阻止 + 修复指引 (T3)",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Read", "tool_input": { "file_path": "foo.md" } },
+    "stdin": {
+      "tool_name": "Read",
+      "tool_input": {
+        "file_path": "foo.md"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"COMPLETE\",\"since\":\"2026-04-03T00:00:00Z\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["无效的阶段值", "COMPLETE", "修复方法", "Write"]
+      "stderr": [
+        "无效的阶段值",
+        "COMPLETE",
+        "修复方法",
+        "Write"
+      ]
     }
   },
   {
@@ -250,7 +663,9 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["阶段无效，允许重写"]
+      "stderr": [
+        "阶段无效，允许重写"
+      ]
     }
   },
   {
@@ -269,7 +684,10 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["切换到 REVIEW 被阻止", "C-GATE-01"]
+      "stderr": [
+        "切换到 REVIEW 被阻止",
+        "C-GATE-01"
+      ]
     }
   },
   {
@@ -290,7 +708,9 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["阶段切换"]
+      "stderr": [
+        "阶段切换"
+      ]
     }
   },
   {
@@ -310,7 +730,10 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["切换到 REVIEW 被阻止", "验证证据"]
+      "stderr": [
+        "切换到 REVIEW 被阻止",
+        "验证证据"
+      ]
     }
   },
   {
@@ -329,34 +752,55 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["阶段切换"]
+      "stderr": [
+        "阶段切换"
+      ]
     }
   },
   {
     "name": "stage-guard: REVIEW 阶段注入交付检查清单 + push 提醒",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "Bash", "tool_input": { "command": "echo done" } },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo done"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"REVIEW\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["交付前", "真实验证", "push 提醒", "@{u}..HEAD"],
+      "stderr": [
+        "交付前",
+        "真实验证",
+        "push 提醒",
+        "@{u}..HEAD"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: EXECUTE + TaskUpdate(completed) → 放行（不再由 PreToolUse 提醒，迁到 TaskCompleted 事件）",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "TaskUpdate", "tool_input": { "taskId": "1", "status": "completed" } },
+    "stdin": {
+      "tool_name": "TaskUpdate",
+      "tool_input": {
+        "taskId": "1",
+        "status": "completed"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["标记任务完成", "标记 任务"],
+      "stderrNot": [
+        "标记任务完成",
+        "标记 任务"
+      ],
       "stdout": "empty"
     }
   },
@@ -396,7 +840,10 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["在 VERIFY 阶段标记 任务 #24", "VERIFY"],
+      "stderr": [
+        "在 VERIFY 阶段标记 任务 #24",
+        "VERIFY"
+      ],
       "stdout": "empty"
     }
   },
@@ -414,7 +861,9 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["标记 任务"],
+      "stderrNot": [
+        "标记 任务"
+      ],
       "stdout": "empty"
     }
   },
@@ -431,7 +880,9 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["标记 任务"],
+      "stderrNot": [
+        "标记 任务"
+      ],
       "stdout": "empty"
     }
   },
@@ -444,7 +895,9 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["标记 任务"],
+      "stderrNot": [
+        "标记 任务"
+      ],
       "stdout": "empty"
     }
   },
@@ -460,7 +913,9 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["标记 任务"],
+      "stderrNot": [
+        "标记 任务"
+      ],
       "stdout": "empty"
     }
   },
@@ -476,71 +931,113 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["在 EXECUTE 阶段标记 任务 完成", "VERIFY"],
-      "stderrNot": ["任务 #"],
+      "stderr": [
+        "在 EXECUTE 阶段标记 任务 完成",
+        "VERIFY"
+      ],
+      "stderrNot": [
+        "任务 #"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: 首次调用 TaskUpdate → 不被 first-call guard 阻止",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "TaskUpdate", "tool_input": { "taskId": "1", "status": "in_progress" } },
+    "stdin": {
+      "tool_name": "TaskUpdate",
+      "tool_input": {
+        "taskId": "1",
+        "status": "in_progress"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":0}"
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["第一次工具调用"],
+      "stderrNot": [
+        "第一次工具调用"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: EXECUTE + TaskUpdate(in_progress) → 放行无提醒",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "TaskUpdate", "tool_input": { "taskId": "1", "status": "in_progress" } },
+    "stdin": {
+      "tool_name": "TaskUpdate",
+      "tool_input": {
+        "taskId": "1",
+        "status": "in_progress"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["标记任务完成"],
+      "stderrNot": [
+        "标记任务完成"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: PLAN + WebFetch → 放行",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "WebFetch", "tool_input": { "url": "https://example.com", "prompt": "test" } },
+    "stdin": {
+      "tool_name": "WebFetch",
+      "tool_input": {
+        "url": "https://example.com",
+        "prompt": "test"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["PLAN 阶段"],
+      "stderr": [
+        "PLAN 阶段"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: PLAN + WebSearch → 放行",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "WebSearch", "tool_input": { "query": "test" } },
+    "stdin": {
+      "tool_name": "WebSearch",
+      "tool_input": {
+        "query": "test"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderr": ["PLAN 阶段"],
+      "stderr": [
+        "PLAN 阶段"
+      ],
       "stdout": "empty"
     }
   },
   {
     "name": "stage-guard: EXECUTE + WebFetch → 放行",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "WebFetch", "tool_input": { "url": "https://example.com", "prompt": "test" } },
+    "stdin": {
+      "tool_name": "WebFetch",
+      "tool_input": {
+        "url": "https://example.com",
+        "prompt": "test"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
@@ -553,14 +1050,22 @@
   {
     "name": "stage-guard: PLAN + TaskUpdate(in_progress) → 放行",
     "hook": "harness-stage-guard.js",
-    "stdin": { "tool_name": "TaskUpdate", "tool_input": { "taskId": "1", "status": "in_progress" } },
+    "stdin": {
+      "tool_name": "TaskUpdate",
+      "tool_input": {
+        "taskId": "1",
+        "status": "in_progress"
+      }
+    },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}"
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["PLAN 阶段禁止"],
+      "stderrNot": [
+        "PLAN 阶段禁止"
+      ],
       "stdout": "empty"
     }
   },
@@ -580,7 +1085,10 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["since 字段是未来时间", "date -u"]
+      "stderr": [
+        "since 字段是未来时间",
+        "date -u"
+      ]
     }
   },
   {
@@ -599,7 +1107,10 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["since 字段过于陈旧", "date -u"]
+      "stderr": [
+        "since 字段过于陈旧",
+        "date -u"
+      ]
     }
   },
   {
@@ -618,7 +1129,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["不是合法 ISO8601 时间戳"]
+      "stderr": [
+        "不是合法 ISO8601 时间戳"
+      ]
     }
   },
   {
@@ -631,10 +1144,14 @@
         "content": "{\"stage\":\"PLAN\",\"since\":\"2099-01-01T00:00:00Z\",\"task\":\"future bootstrap\"}"
       }
     },
-    "setup": { ".harness/.gitkeep": "" },
+    "setup": {
+      ".harness/.gitkeep": ""
+    },
     "expect": {
       "exitCode": 2,
-      "stderr": ["since 字段是未来时间"]
+      "stderr": [
+        "since 字段是未来时间"
+      ]
     }
   },
   {
@@ -647,10 +1164,14 @@
         "content": "{\"stage\":\"PLAN\",\"task\":\"no since\"}"
       }
     },
-    "setup": { ".harness/.gitkeep": "" },
+    "setup": {
+      ".harness/.gitkeep": ""
+    },
     "expect": {
       "exitCode": 2,
-      "stderr": ["since 字段缺失"]
+      "stderr": [
+        "since 字段缺失"
+      ]
     }
   },
   {
@@ -669,7 +1190,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["since 字段是未来时间"]
+      "stderr": [
+        "since 字段是未来时间"
+      ]
     }
   },
   {
@@ -688,7 +1211,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["不是合法 ISO8601 时间戳"]
+      "stderr": [
+        "不是合法 ISO8601 时间戳"
+      ]
     }
   },
   {
@@ -707,7 +1232,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["since 字段缺失"]
+      "stderr": [
+        "since 字段缺失"
+      ]
     }
   },
   {
@@ -726,7 +1253,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["形状合法但日期值不合法"]
+      "stderr": [
+        "形状合法但日期值不合法"
+      ]
     }
   },
   {
@@ -745,7 +1274,10 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["过于陈旧", "未来时间"],
+      "stderrNot": [
+        "过于陈旧",
+        "未来时间"
+      ],
       "stdout": "empty"
     }
   },
@@ -765,7 +1297,10 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["过于陈旧", "1800 秒"]
+      "stderr": [
+        "过于陈旧",
+        "1800 秒"
+      ]
     }
   },
   {
@@ -784,7 +1319,10 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["未来时间", "过于陈旧"],
+      "stderrNot": [
+        "未来时间",
+        "过于陈旧"
+      ],
       "stdout": "empty"
     }
   },
@@ -804,7 +1342,11 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["未来时间", "过于陈旧", "不是合法 ISO8601"],
+      "stderrNot": [
+        "未来时间",
+        "过于陈旧",
+        "不是合法 ISO8601"
+      ],
       "stdout": "empty"
     }
   },
@@ -824,7 +1366,11 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderrNot": ["未来时间", "过于陈旧", "不是合法 ISO8601"],
+      "stderrNot": [
+        "未来时间",
+        "过于陈旧",
+        "不是合法 ISO8601"
+      ],
       "stdout": "empty"
     }
   },
@@ -844,7 +1390,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["不是合法 ISO8601 时间戳"]
+      "stderr": [
+        "不是合法 ISO8601 时间戳"
+      ]
     }
   }
 ]
