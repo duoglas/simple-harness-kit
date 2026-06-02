@@ -8,6 +8,13 @@
 
 （暂无）
 
+## [0.9.1] - 2026-06-02
+
+### Changed
+
+- **Codex harness bootstrap**: 保持现有 `install.sh` + `$harness-init` 入口不变，Codex 侧改用 canonical `hooks` 配置、AGENTS 首轮 PLAN 规则、`PreToolUse` 覆盖 `Bash|apply_patch|mcp__.*`、`PermissionRequest` 使用 `decision.behavior` 拦截 PLAN 权限升级，并提示 `/hooks` trust/review。
+- **Codex CLI flags**: 移除活跃文档/脚本中已废弃的 `--full-auto` 推荐，改为当前显式 flags：`--enable hooks --sandbox workspace-write --ask-for-approval on-request`；非交互 smoke 保留 `--dangerously-bypass-approvals-and-sandbox` 仅用于 tmp 外部沙箱测试。
+
 ## [0.9.0] - 2026-04-30
 
 ### Added — Preset 系统
@@ -78,7 +85,7 @@
 
 - **`tests/codex-init-smoke.sh`** — `$harness-init` 完整 E2E 自动化补齐 C-GATE-04 在 skill 入口的盲区
   - tmp 项目 + 预设 `SIMPLE_HARNESS_KIT_ROOT` env var → SKILL.md Step 0 优先级 (1) 命中跳过交互
-  - `codex exec --dangerously-bypass-approvals-and-sandbox --enable codex_hooks --skip-git-repo-check --ephemeral '$harness-init'` 触发
+  - `codex exec --dangerously-bypass-approvals-and-sandbox --enable hooks --skip-git-repo-check --ephemeral '$harness-init'` 触发
   - 断言 6 类产物：必选文件存在 / settings.json JSON 有效含 SessionStart+PreToolUse+PostToolUse / hook 脚本 ≥ 6 个含 5 必选 / 无 passthrough stdout / .codex/hooks.json JSON 有效（warn 级）/ codex 日志无 hook failed 标记
   - 默认 SKIP（opt-in via `CODEX_INIT_SMOKE=1`），单次跑 ~5 分钟
   - 集成到 `tests/run.js` 末尾（默认 SKIP，不卡日常 run）
@@ -107,8 +114,8 @@
 
 ### Changed
 
-- **Codex alias 包含 `--full-auto`**: install.sh 询问的 alias 从 `codex --enable codex_hooks` 升级为 `codex --enable codex_hooks --full-auto`。一行覆盖 init + 日常 session，省去用户每次手动加 `--full-auto`。
-  - **动机**: 用户反馈"设置了 alias 以后为什么还要手动 --full-auto"。原 alias 只覆盖 `codex_hooks` flag，init 和日常都还得记得手动加 `--full-auto`，UX 不到位。
+- **Codex alias 包含 `--full-auto`**: install.sh 询问的 alias 从 `codex --enable hooks` 升级为 `codex --enable hooks --full-auto`。一行覆盖 init + 日常 session，省去用户每次手动加 `--full-auto`。
+  - **动机**: 用户反馈"设置了 alias 以后为什么还要手动 --full-auto"。原 alias 只覆盖 `hooks` flag，init 和日常都还得记得手动加 `--full-auto`，UX 不到位。
   - **风险**: `--full-auto` = `workspace-write sandbox + on-request approval`，比 default 略宽松，但对开发场景是合理默认。bypass: `\codex` 反斜杠转义或 `command codex`。
 - **`init-prompt.md` 日常启动段重写**: 3 种方式对比表更新，明确"为什么 alias 要带 `--full-auto`"，加 escape alias 用法
 
@@ -116,7 +123,7 @@
 
 升级到 v0.8.4 后，**已装 v0.8.3 alias 的用户**：
 1. 跑 `bash install.sh` 不会重复写（幂等标记块检测到已存在跳过）
-2. **手动**编辑 `~/.zshrc` / `~/.bashrc` 把 `alias codex='codex --enable codex_hooks'` 改成 `alias codex='codex --enable codex_hooks --full-auto'`
+2. **手动**编辑 `~/.zshrc` / `~/.bashrc` 把 `alias codex='codex --enable hooks'` 改成 `alias codex='codex --enable hooks --full-auto'`
 3. 或先删除 `# >>> simple-harness-kit alias >>>` 标记块再 `bash install.sh` 重写
 
 ## [0.8.3] - 2026-04-16
@@ -124,14 +131,14 @@
 ### Added
 
 - **install.sh / update.sh 写 `~/.simple-harness-kit-root`**: 持久化 kit 绝对路径到家目录单文件。`harness-init` Step 0 优先读取此文件（仅次于 `SIMPLE_HARNESS_KIT_ROOT` 环境变量），用户运行过 install 即不必再手动告诉 kit 在哪。每次 update.sh 也刷新（kit 移动后路径同步）
-- **install.sh 交互式询问 alias**: Codex 安装后询问"是否将 `alias codex='codex --enable codex_hooks'` 写入 `~/.zshrc` / `~/.bashrc`?"。三选: `[Y]es 自动写` / `[n]o 打印让你手动加` / `[s]kip silently`。用 `# >>> simple-harness-kit alias >>>` 标记块幂等，二次 install 检测到跳过。非 TTY (CI / 管道) 默认 skip 不打扰
+- **install.sh 交互式询问 alias**: Codex 安装后询问"是否将 `alias codex='codex --enable hooks'` 写入 `~/.zshrc` / `~/.bashrc`?"。三选: `[Y]es 自动写` / `[n]o 打印让你手动加` / `[s]kip silently`。用 `# >>> simple-harness-kit alias >>>` 标记块幂等，二次 install 检测到跳过。非 TTY (CI / 管道) 默认 skip 不打扰
 - **SKILL.md Step 0 主动扫描 + 用户确认**: 优先级改为 `env > 文件 > 主动扫描 > 手动`。主动扫描候选含 `~/simple-harness-kit` / `~/ops/...` / `~/Projects/...` / `~/code/...` / `~/Dropbox/*/simple-harness-kit`，每个候选做 7 锚点完整性校验，校验通过的列给用户确认（C-SKILL-02 显式确认仍然强制）
 - **SKILL.md Codex 模式提示**: 检测到 exec (non-interactive) 模式且 kit 路径需要交互定位时，AI 应直接退出并提示用户改用 TUI
 
 ### Fixed
 
 - **`init-prompt.md` Codex skill 触发 sigil 文档** (来自 v0.8.2 后续): 明确 Codex 0.118.0 用 `$skill-name`（不是 `/skill-name`），TUI `/` 只认内置命令。包含 3 种触发方式对比表 + Claude Code vs Codex 行为差异表 + zsh 转义提示
-- **`init-prompt.md` 强调 init 必须 TUI**: 删除"`codex exec --full-auto --enable codex_hooks "/harness-init"`"建议（exec 模式无法回答 Step 0 问 kit 路径，会卡死或乱跳）。改为：必须 TUI 模式启动 codex 后输入 `$harness-init`
+- **`init-prompt.md` 强调 init 必须 TUI**: 删除"`codex exec --full-auto --enable hooks "/harness-init"`"建议（exec 模式无法回答 Step 0 问 kit 路径，会卡死或乱跳）。改为：必须 TUI 模式启动 codex 后输入 `$harness-init`
 - **install.sh "下一步" Codex 段同步**: 删除 `codex exec`，改为 TUI 模式 + `$harness-init` 触发
 
 ### Constraints
@@ -145,7 +152,7 @@
 - **新机器**: `git clone ... && bash install.sh` 流程不变，新增 alias 询问步骤
 - **Codex 用户重要**: 如果你之前用 `codex exec "/harness-init"` 跑 init —— 这个会卡，换成：
   ```
-  codex --full-auto --enable codex_hooks   # TUI
+  codex --full-auto --enable hooks   # TUI
   $harness-init                            # 在 TUI 里输（$ 不是 /）
   ```
 
@@ -177,7 +184,7 @@
 ### Fixed
 
 - **Codex runtime hook JSON schema 兼容 (VH-13, P0)**: 删除 9 个 hook 共 19 处放行分支 `process.stdout.write(raw)` 调用。Codex 0.118.0 严格按决策响应 schema parse PreToolUse hook 的 stdout，原 passthrough 写回的是请求 JSON（`tool_name`/`tool_input`/`hook_event_name`），每次 Bash 调用都报 "PreToolUse hook (failed) - invalid pre-tool-use JSON output"。改用空 stdout + exit 0，两个 runtime 都视为 allow-unchanged。受影响文件：`harness-stage-guard.js`、`verification-gate.js`、`session-logger.js`、`session-end.js`、`safety-guard.js`、`context-monitor.js`、`agent-check.js`、`delivery-review.js`、`commit-check.js`
-- **`init-prompt.md` 日常启动 Codex 文档补齐**: 新增 "### 日常启动 Codex（init 完成之后）" 小节，说明 init 之后不需要 `--full-auto`、仍需 `codex_hooks` feature flag、默认 `workspace-write` sandbox 够用、与 Claude Code 差异对照表、以及 "hook 完全不触发 → 99% 是 flag 没开" 的排错提示
+- **`init-prompt.md` 日常启动 Codex 文档补齐**: 新增 "### 日常启动 Codex（init 完成之后）" 小节，说明 init 之后不需要 `--full-auto`、仍需 `hooks` feature flag、默认 `workspace-write` sandbox 够用、与 Claude Code 差异对照表、以及 "hook 完全不触发 → 99% 是 flag 没开" 的排错提示
 - **`skills/harness-init/resources/init-prompt.md`**: byte-identical 同步上述文档
 - **`harness-stage-guard.js` since drift 窗口放宽 (VH-14)**: `SINCE_DRIFT_LIMIT` 从 5 分钟放宽到 30 分钟。用户反馈"经常出现时间戳不一致的问题"——AI 写 `.harness/current-stage.json` 需要手抄 `since` 字段，5 分钟窗口容错过小，跨 tool 调用的墙钟漂移频繁触壁。30 分钟窗口远大于正常 AI 手抄 drift，远小于"有意回拨到覆盖 evidence mtime"所需跨度，invariant 仍成立
 
