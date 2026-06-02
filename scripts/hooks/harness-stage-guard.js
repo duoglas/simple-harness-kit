@@ -147,24 +147,45 @@ const FIRST_CALL_BLOCK = `[Harness Stage Guard] 这是本轮任务的第一次�
 // 读操作工具——PLAN 阶段放行（只读、无代码副作用）
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 
-// Codex PLAN 阶段允许的只读 Bash 命令。保持保守：拒绝 shell 控制符/重定向/替换。
-const PLAN_READ_ONLY_BASH_PATTERNS = [
-  /^pwd(?:\s|$)/,
-  /^ls(?:\s|$)/,
-  /^find(?:\s|$)/,
-  /^rg(?:\s|$)/,
-  /^grep(?:\s|$)/,
-  /^sed\s+-n(?:\s|$)/,
-  /^cat(?:\s|$)/,
-  /^git\s+status(?:\s|$)/,
-  /^git\s+diff\s+--(?:stat|name-only)(?:\s|$)/,
-];
+// Codex PLAN 阶段允许的只读 Bash 命令。保持保守：拒绝 shell 控制符/重定向/替换；
+// 对表面只读但带副作用参数的命令做参数级拦截（例如 find -delete / sed -i / git diff --output）。
+const PLAN_READ_ONLY_BASH_COMMANDS = new Set(['pwd', 'ls', 'find', 'rg', 'grep', 'cat']);
 
 function isPlanReadOnlyBash(command) {
   const cmd = String(command || '').trim();
   if (!cmd) return true;
   if (/[;&|<>]/.test(cmd) || /\$\(/.test(cmd)) return false;
-  return PLAN_READ_ONLY_BASH_PATTERNS.some(re => re.test(cmd));
+  const parts = cmd.split(/\s+/);
+  const [bin, sub] = parts;
+
+  if (PLAN_READ_ONLY_BASH_COMMANDS.has(bin)) {
+    if (bin === 'find') {
+      const hasSideEffect = parts.slice(1).some(arg =>
+        /^-(delete|exec|execdir|ok|okdir)$/.test(arg) ||
+        /^-(fprint|fprint0|fls|fprintf)(?:$|\b)/.test(arg)
+      );
+      return !hasSideEffect;
+    }
+    return true;
+  }
+
+  if (bin === 'sed') {
+    const args = parts.slice(1);
+    const hasPrintOnly = args.some(arg => arg === '-n' || /^-[A-Za-z]*n[A-Za-z]*$/.test(arg));
+    const hasInPlace = args.some(arg => arg === '-i' || /^-i/.test(arg) || /^-[A-Za-z]*i[A-Za-z]*$/.test(arg));
+    return hasPrintOnly && !hasInPlace;
+  }
+
+  if (bin === 'git' && sub === 'status') return true;
+
+  if (bin === 'git' && sub === 'diff') {
+    const args = parts.slice(2);
+    const hasSafeFormat = args.some(arg => arg === '--stat' || arg === '--name-only');
+    const hasOutput = args.some(arg => arg === '--output' || arg.startsWith('--output='));
+    return hasSafeFormat && !hasOutput;
+  }
+
+  return false;
 }
 
 function toolText(input) {
@@ -175,15 +196,24 @@ function isPatchTool(toolName) {
   return toolName === 'apply_patch' || toolName === 'functions.apply_patch';
 }
 
-function patchTouchesOnlyHarnessState(input) {
+function patchFileRefs(input) {
   const txt = toolText(input).replace(/\\n/g, '\n');
-  if (!txt.includes('.harness/current-stage.json') && !txt.includes('.harness/current-plan.md')) return false;
   const fileRefs = [...txt.matchAll(/(?:\*\*\*\s+(?:Add|Update|Delete) File:|file_path[\"']?\s*[:=])\s*[\"']?([^\"'\n\r]+)/g)]
     .map(m => m[1].trim());
-  if (fileRefs.length === 0) {
-    return txt.includes('.harness/current-stage.json') || txt.includes('.harness/current-plan.md');
-  }
-  return fileRefs.every(p => p === '.harness/current-stage.json' || p === '.harness/current-plan.md');
+  if (fileRefs.length > 0) return fileRefs;
+  const refs = [];
+  if (txt.includes('.harness/current-stage.json')) refs.push('.harness/current-stage.json');
+  if (txt.includes('.harness/current-plan.md')) refs.push('.harness/current-plan.md');
+  return refs;
+}
+
+function patchTouchesHarnessStage(input) {
+  return patchFileRefs(input).some(p => p === '.harness/current-stage.json');
+}
+
+function patchTouchesOnlyHarnessPlan(input) {
+  const refs = patchFileRefs(input);
+  return refs.length > 0 && refs.every(p => p === '.harness/current-plan.md');
 }
 
 function denyPreToolUse(input, message) {
@@ -594,9 +624,10 @@ process.stdin.on('end', () => {
           const isReadOnlyBash = toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command);
           // 精确匹配：realpathSync 后比对, 跟随 symlink 确保 /tmp ↔ /private/tmp 一致
           const resolvedWrite = (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })();
+          const isStagePatch = isPatchTool(toolName) && patchTouchesHarnessStage(input);
           const isAllowedWrite = (toolName === 'Write' &&
             [PLAN_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f))) ||
-            (isPatchTool(toolName) && patchTouchesOnlyHarnessState(input));
+            (isPatchTool(toolName) && patchTouchesOnlyHarnessPlan(input));
 
           if (isReadTool || isReadOnlyBash) {
             // 读操作 / 只读 Bash 放行，注入 directive
@@ -607,6 +638,13 @@ process.stdin.on('end', () => {
           } else if (isAllowedWrite) {
             // 写计划文件或阶段声明放行
             process.stderr.write(`[Harness Stage Guard] PLAN 阶段：允许写入 ${writePath}\n`);
+          } else if (isStagePatch) {
+            // apply_patch 无法可靠复用 Write 的 content 校验与 REVIEW gate；
+            // 阶段切换必须走 Write current-stage.json，由 validateStageWrite() 完整校验。
+            return denyPreToolUse(
+              input,
+              '[Harness Stage Guard] PLAN 阶段禁止 apply_patch 修改 .harness/current-stage.json；请使用 Write 触发 stage/since/REVIEW gate 校验。\n'
+            );
           } else {
             // 其他一律阻止
             return denyPreToolUse(input, PLAN_BLOCK_MSG);
