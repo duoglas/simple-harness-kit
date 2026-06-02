@@ -27,7 +27,7 @@ bash ~/simple-harness-kit/install.sh
 `install.sh` 会做这些事：
 - 把 skills 装到 `~/.claude/skills/` 和/或 `~/.codex/skills/`（自动检测，或用 `--target claude|codex|both`）
 - 写入 `~/.simple-harness-kit-root` 文件，让 `harness-init` 后续自动定位 kit
-- （仅 Codex）询问是否把 `alias codex='codex --enable codex_hooks --full-auto'` 写入 `~/.zshrc` / `~/.bashrc` —— 推荐选 [Y]，一条 alias 同时覆盖 init 和日常 session
+- （仅 Codex）询问是否把 `alias codex='codex --enable hooks --sandbox workspace-write --ask-for-approval on-request'` 写入 `~/.zshrc` / `~/.bashrc` —— 推荐选 [Y]，显式启用 hooks 并使用当前 sandbox/approval 参数
 
 更新：`git -C ~/simple-harness-kit pull && bash ~/simple-harness-kit/install.sh`
 
@@ -44,7 +44,7 @@ claude              # 启动 TUI
 # Codex（必须 TUI 模式 — exec/non-interactive 在定位 kit 时会卡死）:
 codex               # 如果 Step 1 接受了 alias，这一条就够
 # 或者没设 alias 时：
-codex --full-auto --enable codex_hooks
+codex --enable hooks --sandbox workspace-write --ask-for-approval on-request
 # 然后在 TUI 输入：
 $harness-init       # 注意：Codex 用 $ 不是 / 触发 skill
 ```
@@ -376,7 +376,7 @@ SETUP(Harness Init) → PLAN → EXECUTE(3 Agent) → VERIFY(L2 PASS, L3 FAIL) �
 | 工具 | Hook 能力 | 状态 |
 |------|----------|------|
 | **Claude Code** | 原生 PreToolUse/PostToolUse | **已验证** (Exp A/B/C) |
-| **Codex CLI** | 原生 Hook（需 `codex_hooks` flag） | **已验证** (Exp C + 交叉测试) |
+| **Codex CLI** | 原生 Hook（需 `hooks` flag） | **已验证** (Exp C + 交叉测试) |
 | **Gemini CLI** | v0.26+ BeforeTool/AfterTool | 未验证 |
 | **Cursor** | v1.7+ hooks | 未验证 |
 | **OpenCode** | 插件 API（需改写） | 未验证 |

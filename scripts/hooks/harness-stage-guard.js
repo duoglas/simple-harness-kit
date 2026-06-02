@@ -5,7 +5,8 @@
  * Harness Stage Guard — 强制新 session 声明 Harness 阶段 + 监听 TaskCompleted 提醒 VERIFY
  * @version 0.8.7
  * 触发:
- *   - PreToolUse:*（Bash, Edit, Write, Agent, Read, Grep, Glob, WebFetch, WebSearch, TaskUpdate）
+ *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
+ *   - PermissionRequest（Codex 权限升级请求）
  *   - TaskCompleted lifecycle event (v0.6.3 迁移自原 PreToolUse:TaskUpdate + status==completed 检测)
  *
  * 机制:
@@ -14,7 +15,7 @@
  * 3. 解析/读取异常 → exit 2 阻止（损坏的 stage 文件应该被修复而不是绕过）
  * 4. stage 字段值无效（不是 PLAN|SETUP|EXECUTE|VERIFY|REVIEW|FEEDBACK|OFF）→ exit 2 阻止
  * 5. first-call guard → 本轮任务第一次工具调用时 exit 2，要求先输出阶段声明（TASK_TOOLS 跳过）
- * 6. stage = "PLAN" → 只放行 READ_TOOLS + TASK_TOOLS + Write 计划/阶段文件，其他 exit 2
+ * 6. stage = "PLAN" → 只放行 READ_TOOLS + 只读 Bash + TASK_TOOLS + Write/patch 计划/阶段文件，其他阻止
  * 7. 切换到 "REVIEW" → 检查 stage-history 是否经过 EXECUTE 和 VERIFY + 验证证据存在，缺任何一项 exit 2
  * 8. stage = "OFF" → 会话级关闭，每次调用提醒"Harness 已关闭"，放行
  * 9. 其他非 PLAN 阶段 → 放行，stderr 注入阶段 directive 和 session-log 提醒
@@ -140,11 +141,87 @@ const FIRST_CALL_BLOCK = `[Harness Stage Guard] 这是本轮任务的第一次�
 
   进入 PLAN 阶段 — [用一句话描述你理解的任务]
 
-输出声明后，再调用 Read/Grep/Glob/WebFetch/WebSearch 探索。
+输出声明后，再调用 Read/Grep/Glob/WebFetch/WebSearch 或只读 Bash（pwd/ls/rg/grep/sed -n/cat/git status/git diff --stat/name-only）探索。
 `;
 
 // 读操作工具——PLAN 阶段放行（只读、无代码副作用）
 const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
+
+// Codex PLAN 阶段允许的只读 Bash 命令。保持保守：拒绝 shell 控制符/重定向/替换。
+const PLAN_READ_ONLY_BASH_PATTERNS = [
+  /^pwd(?:\s|$)/,
+  /^ls(?:\s|$)/,
+  /^find(?:\s|$)/,
+  /^rg(?:\s|$)/,
+  /^grep(?:\s|$)/,
+  /^sed\s+-n(?:\s|$)/,
+  /^cat(?:\s|$)/,
+  /^git\s+status(?:\s|$)/,
+  /^git\s+diff\s+--(?:stat|name-only)(?:\s|$)/,
+];
+
+function isPlanReadOnlyBash(command) {
+  const cmd = String(command || '').trim();
+  if (!cmd) return true;
+  if (/[;&|<>]/.test(cmd) || /\$\(/.test(cmd)) return false;
+  return PLAN_READ_ONLY_BASH_PATTERNS.some(re => re.test(cmd));
+}
+
+function toolText(input) {
+  return JSON.stringify(input && input.tool_input ? input.tool_input : input || {});
+}
+
+function isPatchTool(toolName) {
+  return toolName === 'apply_patch' || toolName === 'functions.apply_patch';
+}
+
+function patchTouchesOnlyHarnessState(input) {
+  const txt = toolText(input).replace(/\\n/g, '\n');
+  if (!txt.includes('.harness/current-stage.json') && !txt.includes('.harness/current-plan.md')) return false;
+  const fileRefs = [...txt.matchAll(/(?:\*\*\*\s+(?:Add|Update|Delete) File:|file_path[\"']?\s*[:=])\s*[\"']?([^\"'\n\r]+)/g)]
+    .map(m => m[1].trim());
+  if (fileRefs.length === 0) {
+    return txt.includes('.harness/current-stage.json') || txt.includes('.harness/current-plan.md');
+  }
+  return fileRefs.every(p => p === '.harness/current-stage.json' || p === '.harness/current-plan.md');
+}
+
+function denyPreToolUse(input, message) {
+  const reason = String(message || 'Blocked by Harness Stage Guard').replace(/\s+/g, ' ').trim();
+  if (input && input.hook_event_name === 'PreToolUse') {
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: reason,
+      },
+    }) + '\n');
+    process.exit(0);
+  }
+  process.stderr.write(message);
+  process.exit(2);
+}
+
+function denyPermissionRequest(message) {
+  const reason = String(message || 'Blocked by Harness Stage Guard').replace(/\s+/g, ' ').trim();
+  process.stdout.write(JSON.stringify({
+    decision: {
+      behavior: 'block',
+      reason,
+    },
+  }) + '\n');
+  process.exit(0);
+}
+
+function readCurrentStageValue() {
+  try {
+    const rawStage = safeReadFileSync(STAGE_FILE);
+    if (!rawStage) return null;
+    return JSON.parse(rawStage).stage || null;
+  } catch {
+    return null;
+  }
+}
 
 // 任务管理工具——任何阶段放行（流程管理操作，不产生代码副作用）
 const TASK_TOOLS = ['TaskUpdate', 'TaskCreate', 'TaskList', 'TaskGet'];
@@ -154,7 +231,7 @@ const PLAN_BLOCK_MSG = `[Harness Stage Guard] PLAN 阶段禁止此操作。
 你是否已经向用户输出了阶段声明？如果没有，先输出：
   进入 PLAN 阶段 — [任务描述]
 
-PLAN 阶段只允许：Read, Grep, Glob, WebFetch, WebSearch, TaskUpdate/TaskCreate/TaskList/TaskGet, Write(.harness/current-plan.md), Write(.harness/current-stage.json)
+PLAN 阶段只允许：Read/Grep/Glob/WebFetch/WebSearch、只读 Bash(pwd/ls/find/rg/grep/sed -n/cat/git status/git diff --stat/name-only)、TaskUpdate/TaskCreate/TaskList/TaskGet、Write 或 apply_patch(.harness/current-plan.md|.harness/current-stage.json)
 流程：澄清需求 → 任务拆解 → 等用户确认 → Write current-stage.json 切换到 EXECUTE
 `;
 
@@ -357,6 +434,18 @@ process.stdin.on('end', () => {
   try {
     const input = JSON.parse(raw);
 
+    // ── PermissionRequest 特殊处理（Codex） ──
+    // PLAN 阶段不能通过权限升级绕过 guard；使用 Codex 官方 decision.behavior shape。
+    if (input.hook_event_name === 'PermissionRequest') {
+      const currentStage = readCurrentStageValue();
+      if (!currentStage || currentStage === 'PLAN') {
+        return denyPermissionRequest(
+          '[Harness Stage Guard] PLAN 阶段拒绝权限升级。先完成 PLAN 并经用户确认后，再写入 .harness/current-stage.json 切换到 EXECUTE。'
+        );
+      }
+      return;
+    }
+
     // ── TaskCompleted lifecycle event 特殊处理 ──
     // TaskCompleted 是 Claude Code 为任务完成专设的 event，不是 tool call。
     // 它没有 tool_name / tool_input，只有 hook_event_name + task_id + task_subject。
@@ -497,19 +586,20 @@ process.stdin.on('end', () => {
         if (toolCount.count === 0 && !TASK_TOOLS.includes(toolName)) {
           // 递增计数器，下次不再阻止
           try { fs.writeFileSync(TOOL_COUNT_FILE, JSON.stringify({ count: 1 }) + '\n'); } catch {}
-          process.stderr.write(FIRST_CALL_BLOCK);
-          shouldBlock = true;
+          return denyPreToolUse(input, FIRST_CALL_BLOCK);
         } else if (data.stage === 'PLAN') {
         // PLAN 阶段：硬约束——只允许读工具 + 任务管理工具 + Write 计划文件/阶段文件
           const isReadTool = READ_TOOLS.includes(toolName);
           const isTaskTool = TASK_TOOLS.includes(toolName);
+          const isReadOnlyBash = toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command);
           // 精确匹配：realpathSync 后比对, 跟随 symlink 确保 /tmp ↔ /private/tmp 一致
           const resolvedWrite = (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })();
-          const isAllowedWrite = toolName === 'Write' &&
-            [PLAN_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f));
+          const isAllowedWrite = (toolName === 'Write' &&
+            [PLAN_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f))) ||
+            (isPatchTool(toolName) && patchTouchesOnlyHarnessState(input));
 
-          if (isReadTool) {
-            // 读操作放行，注入 directive
+          if (isReadTool || isReadOnlyBash) {
+            // 读操作 / 只读 Bash 放行，注入 directive
             process.stderr.write(STAGE_DIRECTIVES.PLAN);
             process.stderr.write(LOG_REMINDER);
           } else if (isTaskTool) {
@@ -519,8 +609,7 @@ process.stdin.on('end', () => {
             process.stderr.write(`[Harness Stage Guard] PLAN 阶段：允许写入 ${writePath}\n`);
           } else {
             // 其他一律阻止
-            process.stderr.write(PLAN_BLOCK_MSG);
-            shouldBlock = true;
+            return denyPreToolUse(input, PLAN_BLOCK_MSG);
           }
         } else {
           // 非 PLAN 阶段：注入阶段工作要求，不阻止
@@ -556,5 +645,5 @@ process.stdin.on('end', () => {
   if (shouldBlock) {
     process.exit(2);
   }
-  // stdout 保持为空（Codex 0.118.0 兼容，见 VH-13）
+  // stdout 保持为空（Codex runtime 兼容，见 VH-13）
 });
