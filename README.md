@@ -101,7 +101,7 @@ The skill asks for the issue and expected behavior, then runs F1-F5 automaticall
 
 - **6-Stage Loop:** Plan → Setup → Execute → Verify → Review → Feedback (loops until quality gates pass)
 - **5-Layer QA Pyramid:** TDD self-verify → Tool checks (build/lint/test) → Spec review (independent reviewer) → Santa Method (dual adversarial) → Human review
-- **9 Hooks:** safety-guard, harness-stage-guard, agent-check, verification-gate, commit-check, delivery-review, context-monitor, session-logger, branch-policy-guard — fire at 100% reliability regardless of context length
+- **Hook enforcement:** core hooks + optional/helper scripts cover stage guard, safety, verification, commit, delivery, learning, session logging, branch policy, and Codex compatibility — fire at 100% reliability regardless of context length
 - **Continuous Learning:** Auto-captures tool usage patterns (<50ms, no overhead), analyzes at each REVIEW stage. Pure local analysis, zero API calls. Discovers workflow habits, hot files needing tests, stable patterns to promote to Rules (token savings)
 
 ### Preset System (v0.9.0)
@@ -187,12 +187,13 @@ We surveyed three layers: **agent frameworks** (DeerFlow/LangGraph/CrewAI — bu
 
 ```
 simple-harness-kit/
-├── methodology/   15 methodology docs
+├── methodology/   20 methodology docs
 ├── presets/       2 built-in (generic + example-company), data-driven commit & branch rules
-├── templates/     5 rule templates + 9 hook scripts + 4 config templates
-├── skills/        7 skills (init user-triggered | rest AI-auto)
+├── templates/     11 templates
+├── scripts/hooks/ 16 hook/helper scripts
+├── skills/        11 skills (init user-triggered | rest AI-auto)
 ├── examples/      3 real-world experiments (A + B + C)
-├── tests/         138+ hook scenarios + template integrity + scripted matrix + codex smoke
+├── tests/         170 hook scenarios + template integrity + scripted matrix + codex smoke
 └── init-prompt.md initialization prompt
 ```
 
