@@ -345,6 +345,114 @@
     }
   },
   {
+    "name": "stage-guard: Codex JSON deny + Bash newline chaining",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd\ntouch pwned"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash backtick substitution",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "pwd `touch pwned`"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash quoted find delete",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "find . '-delete'"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash rg preprocessor",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "rg --pre 'touch pwned' needle ."
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
     "name": "stage-guard: PLAN + apply_patch current-plan → 放行",
     "hook": "harness-stage-guard.js",
     "stdin": {
