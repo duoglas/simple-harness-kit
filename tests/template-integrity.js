@@ -21,8 +21,17 @@ const path = require('path');
 
 const KIT_ROOT = path.resolve(__dirname, '..');
 const TMPL_SETTINGS = path.join(KIT_ROOT, 'templates', 'settings-json.tmpl');
+const TMPL_AGENTS = path.join(KIT_ROOT, 'templates', 'agents-md.tmpl');
+const CODEX_HOOKS_GENERATOR = path.join(KIT_ROOT, 'scripts', 'generate-codex-hooks.js');
+const INSTALL_SH = path.join(KIT_ROOT, 'install.sh');
 const TMPL_RULES_DIR = path.join(KIT_ROOT, 'templates', 'rules');
 const SCRIPTS_HOOKS_DIR = path.join(KIT_ROOT, 'scripts', 'hooks');
+const README_EN = path.join(KIT_ROOT, 'README.md');
+const README_ZH = path.join(KIT_ROOT, 'README.zh-CN.md');
+const INIT_PROMPT_RESOURCE = path.join(KIT_ROOT, 'skills', 'harness-init', 'resources', 'init-prompt.md');
+const CODEX_INIT_SMOKE = path.join(KIT_ROOT, 'tests', 'codex-init-smoke.sh');
+const BEHAVIOR_OBSERVATION = path.join(KIT_ROOT, 'tests', 'scripts', '09-behavior-observation.sh');
+const OUTPUT_QUALITY = path.join(KIT_ROOT, 'tests', 'scripts', '10-output-quality.sh');
 const INIT_PROMPT = path.join(KIT_ROOT, 'init-prompt.md');
 const REQUIRED_WIRING_FILE = path.join(__dirname, 'required-wiring.json');
 const HARNESS_INIT_SKILL = path.join(KIT_ROOT, 'skills', 'harness-init', 'SKILL.md');
@@ -140,6 +149,44 @@ function runTemplateIntegrityTests() {
     } catch (e) {
       return `JSON 解析失败: ${e.message}`;
     }
+  });
+
+  check('template: AGENTS.md 模板包含 Harness 首轮规则', () => {
+    if (!fs.existsSync(TMPL_AGENTS)) return '文件不存在: ' + TMPL_AGENTS;
+    const content = fs.readFileSync(TMPL_AGENTS, 'utf8');
+    const required = ['Harness 首轮规则', '进入 PLAN 阶段', '任何工具调用', 'memory 查询', 'AGENTS 只负责模型行为约束'];
+    const missing = required.filter(x => !content.includes(x));
+    if (missing.length > 0) return 'AGENTS.md 模板缺失首轮规则锚点: ' + missing.join(', ');
+  });
+
+  check('codex: 生成器使用 canonical hooks 且无 deprecated alias', () => {
+    if (!fs.existsSync(CODEX_HOOKS_GENERATOR)) return '文件不存在: ' + CODEX_HOOKS_GENERATOR;
+    const content = fs.readFileSync(CODEX_HOOKS_GENERATOR, 'utf8');
+    if (!content.includes('CODEX_STAGE_GUARD_MATCHER')) return 'generate-codex-hooks.js 未声明 Codex stage guard matcher';
+    if (!content.includes('Bash|apply_patch|mcp__.*')) return 'Codex stage guard matcher 未覆盖 Bash|apply_patch|mcp__.*';
+    if (!content.includes('PermissionRequest')) return 'generate-codex-hooks.js 未生成 PermissionRequest guard';
+    if (content.includes(['codex', 'hooks'].join('_'))) return 'generate-codex-hooks.js 仍包含 deprecated alias 字符串';
+  });
+
+  check('install/docs: 不再推荐 deprecated alias feature flag', () => {
+    const files = [INSTALL_SH, INIT_PROMPT, INIT_PROMPT_RESOURCE, README_EN, README_ZH];
+    const bad = files.filter(p => fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes(['codex', 'hooks'].join('_')));
+    if (bad.length > 0) return '仍包含 legacy feature flag alias: ' + bad.map(p => path.relative(KIT_ROOT, p)).join(', ');
+  });
+
+  check('codex: 活跃入口文档和脚本不再引用已移除 --full-auto', () => {
+    const files = [INSTALL_SH, INIT_PROMPT, INIT_PROMPT_RESOURCE, README_EN, README_ZH, CODEX_INIT_SMOKE, BEHAVIOR_OBSERVATION, OUTPUT_QUALITY];
+    const bad = files.filter(p => fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('--full-auto'));
+    if (bad.length > 0) return '仍引用 --full-auto: ' + bad.map(p => path.relative(KIT_ROOT, p)).join(', ');
+  });
+
+  check('codex: stage guard PermissionRequest 使用 decision.behavior shape', () => {
+    const guardPath = path.join(SCRIPTS_HOOKS_DIR, 'harness-stage-guard.js');
+    if (!fs.existsSync(guardPath)) return '文件不存在: ' + guardPath;
+    const content = fs.readFileSync(guardPath, 'utf8');
+    const required = ["hook_event_name === 'PermissionRequest'", 'decision', 'behavior', 'block', 'reason'];
+    const missing = required.filter(x => !content.includes(x));
+    if (missing.length > 0) return 'PermissionRequest 决策 shape 缺失锚点: ' + missing.join(', ');
   });
 
   // ── T2: 必选顶层事件（从 required-wiring.json 派生）──

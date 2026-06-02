@@ -14,7 +14,7 @@
 #
 # 关键设计:
 #   - 预设 SIMPLE_HARNESS_KIT_ROOT 环境变量 → SKILL.md Step 0 优先级 (1) 命中, 跳过用户交互
-#   - 用 codex exec --dangerously-bypass-approvals-and-sandbox 跑非交互 (init 创建 .codex/ 需要)
+#   - 用 codex exec --dangerously-bypass-approvals-and-sandbox 跑非交互 smoke（仅限 tmp 外部沙箱场景）
 #   - prompt 显式指示 "不要询问, 接受所有默认", 双保险防 Codex 卡住
 #   - 长 timeout (默认 600s, init 流程要读 methodology + 写多文件)
 #
@@ -89,7 +89,7 @@ set +e
   SIMPLE_HARNESS_KIT_ROOT="$KIT_ROOT" \
   timeout "$TIMEOUT_SEC" codex exec \
     --dangerously-bypass-approvals-and-sandbox \
-    --enable codex_hooks \
+    --enable hooks \
     --skip-git-repo-check \
     --ephemeral \
     "$PROMPT"

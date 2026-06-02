@@ -308,6 +308,22 @@ function runScenario(scenario) {
       }
     }
 
+    if (expect.stdoutContains) {
+      for (const keyword of expect.stdoutContains) {
+        if (!stdout.includes(keyword)) {
+          errors.push('stdout 未包含: "' + keyword + '"');
+        }
+      }
+    }
+
+    if (expect.stdoutNot) {
+      for (const keyword of expect.stdoutNot) {
+        if (stdout.includes(keyword)) {
+          errors.push('stdout 不应包含: "' + keyword + '"');
+        }
+      }
+    }
+
     // 检查目录中匹配文件名的项（用于 archive 等动态文件名场景）
     if (expect.dirs) {
       for (const [dirPath, check] of Object.entries(expect.dirs)) {
