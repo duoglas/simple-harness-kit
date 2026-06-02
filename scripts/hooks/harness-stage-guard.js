@@ -151,11 +151,53 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'];
 // 对表面只读但带副作用参数的命令做参数级拦截（例如 find -delete / sed -i / git diff --output）。
 const PLAN_READ_ONLY_BASH_COMMANDS = new Set(['pwd', 'ls', 'find', 'rg', 'grep', 'cat']);
 
+function parsePlanBashArgs(cmd) {
+  const parts = [];
+  let current = '';
+  let quote = null;
+  let inWord = false;
+
+  for (const ch of cmd) {
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        current += ch;
+      }
+      inWord = true;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      inWord = true;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      if (inWord) {
+        parts.push(current);
+        current = '';
+        inWord = false;
+      }
+      continue;
+    }
+
+    current += ch;
+    inWord = true;
+  }
+
+  if (quote) return null;
+  if (inWord) parts.push(current);
+  return parts;
+}
+
 function isPlanReadOnlyBash(command) {
   const cmd = String(command || '').trim();
   if (!cmd) return true;
-  if (/[;&|<>]/.test(cmd) || /\$\(/.test(cmd)) return false;
-  const parts = cmd.split(/\s+/);
+  if (/[\n\r`\\$]/.test(cmd) || /[;&|<>]/.test(cmd)) return false;
+  const parts = parsePlanBashArgs(cmd);
+  if (!parts || parts.length === 0) return false;
   const [bin, sub] = parts;
 
   if (PLAN_READ_ONLY_BASH_COMMANDS.has(bin)) {
@@ -164,6 +206,10 @@ function isPlanReadOnlyBash(command) {
         /^-(delete|exec|execdir|ok|okdir)$/.test(arg) ||
         /^-(fprint|fprint0|fls|fprintf)(?:$|\b)/.test(arg)
       );
+      return !hasSideEffect;
+    }
+    if (bin === 'rg') {
+      const hasSideEffect = parts.slice(1).some(arg => arg === '--pre' || arg.startsWith('--pre='));
       return !hasSideEffect;
     }
     return true;
@@ -182,7 +228,8 @@ function isPlanReadOnlyBash(command) {
     const args = parts.slice(2);
     const hasSafeFormat = args.some(arg => arg === '--stat' || arg === '--name-only');
     const hasOutput = args.some(arg => arg === '--output' || arg.startsWith('--output='));
-    return hasSafeFormat && !hasOutput;
+    const hasExternalHook = args.some(arg => arg === '--ext-diff' || arg === '--textconv');
+    return hasSafeFormat && !hasOutput && !hasExternalHook;
   }
 
   return false;
