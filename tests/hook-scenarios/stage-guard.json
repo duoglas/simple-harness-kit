@@ -290,12 +290,67 @@
     }
   },
   {
-    "name": "stage-guard: PLAN + apply_patch current-stage → 放行",
+    "name": "stage-guard: Codex JSON deny + apply_patch current-stage 防绕过",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "patch": "*** Begin Patch\n*** Update File: .harness/current-stage.json\n@@\n-{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}\n+{\"stage\":\"REVIEW\",\"since\":\"auto\",\"task\":\"bypass\"}\n*** End Patch\n"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny",
+        "current-stage.json"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: Codex JSON deny + Bash find -delete",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "find . -delete"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ],
+      "stdoutNot": [
+        "continue",
+        "stopReason"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + apply_patch current-plan → 放行",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "apply_patch",
       "tool_input": {
-        "patch": "*** Begin Patch\n*** Update File: .harness/current-stage.json\n@@\n-{}\n+{\"stage\":\"EXECUTE\",\"since\":\"auto\",\"task\":\"go\"}\n*** End Patch\n"
+        "patch": "*** Begin Patch\n*** Update File: .harness/current-plan.md\n@@\n-old plan\n+new plan\n*** End Patch\n"
       }
     },
     "setup": {
