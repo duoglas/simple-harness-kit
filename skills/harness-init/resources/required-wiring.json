@@ -8,6 +8,7 @@
     ".claude/rules/harness-entry.md",
     "scripts/hooks/harness-stage-guard.js",
     "scripts/hooks/harness-session-start.js",
+    "scripts/hooks/harness-entry-banner.js",
     "scripts/hooks/session-logger.js",
     "scripts/hooks/safety-guard.js",
     "scripts/hooks/find-root.js",
@@ -18,6 +19,7 @@
   ],
   "wirings": [
     { "event": "SessionStart", "matcher": null, "script": "harness-session-start.js" },
+    { "event": "UserPromptSubmit", "matcher": null, "script": "harness-entry-banner.js" },
     { "event": "PreToolUse", "matcher": "Bash", "script": "harness-stage-guard.js" },
     { "event": "PreToolUse", "matcher": "Edit", "script": "harness-stage-guard.js" },
     { "event": "PreToolUse", "matcher": "Write", "script": "harness-stage-guard.js" },

@@ -11,6 +11,17 @@
         "description": "新 session 重置陈旧阶段 + 输出入口 banner"
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D=$(cd \"$(pwd)\" && pwd -P);while [ \"$D\" != / ]&&[ ! -f \"$D/scripts/hooks/find-root.js\" ];do D=$(dirname \"$D\");done;[ -f \"$D/scripts/hooks/find-root.js\" ]&&cd \"$D\"&&node scripts/hooks/harness-entry-banner.js"
+          }
+        ],
+        "description": "Codex-visible Harness banner fallback（SessionStart stderr 不可见时注入 additionalContext）"
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",

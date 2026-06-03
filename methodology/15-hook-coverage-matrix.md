@@ -80,6 +80,7 @@ stage-guard 对所有匹配的工具都会执行统一流程：
 | 事件 | templates/settings-json.tmpl | 使用方 .claude/settings.json（例: harness-dogfood 工作区） | init-prompt.md (最小集) | 脚本 | 用途 |
 |------|:---:|:---:|:---:|---|------|
 | SessionStart | ✓ | ✓ | ✓ | harness-session-start.js | 新 session 初始化、重置陈旧 stage、输出 banner |
+| UserPromptSubmit | ✓ | ✓ | ✓ | harness-entry-banner.js | Codex Desktop 中 SessionStart stderr/banner 不可见时，通过 additionalContext 注入 Harness 入口 |
 | PreToolUse | ✓ | ✓ | ✓ | stage-guard / safety-guard / verification-gate / delivery-review / commit-check / agent-check / context-monitor | 核心拦截点 |
 | PostToolUse | ✓ | ✓ | ✓ | session-logger | 成功工具调用记录 |
 | PostToolUseFailure | ✓ | ✓ | ✓ | session-logger | 失败工具调用记录（v0.7.0 加入） |
@@ -111,7 +112,6 @@ stage-guard 对所有匹配的工具都会执行统一流程：
 
 | 事件 | 理由 |
 |------|------|
-| UserPromptSubmit | 无具体守门用例 |
 | PermissionRequest / PermissionDenied | 交互式权限，非自动化场景 |
 | Notification | Claude Code UI 相关 |
 | SubagentStart / SubagentStop | Agent matcher 已覆盖派发动作 |
