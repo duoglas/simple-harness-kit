@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Known Issues
+
+- **PLAN Bash `sed -n` 仍存在写文件边界**: 当前 `harness-stage-guard.js` 将 `sed -n` 视为只读探索，但 `sed -n '1w pwned' input.txt` 这类 sed `w` command 仍可写文件。此项先记录为已知问题，后续应收窄 PLAN 阶段 sed 白名单或移除 sed 放行，并补回归 fixture。
+
 ## [0.10.0] - 2026-06-03
 
 ### Added
@@ -30,6 +34,15 @@
 
 - **Codex harness bootstrap**: 保持现有 `install.sh` + `$harness-init` 入口不变，Codex 侧改用 canonical `hooks` 配置、AGENTS 首轮 PLAN 规则、`PreToolUse` 覆盖 `Bash|apply_patch|mcp__.*`、`PermissionRequest` 使用 `decision.behavior` 拦截 PLAN 权限升级，并提示 `/hooks` trust/review。
 - **Codex CLI flags**: 移除活跃文档/脚本中已废弃的 `--full-auto` 推荐，改为当前显式 flags：`--enable hooks --sandbox workspace-write --ask-for-approval on-request`；非交互 smoke 保留 `--dangerously-bypass-approvals-and-sandbox` 仅用于 tmp 外部沙箱测试。
+
+### Fixed
+
+- **PLAN `apply_patch` stage bypass**: PLAN 阶段禁止 `apply_patch` 修改 `.harness/current-stage.json`，阶段切换必须走 `Write current-stage.json`，从而复用 stage/since 校验和 REVIEW gate。
+- **PLAN Bash false negatives**: 收窄只读 Bash 白名单，拒绝 `find -delete/-exec`、quoted `find '-delete'`、newline chaining、backtick substitution、`rg --pre`、`git diff --output/--ext-diff/--textconv`、`sed -i` 等带写入或执行副作用的形式。
+
+### Tests
+
+- **Codex stage guard regression fixtures**: 新增 current-stage patch bypass、find destructive args、shell chaining/substitution、quoted find、rg preprocessor 等回归场景。`node tests/run.js --filter stage-guard` 最新为 `107 passed, 0 failed`。
 
 ## [0.9.0] - 2026-04-30
 

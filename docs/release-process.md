@@ -71,13 +71,13 @@ T10/T11 任一 FAIL → 本 release **禁止进 Step 1**。必须先：
 bash tests/scripts/run-all.sh
 
 # 必须看到:
-#   维度总数:   7
-#   PASS:       7
+#   维度总数:   9
+#   PASS:       9
 #   FAIL:       0
 #   全部维度 PASS ✓
 ```
 
-涵盖维度（`tests/scripts/01..07-*.sh`）:
+涵盖常规维度（`tests/scripts/01..08-*.sh` + `11-codex-smoke-contract.sh`）:
 
 1. **脚本幂等性** — install/update 反复跑不嵌套（catch VH-10 问题 A）
 2. **Skill 路径可解析性** — SKILL.md 中所有路径在真实 cwd 解析（catch VH-10 问题 B）
@@ -86,6 +86,8 @@ bash tests/scripts/run-all.sh
 5. **Bug 注入反测 (mutation)** — 证明 01-04 真能 catch 对应 bug（L3 正负基线）
 6. **路径风格矩阵** — plain / 空格 / 中文 / 超长 4 种路径 × 维度 1+4
 7. **Install scope 分支** — personal vs project 两种 scope 一致
+8. **内容质量** — 生成的 QA 标准和核心文档锚点完整
+9. **Codex smoke contract** — 用 fake codex 验证 smoke 脚本退出码/DEGRADED 语义，不依赖真实 Codex runtime
 
 此外必须含 L2 (断言计数), L6 (zsh 兼容), T12 (resources 同步守门)。任一 FAIL → 本 release **禁止进 Step 1**。
 
@@ -116,7 +118,7 @@ bash tests/pre-release-check.sh
 - `SKIP_SYNC_CHECK=1` — 允许 local 领先 origin（单机 release 流程用）。
 - `tests/run.js` 和 working tree dirty 检查**不可豁免**。
 
-**为什么在这一步**: v0.8.6 带着 2 个 pre-existing `tests/run.js` FAIL 发布到 60+ 使用者 — 05-mutation M1 假阴性（defensive code redundancy 让 mutation 探测失效）+ codex-smoke-selftest `RUN_EXIT�` unbound variable（UTF-8 全角括号把变量名吞掉）。Step 0 / 0.5 只跑 `template-integrity` 和 `run-all.sh`（7 维脚本矩阵），覆盖不到 `hook-scenarios/` / `codex-smoke.sh` 等路径。本次 VH-16 调查时才追溯出这两个 FAIL 早就存在，release gate 有显著漏洞。
+**为什么在这一步**: v0.8.6 带着 2 个 pre-existing `tests/run.js` FAIL 发布到 60+ 使用者 — 05-mutation M1 假阴性（defensive code redundancy 让 mutation 探测失效）+ codex-smoke-selftest `RUN_EXIT�` unbound variable（UTF-8 全角括号把变量名吞掉）。Step 0 / 0.5 当时只跑 `template-integrity` 和 `run-all.sh`（当时的 7 维脚本矩阵），覆盖不到 `hook-scenarios/` / `codex-smoke.sh` 等路径。本次 VH-16 调查时才追溯出这两个 FAIL 早就存在，release gate 有显著漏洞。
 
 **关联约束**: C-GATE-09
 
@@ -155,7 +157,7 @@ git log $(git describe --tags --abbrev=0)..HEAD --oneline
 
 ### Step 3: Bump @version 注释（如有 Hook 改动）
 
-如果本次发版包含 Hook 脚本改动，更新 12 个 Hook 文件头部的 `@version` 字段：
+如果本次发版包含 Hook/辅助脚本改动，更新对应文件头部的 `@version` 字段：
 
 ```bash
 # 例: 0.6.1 → 0.6.2
@@ -186,6 +188,14 @@ git tag -a vX.Y.Z -m "vX.Y.Z: 一句话摘要
 详细变更见 CHANGELOG.md"
 ```
 
+推荐在 `master/main` 的 release commit 或 merge commit 上打 tag。若因 PR 流程先在 PR head 打 tag，merge 后必须确认：
+
+```bash
+git diff --quiet vX.Y.Z^{}..origin/master
+```
+
+即 tag 指向的树与最终默认分支树完全一致；否则删除/重打 tag，避免 GitHub Release 指向的源码和默认分支不一致。
+
 ### Step 6: Push commit + tag
 
 ```bash
@@ -199,9 +209,14 @@ git push origin vX.Y.Z
 git push origin master --follow-tags
 ```
 
-### Step 7: GitHub Release（可选）
+### Step 7: GitHub Release
 
-如果发版包含资产（screenshots / 二进制 / patch 文件），在 GitHub 上创建 Release，附带 CHANGELOG 中本版本的内容。
+每个公开 tag 都应创建或更新 GitHub Release，即使没有资产（screenshots / 二进制 / patch 文件）。Release body 以 CHANGELOG 中本版本内容为 source of truth，但必须在发布前复核：
+
+1. release body 的测试数字与最终 tag/head 实测一致
+2. post-review 修复和安全 hardening 不遗漏
+3. 已知但暂不修的问题写入 `[Unreleased]` 或 GitHub issue
+4. 如果 tag 早于 merge 创建，确认 Step 5 的 tree equality 已通过
 
 ## CHANGELOG 维护原则
 

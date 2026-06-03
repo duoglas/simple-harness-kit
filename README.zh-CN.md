@@ -112,13 +112,13 @@ Skill 会询问问题描述和期望行为，自动按 F1-F5 流程执行。也�
   L1: Self-Verify     Agent 自验          ← TDD 红绿重构
 ```
 
-**Hook 强制执行：** 9 个内置 Hook，在工具层 100% 拦截——safety-guard | harness-stage-guard | agent-check | verification-gate | commit-check | delivery-review | context-monitor | session-logger | branch-policy-guard
+**Hook 强制执行：** 核心 Hook + 可选/辅助脚本覆盖 stage guard、safety、verification、commit、delivery、learning、session logging、branch policy 和 Codex 兼容路径，在工具层 100% 拦截。
 
 **持续学习：** 开发过程中 Hook 自动记录行为数据（<50ms 无感知），每轮 Loop 结束时自动分析——发现工具使用模式、高频修改文件（可能缺测试）、稳定行为可提炼为 Rule（减少 token 消耗）。不调 AI API，纯本地分析。
 
 **Quality Gate Suite：** `scripts/shk.js` 提供统一准出入口：`verify` 生成结构化 evidence，`doctor` 检查 stage/evidence/hook enforce 健康度，`security scan` 检查 secrets/泄漏/config risk，`test-infra assess` 落地 Infra Tier，profile dry-run/repair，`e2e detect` 生成 E2E quickstart。`verification-gate.js` commit/tag 前优先读取 `.harness/verify-evidence.json`，要求 `overall=READY`。
 
-详见 [methodology/](methodology/) 全部 15 篇文档。
+详见 [methodology/](methodology/) 全部 22 篇文档。
 
 ---
 
@@ -398,12 +398,13 @@ SETUP(Harness Init) → PLAN → EXECUTE(3 Agent) → VERIFY(L2 PASS, L3 FAIL) �
 
 ```
 simple-harness-kit/
-├── methodology/   15 篇方法论文档
+├── methodology/   20 篇方法论文档
 ├── presets/       2 个内置 (generic + example-company)，数据驱动 commit & 分支规则
-├── templates/     5 规则模板 + 9 Hook 脚本 + 4 配置模板
-├── skills/        7 个 Skills (init 用户触发 | 其余 AI 自动调用)
+├── templates/     11 个模板
+├── scripts/hooks/ 16 个 Hook/辅助脚本
+├── skills/        11 个 Skills (init 用户触发 | 其余 AI 自动调用)
 ├── examples/      3 个实战验证 (Experiment A + B + C)
-├── tests/         138+ Hook 场景 + 模板完整性 + 脚本矩阵 + Codex smoke
+├── tests/         170 个 Hook 场景 + 模板完整性 + 脚本矩阵 + Codex smoke
 └── init-prompt.md 初始化 Prompt
 ```
 
