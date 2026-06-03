@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "profiles": {
+    "minimal": ["stage-guard", "session-logger"],
+    "core": ["minimal", "safety-guard", "verification-gate"],
+    "full": ["core", "delivery-gate", "context-monitor", "doctor", "infra-tier"],
+    "release": ["full", "runtime-smoke", "pre-release-check", "santa-review"],
+    "codex": ["core", "codex-hooks", "permission-request-guard"]
+  },
+  "components": {
+    "stage-guard": { "kind": "hook", "script": "scripts/hooks/harness-stage-guard.js" },
+    "session-logger": { "kind": "hook", "script": "scripts/hooks/session-logger.js" },
+    "safety-guard": { "kind": "hook", "script": "scripts/hooks/safety-guard.js" },
+    "verification-gate": { "kind": "hook", "script": "scripts/hooks/verification-gate.js" },
+    "delivery-gate": { "kind": "hook", "script": "scripts/hooks/delivery-gate.js" },
+    "context-monitor": { "kind": "hook", "script": "scripts/hooks/context-monitor.js" },
+    "doctor": { "kind": "cli", "script": "scripts/shk.js", "command": "shk doctor" },
+    "infra-tier": { "kind": "cli", "script": "scripts/shk.js", "command": "shk test-infra assess" },
+    "runtime-smoke": { "kind": "test", "script": "tests/codex-smoke.sh" },
+    "pre-release-check": { "kind": "test", "script": "tests/pre-release-check.sh" },
+    "santa-review": { "kind": "skill", "skill": "auto-harness-santa" },
+    "codex-hooks": { "kind": "config", "script": "scripts/generate-codex-hooks.js" },
+    "permission-request-guard": { "kind": "hook", "script": "scripts/hooks/harness-stage-guard.js", "event": "PermissionRequest" }
+  }
+}

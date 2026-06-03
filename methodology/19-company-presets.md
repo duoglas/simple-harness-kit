@@ -168,7 +168,7 @@ echo "exit=$?"
 
 - **为什么不用 .yaml**：Node 原生不支持 YAML，多一个依赖对一个 hook 项目不值。JSON 够用。
 - **为什么 `merge_only_branches` 用 glob 不用正则**：`feature-*` 比 `^feature-.*$` 直观，团队成员不需要正则知识。底层用 glob→regex 转换。
-- **为什么 fallback 到 generic 而不是 fail-loud**：让"AI 拉到没有 ths preset 的机器"也能干活，只是规则宽松。fail-loud 会让团队新成员第一次 clone 后所有 commit 都拒绝，体验差。
+- **为什么 fallback 到 generic 而不是 fail-loud**：让"AI 拉到没有公司私有 preset 的机器"也能干活，只是规则宽松。fail-loud 会让团队新成员第一次 clone 后所有 commit 都拒绝，体验差。
 - **为什么 subject_regex 是 warn 而不是 block**：与现有 `commit-check.js` 风格一致（Co-Authored-By 也是 warn）。block 留给 type_blocked_on_branch 这种"明确错误"的情况。
 
 ## 不在本系统范围

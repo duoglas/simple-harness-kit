@@ -151,7 +151,7 @@ emergency lane **不是** "免测试通道"，而是**例外承认 Tier 0 项目
 | `03-workflow.md` EXECUTE | 加 "Infra Tier ≥ 1 才能进 EXECUTE" gate | 待跟进 |
 | `init-prompt.md` | Init 时执行 H1-H6 检测，写入 `.harness/infra-tier.json` | 待跟进 |
 | `templates/rules/qa-standards.md.tmpl` | 加 pre-Layer 1 gate 描述 | 待跟进 |
-| Hook 层 | stage-guard 读 `.harness/infra-tier.json` 强制 Tier 0 阻 EXECUTE | 待跟进 (follow-up) |
+| Hook 层 | stage-guard 读 `.harness/infra-tier.json` 强制 Tier 0 阻 EXECUTE | 已落地（Quality Gate Suite） |
 
 ## 历史
 

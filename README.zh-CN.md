@@ -58,7 +58,7 @@ $harness-init       # 注意：Codex 用 $ 不是 / 触发 skill
 必须执行的步骤：
 1. 自动扫描项目结构（package.json/目录/已有配置），自动识别技术栈，不要问我要信息
 2. 生成全部必选组件（init-prompt.md 里标注了哪些是必选）：
-   - 4 个 Hook 脚本: harness-stage-guard.js, harness-session-start.js, session-logger.js, safety-guard.js
+   - 8 个 Hook 脚本: harness-stage-guard.js, harness-session-start.js, harness-entry-banner.js, session-logger.js, safety-guard.js, find-root.js, session-end.js, stage-since-autofill.js
    - 4 个 Rules: role-constraints.md, qa-standards.md, feedback-workflow.md, harness-entry.md
    - settings.json（按 init-prompt.md 中的最小配置，注册全部必选 Hook）
    - docs/constraints.md, CLAUDE.md
@@ -115,6 +115,8 @@ Skill 会询问问题描述和期望行为，自动按 F1-F5 流程执行。也�
 **Hook 强制执行：** 9 个内置 Hook，在工具层 100% 拦截——safety-guard | harness-stage-guard | agent-check | verification-gate | commit-check | delivery-review | context-monitor | session-logger | branch-policy-guard
 
 **持续学习：** 开发过程中 Hook 自动记录行为数据（<50ms 无感知），每轮 Loop 结束时自动分析——发现工具使用模式、高频修改文件（可能缺测试）、稳定行为可提炼为 Rule（减少 token 消耗）。不调 AI API，纯本地分析。
+
+**Quality Gate Suite：** `scripts/shk.js` 提供统一准出入口：`verify` 生成结构化 evidence，`doctor` 检查 stage/evidence/hook enforce 健康度，`security scan` 检查 secrets/泄漏/config risk，`test-infra assess` 落地 Infra Tier，profile dry-run/repair，`e2e detect` 生成 E2E quickstart。`verification-gate.js` commit/tag 前优先读取 `.harness/verify-evidence.json`，要求 `overall=READY`。
 
 详见 [methodology/](methodology/) 全部 15 篇文档。
 
