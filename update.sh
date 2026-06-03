@@ -4,6 +4,7 @@
 # 用法:
 #   bash update.sh                          # 只更新 Skills
 #   bash update.sh --hooks /path/to/project # 同时更新目标项目的 Hook 脚本
+#   bash update.sh --hooks-only /path/to/project # 只同步目标项目 Hook，不更新个人 Skills
 #
 # Skills 更新后需要新 session 生效。
 
@@ -22,21 +23,41 @@ echo ""
 # 解析参数
 PROJECT_DIR=""
 DRY_RUN=false
+SKIP_SKILLS=false
 while [[ $# -gt 0 ]]; do
   case $1 in
     --hooks)
+      if [ -z "$2" ]; then
+        echo "缺少参数: --hooks <path>"
+        exit 1
+      fi
       PROJECT_DIR="$2"
       shift 2
+      ;;
+    --hooks-only)
+      if [ -z "$2" ]; then
+        echo "缺少参数: --hooks-only <path>"
+        exit 1
+      fi
+      PROJECT_DIR="$2"
+      SKIP_SKILLS=true
+      shift 2
+      ;;
+    --skip-skills)
+      SKIP_SKILLS=true
+      shift
       ;;
     --dry-run)
       DRY_RUN=true
       shift
       ;;
     --help|-h)
-      echo "用法: bash update.sh [--hooks /path/to/project] [--dry-run]"
+      echo "用法: bash update.sh [--hooks /path/to/project] [--hooks-only /path/to/project] [--skip-skills] [--dry-run]"
       echo ""
       echo "  不带参数: 只更新已安装的 Skills (Claude Code + Codex)"
       echo "  --hooks <path>: 同时更新目标项目的 Hook 脚本到最新模板版本"
+      echo "  --hooks-only <path>: 只同步目标项目 Hook 脚本，不更新个人 Skills"
+      echo "  --skip-skills: 跳过 Skills 更新；可与 --hooks 搭配使用"
       echo "  --dry-run: 只输出版本差异清单，不执行更新"
       exit 0
       ;;
@@ -51,30 +72,34 @@ done
 
 # 检查所有可能的安装位置
 updated=0
-for dest in "$HOME/.claude/skills" "$HOME/.codex/skills" "$(pwd)/.claude/skills" "$(pwd)/.codex/skills"; do
-  if [ -d "$dest" ]; then
-    echo "更新 Skills: $dest"
-    for skill_dir in "$SKILLS_SRC"/*/; do
-      if [ -f "$skill_dir/SKILL.md" ]; then
-        skill_name=$(basename "$skill_dir")
-        if [ -d "$dest/$skill_name" ]; then
-          if $DRY_RUN; then
-            echo "  [dry-run] 将更新: $skill_name"
-          else
-            # 幂等: 必须先删 dest, 否则 cp -r 会把 source 嵌套进 dest (VH-10 根因)
-            rm -rf "$dest/$skill_name"
-            cp -r "$skill_dir" "$dest/$skill_name"
-            echo "  更新: $skill_name"
+if $SKIP_SKILLS; then
+  echo "跳过 Skills 更新（--skip-skills/--hooks-only）。"
+else
+  for dest in "$HOME/.claude/skills" "$HOME/.codex/skills" "$(pwd)/.claude/skills" "$(pwd)/.codex/skills"; do
+    if [ -d "$dest" ]; then
+      echo "更新 Skills: $dest"
+      for skill_dir in "$SKILLS_SRC"/*/; do
+        if [ -f "$skill_dir/SKILL.md" ]; then
+          skill_name=$(basename "$skill_dir")
+          if [ -d "$dest/$skill_name" ]; then
+            if $DRY_RUN; then
+              echo "  [dry-run] 将更新: $skill_name"
+            else
+              # 幂等: 必须先删 dest, 否则 cp -r 会把 source 嵌套进 dest (VH-10 根因)
+              rm -rf "$dest/$skill_name"
+              cp -r "$skill_dir" "$dest/$skill_name"
+              echo "  更新: $skill_name"
+            fi
+            updated=$((updated + 1))
           fi
-          updated=$((updated + 1))
         fi
-      fi
-    done
-  fi
-done
+      done
+    fi
+  done
 
-if [ $updated -eq 0 ]; then
-  echo "未找到已安装的 Skills。先运行 install.sh 安装。"
+  if [ $updated -eq 0 ]; then
+    echo "未找到已安装的 Skills。先运行 install.sh 安装。"
+  fi
 fi
 
 # ── 2. 更新目标项目的 Hook 脚本 ──
@@ -179,9 +204,18 @@ if [ -n "$PROJECT_DIR" ]; then
       echo ""
       echo "同步 Codex hooks.json..."
       if [ -f "$CODEX_HOOKS_GEN" ]; then
-        node "$CODEX_HOOKS_GEN" \
+        gen_cmd=(node "$CODEX_HOOKS_GEN" \
           --input "$PROJECT_DIR/.claude/settings.json" \
-          --output "$PROJECT_DIR/.codex/hooks.json"
+          --output "$PROJECT_DIR/.codex/hooks.json")
+        if ! "${gen_cmd[@]}"; then
+          echo "  [错误] Codex hooks 同步失败: $PROJECT_DIR/.codex/hooks.json" >&2
+          echo "  输入文件: $PROJECT_DIR/.claude/settings.json" >&2
+          echo "  输出文件: $PROJECT_DIR/.codex/hooks.json" >&2
+          echo "  可手动执行:" >&2
+          printf '  %q' "${gen_cmd[@]}" >&2
+          echo "" >&2
+          exit 1
+        fi
         echo "  .codex/hooks.json 已从 settings.json 重新生成。"
       else
         echo "  [警告] generate-codex-hooks.js 不存在，跳过 Codex 同步。"
