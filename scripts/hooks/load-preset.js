@@ -3,7 +3,7 @@
 
 /**
  * load-preset.js — Resolve and load the active harness preset.
- * @version 0.9.0
+ * @version 0.10.0
  *
  * Resolution order (first match wins):
  *   1. process.env.HARNESS_PRESET

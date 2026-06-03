@@ -3,7 +3,7 @@
 
 /**
  * Harness Entry Banner — Codex-visible Harness entry fallback
- * @version 0.1.0
+ * @version 0.10.0
  * 触发: UserPromptSubmit
  *
  * SessionStart 负责初始化 stage/tool-count，但 Codex Desktop 不保证显示
