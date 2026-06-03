@@ -5,6 +5,7 @@ node_modules/
 .env.*
 tmp/
 .harness/
+docs/verification-report.md
 
 # Local preset selection — each machine picks its own preset (not committed).
 # See methodology/19-company-presets.md for how to author and vendor presets.
@@ -12,8 +13,8 @@ tmp/
 
 # Private / dogfooded presets — internal preset content (e.g. real company rules)
 # stays out of this public repo. See methodology/19 §"公开 vs 私有 preset".
-# Use the _local- prefix so future legitimate public presets like `ths-collab`
-# (hypothetical) wouldn't be silently masked by a too-broad glob.
+# Use the _local- prefix so future legitimate public presets like
+# `team-collab` (hypothetical) wouldn't be silently masked by a too-broad glob.
 presets/_local-*/
 
 # Dogfooding artifacts — this kit dogfoods its own harness, so .claude/ and

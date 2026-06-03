@@ -10,6 +10,24 @@
 
 - **PLAN Bash `sed -n` 仍存在写文件边界**: 当前 `harness-stage-guard.js` 将 `sed -n` 视为只读探索，但 `sed -n '1w pwned' input.txt` 这类 sed `w` command 仍可写文件。此项先记录为已知问题，后续应收窄 PLAN 阶段 sed 白名单或移除 sed 放行，并补回归 fixture。
 
+## [0.10.0] - 2026-06-03
+
+### Added
+
+- **Quality Gate Suite MVP**: 新增 `scripts/shk.js` 命令面，支持 `verify --risk ... --write-evidence`、`doctor`、`security scan`、`test-infra assess`、`e2e detect`、profile dry-run/repair、skills consult、lane/benchmark MVP。(`3e82fbc`)
+- **Structured verification evidence**: `shk verify` 生成 `.harness/verify-evidence.json`、`.harness/verify-evidence.md`、`docs/verification-report.md`；`verification-gate.js` commit/tag 前优先读取 JSON evidence，要求 `overall=READY`，tag 要求 release risk。(`3e82fbc`)
+- **PreToolUse enforce observability**: `harness-stage-guard.js` 记录 `.harness/pretool-observations.jsonl`；`shk doctor` 能发现 “PostToolUse Bash 有记录但 PreToolUse 无记录” 的半失效状态。(`3e82fbc`)
+- **Security / leak / config scanner**: `shk security scan` 检查 generic secrets、配置化 public leak patterns、以及 high-risk hook/MCP config；public kit 不内置组织私有词表。(`3e82fbc`)
+- **Infra Tier Gate**: `shk test-infra assess` 生成 Tier 证据；stage-guard 会阻止 Tier 0 项目直接进入新 feature EXECUTE。(`3e82fbc`)
+- **Profiles / cross-harness docs**: 新增 `manifests/shk-profiles.json`、`methodology/21-quality-gate-suite.md`、`methodology/22-cross-harness-matrix.md`、runtime smoke 占位说明。(`3e82fbc`)
+- **Quality tests**: 新增 `tests/quality-suite.test.js` 并纳入 `tests/run.js` 总门控，覆盖 structured evidence、doctor、public leak/config scan、profile dry-run、Tier 0 EXECUTE gate。(`698b321`)
+- **Codex-visible Harness entry**: 新增 `scripts/hooks/harness-entry-banner.js`，通过 `UserPromptSubmit` 输出 Codex 可解析 `hookSpecificOutput.additionalContext`，解决 SessionStart stderr/banner 在 Codex Desktop 新 session 不可见的问题。(`d54d3df`)
+
+### Fixed
+
+- **Codex stage switch deadlock**: `harness-stage-guard.js` 允许仅修改 `.harness/current-stage.json` 的 `apply_patch` 作为阶段切换/恢复通道，并复用 stage/since/Infra Tier/REVIEW gate 校验；修复 Codex 无 `Write` 工具时 PLAN/非法 stage 自锁。(`d54d3df`)
+- **Project hooks sync without personal skills writes**: `update.sh` 新增 `--hooks-only <project>` / `--skip-skills`，项目只同步 hooks 时不触碰 `$HOME/.claude/skills` / `$HOME/.codex/skills`；Codex hooks.json 生成失败时输出失败文件和可手动执行的 generator 命令。(`9da7743`)
+
 ## [0.9.1] - 2026-06-02
 
 ### Changed

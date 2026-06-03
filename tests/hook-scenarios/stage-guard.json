@@ -290,7 +290,7 @@
     }
   },
   {
-    "name": "stage-guard: Codex JSON deny + apply_patch current-stage 防绕过",
+    "name": "stage-guard: Codex JSON deny + apply_patch current-stage REVIEW gate 防绕过",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "hook_event_name": "PreToolUse",
@@ -309,7 +309,7 @@
         "hookSpecificOutput",
         "permissionDecision",
         "deny",
-        "current-stage.json"
+        "C-GATE-01"
       ],
       "stdoutNot": [
         "continue",

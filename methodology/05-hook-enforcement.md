@@ -32,6 +32,7 @@ Claude Code 支持多种 Hook 触发点，核心列表：
 | **PostToolUse** | Agent 调用工具之后（成功） | 验证产出、记录行为、触发后续检查 |
 | **PostToolUseFailure** | Agent 调用工具之后（失败） | 记录失败工具调用，避免遗漏黑匣子 |
 | **SessionStart** | 新 session 开始 | 重置陈旧 stage、输出入口 banner、注入 AI directive |
+| **UserPromptSubmit** | 用户提交 prompt | Codex 可见入口 fallback：在 SessionStart stderr 不显示时注入 banner/context |
 | **TaskCompleted** | 任务被标记为 completed | 在 EXECUTE/VERIFY 阶段提醒检查验证证据（含 agent team 场景） |
 | **StopFailure** | API 错误结束（rate_limit 等） | 记录到 session-log/observations，下次 session 知道上次怎么挂的 |
 | **SessionEnd** | session 结束（clear/logout 等） | 归档 observations.jsonl + 写结束标记 |
@@ -87,6 +88,8 @@ Hook 分为两级：
 
 **触发：** SessionStart
 **作用：** 新 session 重置阶段为 PLAN、重置工具调用计数器、输出 banner
+
+> Codex Desktop 注意：SessionStart 的状态副作用会生效，但 stderr/banner 不保证进入 UI 或模型上下文。Codex profile 额外挂载 `UserPromptSubmit → harness-entry-banner.js`，通过 `hookSpecificOutput.additionalContext` 注入 `HARNESS MODE ACTIVE` 和首轮阶段声明要求。
 
 与 Stage Guard 配合：Session Start 做初始化，Stage Guard 做持续强制。缺少 Session Start，Stage Guard 会基于过期的阶段数据工作。
 
@@ -218,6 +221,7 @@ if (counter.count >= 50 && counter.count % 25 === 0) {
 | 顶层 key | 作用 | 挂载脚本 |
 |----------|------|----------|
 | `SessionStart` | 新 session 初始化 | `harness-session-start.js` |
+| `UserPromptSubmit` | Codex 可见入口 fallback | `harness-entry-banner.js` |
 | `PreToolUse` | 工具调用前守门 | `harness-stage-guard.js`（多 matcher） + `safety-guard` + `verification-gate` + `delivery-review` + `commit-check` + `agent-check` + `context-monitor` |
 | `PostToolUse` | 成功工具调用记录 | `session-logger.js`（Agent/Bash/Edit/Write） |
 | `PostToolUseFailure` | 失败工具调用记录 | `session-logger.js`（全局） |

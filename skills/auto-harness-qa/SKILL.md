@@ -16,6 +16,29 @@ description: 执行 5 层 QA 金字塔检查，生成量化验证报告。Use wh
 
 ## 执行流程
 
+### 首选入口：Quality Gate Suite
+
+如果项目存在 `scripts/shk.js`，优先使用结构化准出入口：
+
+```bash
+node scripts/shk.js verify --risk medium --write-evidence
+```
+
+高风险或发布前改用：
+
+```bash
+node scripts/shk.js verify --risk high --write-evidence
+node scripts/shk.js verify --risk release --write-evidence
+```
+
+该命令会生成：
+
+- `.harness/verify-evidence.json` — `verification-gate.js` 优先读取的机器证据
+- `.harness/verify-evidence.md`
+- `docs/verification-report.md`
+
+如果 `scripts/shk.js` 不存在，再按下面的手动 Layer 1-4 流程执行。
+
 ### Layer 1: Agent Self-Verification
 
 检查当前变更是否有对应测试：

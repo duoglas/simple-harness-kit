@@ -3,14 +3,15 @@
 
 /**
  * Verification Gate Hook — commit/push 前的阶段和证据检查
- * @version 0.8.1
+ * @version 0.10.0
  * 触发: PreToolUse:Bash
  *
- * 四重检查:
+ * 五重检查:
  * 1. commit 阶段检查: 必须在 VERIFY/REVIEW/FEEDBACK 才能 commit
  * 2. 证据时效性: 验证证据文件的 mtime 必须晚于 current-stage.json 的 since
  * 3. push 阶段检查: 必须在 REVIEW 才能 push
- * 4. 用户入口变更三模式证据（C-GATE-07, 仅 kit 仓库触发）:
+ * 4. 结构化 evidence 检查: .harness/verify-evidence.json 必须 overall=READY
+ * 5. 用户入口变更三模式证据（C-GATE-07, 仅 kit 仓库触发）:
  *    commit 涉及 install.sh / update.sh / init-prompt.md / SKILL.md
  *    / resources/init-prompt.md / generate-codex-hooks.js 时，
  *    verify-evidence.md 必须同时含 '独立 agent' / 'Claude Code' / 'Codex' 三个标记
@@ -32,10 +33,12 @@ const STAGE_FILE = path.join(ROOT, '.harness/current-stage.json');
 const COMMIT_ALLOWED_STAGES = ['VERIFY', 'REVIEW', 'FEEDBACK'];
 const PUSH_ALLOWED_STAGES = ['REVIEW'];
 const REPORT_PATHS = [
+  path.join(ROOT, '.harness/verify-evidence.json'),
   path.join(ROOT, 'docs/verification-report.md'),
   path.join(ROOT, '.harness/last-verification.json'),
   path.join(ROOT, '.harness/verify-evidence.md'),
 ];
+const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
 
 // ── C-GATE-07: kit-only 守门 ──
 // kit 特征文件，用于判定"当前仓库是否 simple-harness-kit"。
@@ -67,9 +70,10 @@ process.stdin.on('end', () => {
     const cmd = String(input.tool_input?.command || '');
 
     const isCommit = /git\s+(commit|merge)/.test(cmd);
+    const isTag = /git\s+tag\b/.test(cmd);
     const isPush = /git\s+push/.test(cmd);
 
-    if (!isCommit && !isPush) {
+    if (!isCommit && !isPush && !isTag) {
       // 非 git commit/push 命令，直接透传
       return;
     }
@@ -112,8 +116,8 @@ process.stdin.on('end', () => {
       return;
     }
 
-    // ── commit 阶段检查 ──
-    if (isCommit) {
+    // ── commit / tag 阶段检查 ──
+    if (isCommit || isTag) {
       if (!COMMIT_ALLOWED_STAGES.includes(stage)) {
         process.stderr.write(
           `[Verification Gate] 当前阶段 ${stage} 不允许 commit。\n` +
@@ -155,14 +159,35 @@ process.stdin.on('end', () => {
         process.exit(2);
       }
 
+      // ── 结构化 evidence 检查 ──
+      const structured = readStructuredEvidence(freshReport.path);
+      if (structured) {
+        if (structured.overall !== 'READY') {
+          process.stderr.write(
+            `[Verification Gate] 结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}。\n` +
+            `→ 证据文件: ${freshReport.path}\n` +
+            '→ 请重新运行 `shk verify --risk <level> --write-evidence`，修复 FAIL 项后再提交。\n'
+          );
+          process.exit(2);
+        }
+        const requiredRisk = isTag ? 'release' : 'low';
+        const evidenceRisk = structured.risk || 'low';
+        if ((RISK_ORDER[evidenceRisk] || 0) < RISK_ORDER[requiredRisk]) {
+          process.stderr.write(
+            `[Verification Gate] 验证证据风险等级不足: evidence=${evidenceRisk}, required=${requiredRisk}。\n` +
+            `→ 证据文件: ${freshReport.path}\n`
+          );
+          process.exit(2);
+        }
+      }
+
       // ── C-GATE-07: 用户入口变更三模式证据检查（kit 仓库专用）──
       if (fs.existsSync(KIT_MARKER_FILE)) {
         const staged = getStagedFiles();
         if (staged !== null) {
           const hit = staged.filter(f => USER_ENTRY_FILES.includes(f));
           if (hit.length > 0) {
-            let evidence = '';
-            try { evidence = fs.readFileSync(freshReport.path, 'utf8'); } catch {}
+            const evidence = readAllEvidenceText();
             const missing = RUNTIME_MARKERS.filter(m => !evidence.includes(m));
             if (missing.length > 0) {
               process.stderr.write(
@@ -198,4 +223,23 @@ function getStagedFiles() {
   } catch {
     return null;
   }
+}
+
+function readStructuredEvidence(filePath) {
+  if (!filePath || !filePath.endsWith('verify-evidence.json')) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (data && data.schema_version && data.checks && data.overall) return data;
+  } catch {}
+  return null;
+}
+
+function readAllEvidenceText() {
+  let out = '';
+  for (const p of REPORT_PATHS) {
+    try {
+      if (fs.statSync(p).isFile()) out += '\n' + fs.readFileSync(p, 'utf8');
+    } catch {}
+  }
+  return out;
 }

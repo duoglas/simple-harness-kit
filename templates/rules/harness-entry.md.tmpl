@@ -6,7 +6,7 @@
 
 **必须执行：**
 
-1. 向用户输出 Harness 入口 banner（SessionStart hook 会通过 stderr 提供 banner 内容）
+1. 向用户输出 Harness 入口 banner（SessionStart 会初始化状态；Codex 下 UserPromptSubmit 会通过 additionalContext 提供可见入口 fallback）
 2. 等待用户指令，不自行开始操作
 3. 收到任务后，进入 PLAN 阶段：
    - 明确需求和验收标准

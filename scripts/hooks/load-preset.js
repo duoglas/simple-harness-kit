@@ -3,7 +3,7 @@
 
 /**
  * load-preset.js — Resolve and load the active harness preset.
- * @version 0.9.0
+ * @version 0.10.0
  *
  * Resolution order (first match wins):
  *   1. process.env.HARNESS_PRESET
@@ -11,8 +11,8 @@
  *   3. <root>/.claude/settings.json `harness.preset` field
  *   4. "generic" (default)
  *
- * If the resolved preset directory is missing (e.g. user wrote `ths` but
- * `presets/ths/` was never vendored locally), falls back to `generic` and
+ * If the resolved preset directory is missing (e.g. user wrote `company` but
+ * `presets/company/` was never vendored locally), falls back to `generic` and
  * sets `fallback: true` on the returned object.
  *
  * Module export:

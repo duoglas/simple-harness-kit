@@ -130,7 +130,7 @@ assert_file_nonempty "docs/constraints.md" "constraints.md"
 # B. settings.json JSON 有效 + 必选事件 (来自 tests/required-wiring.json)
 # 注意: Stop 是 optional (关联 delivery-gate.js, 项目可不启用), 不在必选清单
 if assert_json_valid ".claude/settings.json" "settings.json"; then
-  for evt in SessionStart PreToolUse PostToolUse; do
+  for evt in SessionStart UserPromptSubmit PreToolUse PostToolUse; do
     if ! grep -q "\"$evt\"" "$TMP_DIR/.claude/settings.json"; then
       echo "[codex-init-smoke] FAIL: settings.json 缺必选顶层事件 $evt" >&2
       FAILURES=$((FAILURES+1))
@@ -138,21 +138,21 @@ if assert_json_valid ".claude/settings.json" "settings.json"; then
   done
 fi
 
-# C. hook 脚本至少 6 个必选
+# C. hook 脚本至少 8 个必选
 hook_count=$(ls -1 "$TMP_DIR/scripts/hooks/"*.js 2>/dev/null | wc -l | tr -d ' ')
-if [ "$hook_count" -lt 6 ]; then
-  echo "[codex-init-smoke] FAIL: hook 脚本数 $hook_count < 6 (必选: harness-stage-guard / harness-session-start / session-logger / safety-guard / find-root / session-end)" >&2
+if [ "$hook_count" -lt 8 ]; then
+  echo "[codex-init-smoke] FAIL: hook 脚本数 $hook_count < 8 (必选: harness-stage-guard / harness-session-start / harness-entry-banner / session-logger / safety-guard / find-root / session-end / stage-since-autofill)" >&2
   FAILURES=$((FAILURES+1))
 fi
-for required in harness-stage-guard.js harness-session-start.js session-logger.js safety-guard.js find-root.js; do
+for required in harness-stage-guard.js harness-session-start.js harness-entry-banner.js session-logger.js safety-guard.js find-root.js session-end.js stage-since-autofill.js; do
   if [ ! -f "$TMP_DIR/scripts/hooks/$required" ]; then
     echo "[codex-init-smoke] FAIL: 必选 hook 缺失: $required" >&2
     FAILURES=$((FAILURES+1))
   fi
 done
 
-# D. 复制的 hooks 必须是 v0.8.x clean 版 (无 passthrough stdout)
-bad_hook_count=$(grep -l "process.stdout.write" "$TMP_DIR/scripts/hooks/"*.js 2>/dev/null | wc -l | tr -d ' ')
+# D. 复制的 hooks 必须是 v0.8.x+ clean 版 (无 passthrough raw stdout；合法 JSON decision/additionalContext stdout 允许)
+bad_hook_count=$(grep -l "process.stdout.write(raw" "$TMP_DIR/scripts/hooks/"*.js 2>/dev/null | wc -l | tr -d ' ')
 if [ "$bad_hook_count" -gt 0 ]; then
   echo "[codex-init-smoke] FAIL: $bad_hook_count 个 hook 还有 passthrough stdout (VH-13 残留)" >&2
   FAILURES=$((FAILURES+1))

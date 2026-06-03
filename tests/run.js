@@ -528,6 +528,34 @@ for (const r of tpl.results) {
 }
 console.log(`\n  ${tpl.pass} passed, ${tpl.fail} failed, ${tpl.results.length} total\n`);
 
+// ── Quality Gate Suite Tests ──
+// 覆盖 SHK CLI / structured evidence / verification-gate JSON 准出 /
+// doctor 对 PreToolUse enforce 观测缺失的检测。对应 Quality Gate Suite MVP。
+let qualityFailed = 0;
+let qualityTotal = 0;
+try {
+  const qualityScript = path.resolve(__dirname, 'quality-suite.test.js');
+  if (fs.existsSync(qualityScript)) {
+    console.log('  Quality Gate Suite Tests\n');
+    const res = require('child_process').spawnSync(process.execPath, [qualityScript], {
+      stdio: 'inherit',
+      timeout: 3 * 60 * 1000,
+    });
+    qualityTotal = 1;
+    if (res.status !== 0) {
+      qualityFailed = 1;
+      console.log(`\n  Quality Gate Suite FAIL (exit ${res.status})\n`);
+    } else {
+      console.log(`\n  Quality Gate Suite PASS\n`);
+    }
+  } else {
+    console.log(`  Quality Gate Suite SKIP (脚本不存在: ${qualityScript})\n`);
+  }
+} catch (e) {
+  qualityFailed = 1;
+  console.log(`  Quality Gate Suite FAIL: ${e.message}\n`);
+}
+
 // ── Scripted Test Matrix (tests/scripts/run-all.sh) ──
 // 维度 1-7 install/update/skill-path/e2e/invariant/mutation/pathstyle/scope
 // 纯 shell 测试, 不依赖 Node 测试框架. 结果作为 run.js 总 exit code 的一部分.
@@ -642,9 +670,9 @@ try {
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
-const totalFailed = failed + tpl.fail + findRootUnit.fail + scriptedFailed + smokeFailed + initSmokeFailed;
-const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + scriptedTotal + smokeTotal + initSmokeTotal;
 console.log(`  ══════════════════════════════`);
-console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
+console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
 
 process.exit(totalFailed > 0 ? 1 : 0);

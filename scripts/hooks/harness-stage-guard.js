@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — 强制新 session 声明 Harness 阶段 + 监听 TaskCompleted 提醒 VERIFY
- * @version 0.9.1
+ * @version 0.10.0
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -96,9 +96,12 @@ const STAGES = ['PLAN', 'SETUP', 'EXECUTE', 'VERIFY', 'REVIEW', 'FEEDBACK'];
 const PLAN_FILE = path.join(ROOT, '.harness/current-plan.md');
 const TOOL_COUNT_FILE = path.join(ROOT, '.harness/tool-count.json');
 const STAGE_HISTORY_FILE = path.join(ROOT, '.harness/stage-history.jsonl');
+const PRETOOL_OBS_FILE = path.join(ROOT, '.harness/pretool-observations.jsonl');
+const INFRA_TIER_FILE = path.join(ROOT, '.harness/infra-tier.json');
 
 // 验证证据文件——至少一个存在才算 VERIFY 做过
 const VERIFY_EVIDENCE = [
+  path.join(ROOT, '.harness/verify-evidence.json'),
   path.join(ROOT, 'docs/verification-report.md'),
   path.join(ROOT, '.harness/last-verification.json'),
   path.join(ROOT, '.harness/verify-evidence.md'),
@@ -111,6 +114,7 @@ REVIEW Gate 检查未通过。切换到 REVIEW 前必须满足：
 
 1. 流程完整性：必须经过 EXECUTE 和 VERIFY 阶段（检查 .harness/stage-history.jsonl）
 2. 验证证据：VERIFY 阶段必须产出验证报告文件（以下至少一个）：
+   - .harness/verify-evidence.json
    - docs/verification-report.md
    - .harness/last-verification.json
    - .harness/verify-evidence.md
@@ -239,12 +243,17 @@ function toolText(input) {
   return JSON.stringify(input && input.tool_input ? input.tool_input : input || {});
 }
 
+function patchPayloadText(input) {
+  const ti = input && input.tool_input ? input.tool_input : {};
+  return String(ti.command || ti.patch || ti.input || ti.content || toolText(input)).replace(/\\n/g, '\n');
+}
+
 function isPatchTool(toolName) {
   return toolName === 'apply_patch' || toolName === 'functions.apply_patch';
 }
 
 function patchFileRefs(input) {
-  const txt = toolText(input).replace(/\\n/g, '\n');
+  const txt = patchPayloadText(input);
   const fileRefs = [...txt.matchAll(/(?:\*\*\*\s+(?:Add|Update|Delete) File:|file_path[\"']?\s*[:=])\s*[\"']?([^\"'\n\r]+)/g)]
     .map(m => m[1].trim());
   if (fileRefs.length > 0) return fileRefs;
@@ -254,13 +263,28 @@ function patchFileRefs(input) {
   return refs;
 }
 
+function patchRefMatches(fileRef, targetPath) {
+  const ref = String(fileRef || '').replace(/^["']|["']$/g, '').trim();
+  if (!ref) return false;
+  const target = path.resolve(targetPath);
+  if (ref === '.harness/current-stage.json' && target === path.resolve(STAGE_FILE)) return true;
+  if (ref === '.harness/current-plan.md' && target === path.resolve(PLAN_FILE)) return true;
+  const resolved = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(ROOT, ref);
+  return resolved === target;
+}
+
 function patchTouchesHarnessStage(input) {
-  return patchFileRefs(input).some(p => p === '.harness/current-stage.json');
+  return patchFileRefs(input).some(p => patchRefMatches(p, STAGE_FILE));
+}
+
+function patchTouchesOnlyHarnessStage(input) {
+  const refs = patchFileRefs(input);
+  return refs.length > 0 && refs.every(p => patchRefMatches(p, STAGE_FILE));
 }
 
 function patchTouchesOnlyHarnessPlan(input) {
   const refs = patchFileRefs(input);
-  return refs.length > 0 && refs.every(p => p === '.harness/current-plan.md');
+  return refs.length > 0 && refs.every(p => patchRefMatches(p, PLAN_FILE));
 }
 
 function denyPreToolUse(input, message) {
@@ -473,15 +497,21 @@ function validateSince(newData) {
 // 合法的 stage 值（写入校验用）
 const VALID_STAGES_FOR_WRITE = [...STAGES, 'OFF'];
 
+function infraTierTransitionError(newData) {
+  if (!newData || newData.stage !== 'EXECUTE') return null;
+  let tierData = null;
+  try { tierData = JSON.parse(safeReadFileSync(INFRA_TIER_FILE) || 'null'); } catch {}
+  if (!tierData || tierData.tier !== 0) return null;
+  const task = String(newData.task || newData.reason || '');
+  // Tier 0 的唯一例外：当前任务本身就是修复/补齐测试基础设施。
+  if (/test|infra|qa|coverage|e2e|bootstrap|测试|验证|准出|覆盖率|测试基础/.test(task)) return null;
+  return '[Harness Stage Guard] Infra Tier 0 项目禁止直接进入新 feature EXECUTE。\n' +
+    '→ 当前 .harness/infra-tier.json 显示测试基础设施不可运行。\n' +
+    '→ 先执行 `shk test-infra assess` 并补齐最小测试入口；若本任务就是修复测试基础设施，请在 task 中明确包含 test/infra/测试 等字样。';
+}
+
 // 从 Write tool_input 中解析 newData 并校验 stage + since；错误时直接写 stderr + exit 2
-function validateStageWrite(input) {
-  let newData = null;
-  try {
-    newData = JSON.parse(String(input.tool_input?.content || ''));
-  } catch {
-    process.stderr.write('[Harness Stage Guard] current-stage.json 内容不是合法 JSON，拒绝写入。\n');
-    process.exit(2);
-  }
+function validateStageData(newData) {
   // 校验 stage 值合法性（Issue #2: 防止写入 "COMPLETE" 等无效值）
   if (!newData || !newData.stage || !VALID_STAGES_FOR_WRITE.includes(newData.stage)) {
     const val = newData?.stage || '(空)';
@@ -496,7 +526,93 @@ function validateStageWrite(input) {
     process.stderr.write(err + '\n');
     process.exit(2);
   }
+  const infraErr = infraTierTransitionError(newData);
+  if (infraErr) {
+    process.stderr.write(infraErr + '\n');
+    process.exit(2);
+  }
   return newData;
+}
+
+// 从 Write tool_input 中解析 newData 并校验 stage + since；错误时直接写 stderr + exit 2
+function validateStageWrite(input) {
+  let newData = null;
+  try {
+    newData = JSON.parse(String(input.tool_input?.content || ''));
+  } catch {
+    process.stderr.write('[Harness Stage Guard] current-stage.json 内容不是合法 JSON，拒绝写入。\n');
+    process.exit(2);
+  }
+  return validateStageData(newData);
+}
+
+function extractStageDataFromPatch(input) {
+  if (!isPatchTool(input.tool_name) || !patchTouchesOnlyHarnessStage(input)) return null;
+  const txt = patchPayloadText(input);
+  const addedLines = txt
+    .split('\n')
+    .filter(line => line.startsWith('+') && !line.startsWith('+++'))
+    .map(line => line.slice(1).trim())
+    .filter(Boolean);
+  for (let i = addedLines.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(addedLines[i]);
+      if (parsed && typeof parsed === 'object' && parsed.stage) return parsed;
+    } catch {}
+  }
+  process.stderr.write('[Harness Stage Guard] apply_patch current-stage.json 未包含可解析的目标 JSON，拒绝写入。\n');
+  process.exit(2);
+}
+
+function recordStageHistory(stage) {
+  try {
+    if (!stage) return;
+    const entry = JSON.stringify({ stage, t: new Date().toISOString() }) + '\n';
+    let prefix = '';
+    try {
+      const existing = fs.readFileSync(STAGE_HISTORY_FILE, 'utf8');
+      if (existing.length > 0 && !existing.endsWith('\n')) prefix = '\n';
+    } catch {}
+    fs.appendFileSync(STAGE_HISTORY_FILE, prefix + entry);
+  } catch {}
+}
+
+function enforceReviewGateIfNeeded(newData, input) {
+  if (!newData || newData.stage !== 'REVIEW') return;
+  const gateErrors = [];
+
+  // 检查 1: 流程完整性（stage-history 中必须有 EXECUTE 和 VERIFY）
+  let history = [];
+  try {
+    history = fs.readFileSync(STAGE_HISTORY_FILE, 'utf8')
+      .split('\n').filter(Boolean)
+      .map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(Boolean)
+      .map(h => h.stage);
+  } catch {}
+  if (!history.includes('EXECUTE')) gateErrors.push('未经过 EXECUTE 阶段');
+  if (!history.includes('VERIFY')) gateErrors.push('未经过 VERIFY 阶段');
+
+  // 检查 2: 验证证据文件
+  const hasEvidence = VERIFY_EVIDENCE.some(p => {
+    try { return fs.statSync(p).isFile(); } catch { return false; }
+  });
+  if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + VERIFY_EVIDENCE.join(' / ') + '）');
+
+  if (gateErrors.length > 0) {
+    const message = REVIEW_GATE_BLOCK + '\n具体问题:\n' + gateErrors.map(e => '  - ' + e).join('\n') + '\n';
+    if (input && input.hook_event_name === 'PreToolUse') {
+      return denyPreToolUse(input, message);
+    }
+    process.stderr.write(message);
+    process.exit(2);
+  }
+}
+
+function allowStageTransition(newData, via, input) {
+  recordStageHistory(newData.stage);
+  enforceReviewGateIfNeeded(newData, input);
+  process.stderr.write(`[Harness Stage Guard] 阶段切换：允许通过 ${via} 修改 .harness/current-stage.json\n`);
 }
 
 let raw = '';
@@ -510,6 +626,17 @@ process.stdin.on('end', () => {
 
   try {
     const input = JSON.parse(raw);
+    if (input.hook_event_name === 'PreToolUse') {
+      try {
+        fs.mkdirSync(path.dirname(PRETOOL_OBS_FILE), { recursive: true });
+        fs.appendFileSync(PRETOOL_OBS_FILE, JSON.stringify({
+          t: new Date().toISOString(),
+          hook_event_name: input.hook_event_name,
+          tool_name: input.tool_name || '',
+          command: String(input.tool_input?.command || '').slice(0, 500),
+        }) + '\n');
+      } catch {}
+    }
 
     // ── PermissionRequest 特殊处理（Codex） ──
     // PLAN 阶段不能通过权限升级绕过 guard；使用 Codex 官方 decision.behavior shape。
@@ -558,17 +685,11 @@ process.stdin.on('end', () => {
         const parsed = validateStageWrite(input);  // 缺失/非法/偏差过大 → exit 2
         process.stderr.write('[Harness Stage Guard] 正在创建阶段声明，放行。\n');
         // 记录阶段历史
-        try {
-          if (parsed.stage) {
-            const entry = JSON.stringify({ stage: parsed.stage, t: new Date().toISOString() }) + '\n';
-            let prefix = '';
-            try {
-              const existing = fs.readFileSync(STAGE_HISTORY_FILE, 'utf8');
-              if (existing.length > 0 && !existing.endsWith('\n')) prefix = '\n';
-            } catch {}
-            fs.appendFileSync(STAGE_HISTORY_FILE, prefix + entry);
-          }
-        } catch {}
+        recordStageHistory(parsed.stage);
+      } else if (isPatchTool(input.tool_name) && patchTouchesOnlyHarnessStage(input)) {
+        const parsed = validateStageData(extractStageDataFromPatch(input));
+        recordStageHistory(parsed.stage);
+        process.stderr.write('[Harness Stage Guard] 正在通过 apply_patch 创建阶段声明，放行。\n');
       } else {
         process.stderr.write(REMINDER);
         shouldBlock = true;
@@ -591,6 +712,10 @@ process.stdin.on('end', () => {
         if (input.tool_name === 'Write' && (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })() === path.resolve(STAGE_FILE)) {
           validateStageWrite(input);  // 缺失/非法/偏差过大 → exit 2
           process.stderr.write('[Harness Stage Guard] 阶段无效，允许重写阶段声明。\n');
+        } else if (isPatchTool(input.tool_name) && patchTouchesOnlyHarnessStage(input)) {
+          const parsed = validateStageData(extractStageDataFromPatch(input));
+          recordStageHistory(parsed.stage);
+          process.stderr.write('[Harness Stage Guard] 阶段无效，允许通过 apply_patch 重写阶段声明。\n');
         } else {
           process.stderr.write(
             `[Harness Stage Guard] 无效的阶段值: ${data.stage}。有效值: ${STAGES.join(', ')}, OFF\n` +
@@ -609,51 +734,12 @@ process.stdin.on('end', () => {
         if (toolName === 'Write' && (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })() === path.resolve(STAGE_FILE)) {
           const newData = validateStageWrite(input);  // 缺失/非法/偏差过大 → exit 2
 
-          try {
-            // 记录阶段历史（确保前面有换行，防止和上一行粘连）
-            if (newData.stage) {
-              const entry = JSON.stringify({ stage: newData.stage, t: new Date().toISOString() }) + '\n';
-              let prefix = '';
-              try {
-                const existing = fs.readFileSync(STAGE_HISTORY_FILE, 'utf8');
-                if (existing.length > 0 && !existing.endsWith('\n')) prefix = '\n';
-              } catch {}
-              fs.appendFileSync(STAGE_HISTORY_FILE, prefix + entry);
-            }
-
-            // 切换到 REVIEW 时的 Gate 检查
-            if (newData.stage === 'REVIEW') {
-              const gateErrors = [];
-
-              // 检查 1: 流程完整性（stage-history 中必须有 EXECUTE 和 VERIFY）
-              let history = [];
-              try {
-                history = fs.readFileSync(STAGE_HISTORY_FILE, 'utf8')
-                  .split('\n').filter(Boolean)
-                  .map(l => { try { return JSON.parse(l); } catch { return null; } })
-                  .filter(Boolean)
-                  .map(h => h.stage);
-              } catch {}
-              if (!history.includes('EXECUTE')) gateErrors.push('未经过 EXECUTE 阶段');
-              if (!history.includes('VERIFY')) gateErrors.push('未经过 VERIFY 阶段');
-
-              // 检查 2: 验证证据文件
-              const hasEvidence = VERIFY_EVIDENCE.some(p => {
-                try { return fs.statSync(p).isFile(); } catch { return false; }
-              });
-              if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + VERIFY_EVIDENCE.join(' / ') + '）');
-
-              if (gateErrors.length > 0) {
-                process.stderr.write(REVIEW_GATE_BLOCK);
-                process.stderr.write('\n具体问题:\n' + gateErrors.map(e => '  - ' + e).join('\n') + '\n');
-                shouldBlock = true;
-                // 输出后直接退出，不继续后续检查
-                process.exit(2);
-              }
-            }
-          } catch {}
+          allowStageTransition(newData, 'Write', input);
           // 阶段切换 Write 放行（如果 Gate 检查通过）
-          process.stderr.write(`[Harness Stage Guard] 阶段切换：允许写入 ${writePath}\n`);
+          return;
+        } else if (isPatchTool(toolName) && patchTouchesOnlyHarnessStage(input)) {
+          const newData = validateStageData(extractStageDataFromPatch(input));
+          allowStageTransition(newData, 'apply_patch', input);
           return;
         }
 
@@ -671,10 +757,9 @@ process.stdin.on('end', () => {
           const isReadOnlyBash = toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command);
           // 精确匹配：realpathSync 后比对, 跟随 symlink 确保 /tmp ↔ /private/tmp 一致
           const resolvedWrite = (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })();
-          const isStagePatch = isPatchTool(toolName) && patchTouchesHarnessStage(input);
           const isAllowedWrite = (toolName === 'Write' &&
             [PLAN_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f))) ||
-            (isPatchTool(toolName) && patchTouchesOnlyHarnessPlan(input));
+            (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyHarnessStage(input)));
 
           if (isReadTool || isReadOnlyBash) {
             // 读操作 / 只读 Bash 放行，注入 directive
@@ -685,13 +770,6 @@ process.stdin.on('end', () => {
           } else if (isAllowedWrite) {
             // 写计划文件或阶段声明放行
             process.stderr.write(`[Harness Stage Guard] PLAN 阶段：允许写入 ${writePath}\n`);
-          } else if (isStagePatch) {
-            // apply_patch 无法可靠复用 Write 的 content 校验与 REVIEW gate；
-            // 阶段切换必须走 Write current-stage.json，由 validateStageWrite() 完整校验。
-            return denyPreToolUse(
-              input,
-              '[Harness Stage Guard] PLAN 阶段禁止 apply_patch 修改 .harness/current-stage.json；请使用 Write 触发 stage/since/REVIEW gate 校验。\n'
-            );
           } else {
             // 其他一律阻止
             return denyPreToolUse(input, PLAN_BLOCK_MSG);

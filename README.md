@@ -58,7 +58,7 @@ Initialize Harness for this project.
 Required steps:
 1. Auto-scan project structure (package.json/directories/existing config), detect tech stack automatically — don't ask me for info
 2. Generate ALL mandatory components (marked in init-prompt.md):
-   - 4 hook scripts: harness-stage-guard.js, harness-session-start.js, session-logger.js, safety-guard.js
+   - 8 hook scripts: harness-stage-guard.js, harness-session-start.js, harness-entry-banner.js, session-logger.js, safety-guard.js, find-root.js, session-end.js, stage-since-autofill.js
    - 4 rules: role-constraints.md, qa-standards.md, feedback-workflow.md, harness-entry.md
    - settings.json (use minimum config from init-prompt.md, register all mandatory hooks)
    - docs/constraints.md, CLAUDE.md
@@ -103,6 +103,7 @@ The skill asks for the issue and expected behavior, then runs F1-F5 automaticall
 - **5-Layer QA Pyramid:** TDD self-verify → Tool checks (build/lint/test) → Spec review (independent reviewer) → Santa Method (dual adversarial) → Human review
 - **Hook enforcement:** core hooks + optional/helper scripts cover stage guard, safety, verification, commit, delivery, learning, session logging, branch policy, and Codex compatibility — fire at 100% reliability regardless of context length
 - **Continuous Learning:** Auto-captures tool usage patterns (<50ms, no overhead), analyzes at each REVIEW stage. Pure local analysis, zero API calls. Discovers workflow habits, hot files needing tests, stable patterns to promote to Rules (token savings)
+- **Quality Gate Suite:** `scripts/shk.js` provides `verify` for structured evidence, `doctor` for stage/evidence/hook-enforce health, `security scan` for secrets/leak/config risk, `test-infra assess` for Infra Tier, profile dry-run/repair, and `e2e detect` for E2E quickstart. `verification-gate.js` reads `.harness/verify-evidence.json` first and requires `overall=READY` before commit/tag gates pass.
 
 ### Preset System (v0.9.0)
 
@@ -187,7 +188,7 @@ We surveyed three layers: **agent frameworks** (DeerFlow/LangGraph/CrewAI — bu
 
 ```
 simple-harness-kit/
-├── methodology/   20 methodology docs
+├── methodology/   22 methodology docs
 ├── presets/       2 built-in (generic + example-company), data-driven commit & branch rules
 ├── templates/     11 templates
 ├── scripts/hooks/ 16 hook/helper scripts
