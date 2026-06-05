@@ -13,6 +13,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_SRC="$SCRIPT_DIR/skills"
 HOOKS_SRC="$SCRIPT_DIR/scripts/hooks"
+LIB_SRC="$SCRIPT_DIR/scripts/lib"
 CODEX_HOOKS_GEN="$SCRIPT_DIR/scripts/generate-codex-hooks.js"
 
 echo ""
@@ -197,6 +198,32 @@ if [ -n "$PROJECT_DIR" ]; then
       echo "  所有 Hook 已是最新版。"
     else
       echo "  更新了 $synced 个, 新增了 $installed 个 Hook。新 session 生效。"
+    fi
+
+    # Hook 共享库依赖。stage-guard 会 require('../lib/spec-quality')，
+    # 所以更新 Hook 时必须同步 scripts/lib，否则目标项目 hook 会 MODULE_NOT_FOUND。
+    if [ -d "$LIB_SRC" ]; then
+      mkdir -p "$PROJECT_DIR/scripts/lib"
+      lib_synced=0
+      lib_installed=0
+      for lib in "$LIB_SRC"/*.js; do
+        if [ -f "$lib" ]; then
+          name=$(basename "$lib")
+          target="$PROJECT_DIR/scripts/lib/$name"
+          if [ ! -f "$target" ]; then
+            cp "$lib" "$target"
+            echo "  新增共享库: scripts/lib/$name"
+            lib_installed=$((lib_installed + 1))
+          elif ! diff -q "$lib" "$target" &>/dev/null; then
+            cp "$lib" "$target"
+            echo "  更新共享库: scripts/lib/$name"
+            lib_synced=$((lib_synced + 1))
+          fi
+        fi
+      done
+      if [ $lib_synced -eq 0 ] && [ $lib_installed -eq 0 ]; then
+        echo "  Hook 共享库已是最新版。"
+      fi
     fi
 
     # ── 2.5 同步 Codex hooks.json（如果存在）──

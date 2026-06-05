@@ -75,3 +75,17 @@ DELIVERY REVIEW
 ## 与 Hooks 配合
 
 `delivery-review.js` Hook 会在打开交付物时自动触发复盘提醒。本 Skill 提供完整的复盘流程。
+
+## AI 工具内测试准出协议
+
+只要任务涉及代码变更，AI 不能等用户提醒才验证。按下面顺序做：
+
+1. 先判断风险等级：low / medium / high / release。
+E2E PASS 不等于充分；如果只是 echo ok、空脚本、只 smoke、或没覆盖本次风险，用户报告要先说“现在还不能交付”，再说明测到了什么、没测到什么、下一步补什么；机器状态放最后，例如：机器状态：NOT_SUFFICIENT。DEGRADED 不能说成 PASS。
+2. 识别测试能力：单测、lint、coverage、E2E、runtime smoke。
+3. medium / high / release 任务必须有 E2E 证据；只有 low 小改可以不强制 E2E；找不到 E2E 入口时，先生成计划或只问一个具体启动问题。
+4. VERIFY 阶段必须产出 fresh evidence；没有 READY evidence 不能说“完成了”。
+5. 测试失败时进入修复 loop：一轮只修一个失败点，重跑最小测试，最多 3 轮；没进展就停下来说明卡点。
+6. 报告必须说人话：先说现在能不能交付，再说测到了什么、没测到什么、下一步补什么；不能只贴日志，也不要用 READY/NOT_READY/NOT_SUFFICIENT 开头。机器状态如果必须出现，放最后。不能把 DEGRADED 说成 PASS。
+
+AI 可以调用 `shk quality status --format json`、`shk e2e plan --format json`、`shk e2e run --format json`、`shk loop state --format json` 作为测试准出后端检查器，但不要把这些命令丢给用户自己记。
