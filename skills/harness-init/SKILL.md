@@ -156,13 +156,14 @@ node $KIT_ROOT/scripts/generate-codex-hooks.js --input .claude/settings.json --o
 
 ### Step 4: 验证 init 完整性（C-SKILL-03: 用户层最小集）
 
-生成产物后，做以下 **4 项用户层检查**（不跑 76 项 kit CI）:
+生成产物后，做以下 **6 项用户层检查**（不跑 76 项 kit CI）:
 
 1. **必选文件存在**: `.claude/settings.json` / `.claude/rules/` 下 4 个必选 .md / `scripts/hooks/` 下必选 .js（至少 harness-stage-guard / harness-session-start / session-logger / safety-guard / find-root / session-end）/ `scripts/lib/spec-quality.js` / `docs/constraints.md` / `CLAUDE.md`
 2. **settings.json JSON 有效**: `node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`
 3. **hook 脚本存在**: settings.json 里每个 `command` 引用的 `scripts/hooks/xxx.js` 都有对应文件
-4. **CLAUDE.md 非空**: 大于 200 bytes
-5. **Codex harness 检查（如生成 `.codex/hooks.json`）**: JSON 顶层是 canonical `hooks`、不含 deprecated alias、`PreToolUse` matcher 含 `Bash|apply_patch|mcp__.*`、包含 `PermissionRequest`、hook command 引用的脚本存在且可执行/可读
+4. **hook 本地 require 依赖存在**: 对 settings.json 引用的每个 hook，扫描 `require('./...')` / `require('../...')` 这类本地依赖，确认目标文件存在；例如 `harness-stage-guard.js` 的 `require('../lib/spec-quality')` 必须对应 `scripts/lib/spec-quality.js`。缺依赖会导致新 session 一触发 hook 就 `MODULE_NOT_FOUND`，不能放行。
+5. **CLAUDE.md 非空**: 大于 200 bytes
+6. **Codex harness 检查（如生成 `.codex/hooks.json`）**: JSON 顶层是 canonical `hooks`、不含 deprecated alias、`PreToolUse` matcher 含 `Bash|apply_patch|mcp__.*`、包含 `PermissionRequest`、hook command 引用的脚本存在且可执行/可读
 
 全部通过 → 输出:
 
