@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-06
+
 ### Added
 
 - **Phase 2 Quality Engineering Gate**: SHK 现在不只是要求 AI “跑测试、交 evidence”，而是把 spec 变成交付流程的前置依赖。每轮 medium / high / release 任务必须先有有效 spec：需求是什么、准备怎么做、风险在哪里、要测哪些流量路径、验收证据是什么。没有 spec 不能开工，不能事后补文档冒充 spec。

@@ -173,7 +173,7 @@ Phase 2 接入了：
 
 - [Quality Engineering Gate](docs/quality-engineering-gate.md)
 - [Phase 2 文档](docs/phase2-quality-gate/README.md)
-- [v0.11.0 draft release notes](docs/release-notes/v0.11.0.md)
+- [v0.11.0 release notes](docs/release-notes/v0.11.0.md)
 
 ## Quality Gate Suite
 
