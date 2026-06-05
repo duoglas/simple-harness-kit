@@ -116,7 +116,19 @@ Skill 会询问问题描述和期望行为，自动按 F1-F5 流程执行。也�
 
 **持续学习：** 开发过程中 Hook 自动记录行为数据（<50ms 无感知），每轮 Loop 结束时自动分析——发现工具使用模式、高频修改文件（可能缺测试）、稳定行为可提炼为 Rule（减少 token 消耗）。不调 AI API，纯本地分析。
 
-**Quality Gate Suite：** `scripts/shk.js` 提供统一准出入口：`verify` 生成结构化 evidence，`doctor` 检查 stage/evidence/hook enforce 健康度，`security scan` 检查 secrets/泄漏/config risk，`test-infra assess` 落地 Infra Tier，profile dry-run/repair，`e2e detect` 生成 E2E quickstart。`verification-gate.js` commit/tag 前优先读取 `.harness/verify-evidence.json`，要求 `overall=READY`。
+**Quality Gate Suite：** `scripts/shk.js` 提供统一准出入口：`verify` 生成结构化 evidence，`doctor` 检查 stage/evidence/hook enforce 健康度，`security scan` 检查 secrets/泄漏/config risk，`test-infra assess` 落地 Infra Tier，profile dry-run/repair，`e2e inspect/bootstrap/plan/run/assess` 支持新应用工程 E2E bootstrap 并判断证明力。`verification-gate.js` commit/tag 前优先读取 `.harness/verify-evidence.json`，要求 `overall=READY`。
+
+**Phase 2 Quality Engineering Gate：** SHK 不是 JS 工具包，而是 AI 工具 Harness。装到目标工程后，它要帮助 Claude Code / Codex 做三件事：
+
+1. **可衡量**：每轮迭代先产出 `.harness/iteration-spec.json`，用短文档说清需求、方案、风险、测试计划、流量路径和验收标准。
+2. **可验收**：AI 自动做测试生成或选择测试，并用 `spec status`、`e2e assess`、`test effectiveness` 判断这些测试是否真的覆盖需求、风险和流量，而不是只跑了个流程。
+3. **持续优化**：发现测试失败或 `NOT_SUFFICIENT` 时进入最多 3 轮修复 loop，每轮只修一个失败点并重跑最小测试。
+
+E2E PASS 不等于可以交付。fake E2E、只打开首页、没有断言、坏代码下仍 PASS，都必须算 `NOT_SUFFICIENT`。medium/high/release 准出要看 spec、有效测试验证、E2E 充分性、security/diff/runtime 等证据是否一起 READY。
+
+详细说明见 [`docs/quality-engineering-gate.md`](docs/quality-engineering-gate.md)。
+
+**AI 工具内测试准出：** 在 Claude Code / Codex 里，SHK 会要求 AI 先判断风险、找测试入口、决定是否需要 E2E；新应用没有 E2E 时，AI 要生成第一套 E2E，再跑对应检查；失败后进入最多 3 轮的受控修复 loop；交付时用人话说明结果和限制。E2E PASS 不等于充分：如果只是 `echo ok`、只 smoke、没覆盖本次风险，或关键行为改坏后 E2E 仍然 PASS，SHK 会报告 `NOT_SUFFICIENT` 并阻止交付。CLI 是给 AI 读取的后端检查器，不是让用户背命令。
 
 详见 [methodology/](methodology/) 全部 22 篇文档。
 
@@ -402,7 +414,7 @@ simple-harness-kit/
 ├── presets/       2 个内置 (generic + example-company)，数据驱动 commit & 分支规则
 ├── templates/     11 个模板
 ├── scripts/hooks/ 16 个 Hook/辅助脚本
-├── skills/        11 个 Skills (init 用户触发 | 其余 AI 自动调用)
+├── skills/        12 个 Skills (init 用户触发 | 其余 AI 自动调用)
 ├── examples/      3 个实战验证 (Experiment A + B + C)
 ├── tests/         170 个 Hook 场景 + 模板完整性 + 脚本矩阵 + Codex smoke
 └── init-prompt.md 初始化 Prompt

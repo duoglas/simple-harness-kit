@@ -103,7 +103,10 @@ The skill asks for the issue and expected behavior, then runs F1-F5 automaticall
 - **5-Layer QA Pyramid:** TDD self-verify → Tool checks (build/lint/test) → Spec review (independent reviewer) → Santa Method (dual adversarial) → Human review
 - **Hook enforcement:** core hooks + optional/helper scripts cover stage guard, safety, verification, commit, delivery, learning, session logging, branch policy, and Codex compatibility — fire at 100% reliability regardless of context length
 - **Continuous Learning:** Auto-captures tool usage patterns (<50ms, no overhead), analyzes at each REVIEW stage. Pure local analysis, zero API calls. Discovers workflow habits, hot files needing tests, stable patterns to promote to Rules (token savings)
-- **Quality Gate Suite:** `scripts/shk.js` provides `verify` for structured evidence, `doctor` for stage/evidence/hook-enforce health, `security scan` for secrets/leak/config risk, `test-infra assess` for Infra Tier, profile dry-run/repair, and `e2e detect` for E2E quickstart. `verification-gate.js` reads `.harness/verify-evidence.json` first and requires `overall=READY` before commit/tag gates pass.
+- **Quality Gate Suite:** `scripts/shk.js` provides `verify` for structured evidence, `doctor` for stage/evidence/hook-enforce health, `security scan` for secrets/leak/config risk, `test-infra assess` for Infra Tier, profile dry-run/repair, and `e2e inspect/bootstrap/plan/run/assess` for app-level E2E bootstrap plus proof strength. `verification-gate.js` reads `.harness/verify-evidence.json` first and requires `overall=READY` before commit/tag gates pass.
+
+- **Phase 2 Quality Engineering Gate:** SHK is an AI harness, not a JS package users operate by hand. Once installed into a target app, it helps Claude Code / Codex do three things: write a short `.harness/iteration-spec.json` spec for the iteration, generate or select meaningful tests, and use `spec status`, `e2e assess`, `test effectiveness`, and `verify` to decide whether delivery is actually ready. E2E PASS is not enough: fake E2E, smoke-only flows, missing assertions, uncovered traffic, or tests that still pass when key logic is broken must be reported as `NOT_SUFFICIENT`. See [`docs/quality-engineering-gate.md`](docs/quality-engineering-gate.md).
+- **AI workflow quality gate:** In Claude Code / Codex, SHK skills now tell the agent to classify risk, find tests, decide whether E2E is needed, generate the first E2E for new apps, run the right checks, enter a bounded repair loop on failure, and explain the result in plain language. E2E PASS is not enough by itself: if the E2E is only `echo ok`, only smoke, does not cover the changed risk, or still passes after a critical behavior is broken, SHK reports `NOT_SUFFICIENT` and blocks delivery. The CLI commands are backend checks for the AI, not chores for users to memorize.
 
 ### Preset System (v0.9.0)
 
@@ -192,7 +195,7 @@ simple-harness-kit/
 ├── presets/       2 built-in (generic + example-company), data-driven commit & branch rules
 ├── templates/     11 templates
 ├── scripts/hooks/ 16 hook/helper scripts
-├── skills/        11 skills (init user-triggered | rest AI-auto)
+├── skills/        12 skills (init user-triggered | rest AI-auto)
 ├── examples/      3 real-world experiments (A + B + C)
 ├── tests/         170 hook scenarios + template integrity + scripted matrix + codex smoke
 └── init-prompt.md initialization prompt
