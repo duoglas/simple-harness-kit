@@ -170,6 +170,15 @@ process.stdin.on('end', () => {
           );
           process.exit(2);
         }
+        const sufficiencyBlockers = e2eSufficiencyEvidenceBlockers(structured, isTag ? 'release' : 'medium');
+        if (sufficiencyBlockers.length > 0) {
+          process.stderr.write(
+            '[Verification Gate] E2E sufficiency 证据不足。\n' +
+            '→ 具体问题: ' + sufficiencyBlockers.join('; ') + '\n' +
+            '→ E2E PASS 不等于可以交付；medium/high/release 必须证明 E2E 覆盖了本次风险。\n'
+          );
+          process.exit(2);
+        }
         const requiredRisk = isTag ? 'release' : 'low';
         const evidenceRisk = structured.risk || 'low';
         if ((RISK_ORDER[evidenceRisk] || 0) < RISK_ORDER[requiredRisk]) {
@@ -178,6 +187,17 @@ process.stdin.on('end', () => {
             `→ 证据文件: ${freshReport.path}\n`
           );
           process.exit(2);
+        }
+        if (isTag) {
+          const releaseBlockers = releaseEvidenceBlockers(structured);
+          if (releaseBlockers.length > 0) {
+            process.stderr.write(
+              '[Verification Gate] release tag 被阻止：发布风险必须有完整 E2E/runtime 证据。\n' +
+              '→ 具体问题: ' + releaseBlockers.join('; ') + '\n' +
+              '→ 如果 runtime 只能 DEGRADED，报告里必须原样说明，不能当作 PASS。\n'
+            );
+            process.exit(2);
+          }
         }
       }
 
@@ -242,4 +262,32 @@ function readAllEvidenceText() {
     } catch {}
   }
   return out;
+}
+
+
+function releaseEvidenceBlockers(evidence) {
+  const checks = evidence && evidence.checks || {};
+  const blockers = [];
+  const e2e = checks.e2e;
+  const sufficiency = checks.e2e_sufficiency;
+  const runtime = checks.runtime;
+  if (!e2e || e2e.status !== 'PASS') blockers.push(`E2E=${e2e && e2e.status || 'MISSING'}`);
+  if (!sufficiency) blockers.push('E2E sufficiency=MISSING');
+  else if (sufficiency.overall !== 'READY' || sufficiency.status !== 'PASS') blockers.push(`E2E sufficiency=${sufficiency.overall || sufficiency.status || 'UNKNOWN'}`);
+  if (!runtime) blockers.push('runtime=MISSING');
+  else if (runtime.status !== 'PASS') blockers.push(`runtime=${runtime.status}`);
+  else if (runtime.degraded === true || /\bDEGRADED\b/.test(String(runtime.stdout_tail || '') + String(runtime.stderr_tail || ''))) blockers.push('runtime=DEGRADED');
+  return blockers;
+}
+
+function e2eSufficiencyEvidenceBlockers(evidence, minimumRisk) {
+  const risk = evidence && evidence.risk || 'low';
+  if ((RISK_ORDER[risk] || 0) < RISK_ORDER[minimumRisk]) return [];
+  const checks = evidence && evidence.checks || {};
+  const sufficiency = checks.e2e_sufficiency;
+  if (!sufficiency) return ['e2e_sufficiency=MISSING'];
+  if (sufficiency.overall !== 'READY' || sufficiency.status !== 'PASS') {
+    return [`e2e_sufficiency=${sufficiency.overall || sufficiency.status || 'UNKNOWN'}`];
+  }
+  return [];
 }
