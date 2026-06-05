@@ -93,6 +93,26 @@ function formatWiring(w) {
   return `${w.event}:${w.matcher || '*'} → ${w.script}`;
 }
 
+function localRequireDeps(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const deps = [];
+  const re = /require\(\s*['"](\.[^'"]+)['"]\s*\)/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const dep = m[1];
+    const base = path.resolve(path.dirname(filePath), dep);
+    const candidates = [base, `${base}.js`, path.join(base, 'index.js')];
+    const existing = candidates.find(c => fs.existsSync(c));
+    deps.push({
+      from: filePath,
+      dep,
+      resolved: existing || candidates[0],
+      exists: Boolean(existing),
+    });
+  }
+  return deps;
+}
+
 // 从 init-prompt.md 里提取 "settings.json 最小配置" 章节中的 JSON 块
 // 更精确：必须在包含"最小配置"字样的章节内
 function extractMinimumSettingsFromInitPrompt(content) {
@@ -125,6 +145,7 @@ function runTemplateIntegrityTests() {
 
   // 加载单一真实源
   let requiredWirings = null;
+  let requiredFiles = null;
   check('source: required-wiring.json 存在 + 可解析', () => {
     if (!fs.existsSync(REQUIRED_WIRING_FILE)) {
       return `真实源不存在: ${REQUIRED_WIRING_FILE}`;
@@ -134,7 +155,11 @@ function runTemplateIntegrityTests() {
       if (!Array.isArray(data.wirings) || data.wirings.length === 0) {
         return 'required-wiring.json 结构无效 (wirings 必须是非空数组)';
       }
+      if (!Array.isArray(data.required_files) || data.required_files.length === 0) {
+        return 'required-wiring.json 结构无效 (required_files 必须是非空数组)';
+      }
       requiredWirings = data.wirings;
+      requiredFiles = data.required_files;
     } catch (e) {
       return `解析失败: ${e.message}`;
     }
@@ -259,6 +284,31 @@ function runTemplateIntegrityTests() {
       if (!fs.existsSync(path.join(SCRIPTS_HOOKS_DIR, name))) missing.push(name);
     }
     if (missing.length > 0) return `template 引用的脚本不存在: ${missing.join(', ')}`;
+  });
+
+  // ── T4b: hook 本地 require 依赖必须存在，且进入 required_files ──
+  // Issue #10: harness-stage-guard.js 引入 ../lib/spec-quality，但 init 曾只复制
+  // scripts/hooks/，导致新项目首次触发 hook 时 MODULE_NOT_FOUND。
+  check('template: hook 本地 require 依赖存在且进入 required_files', () => {
+    if (!requiredFiles) return '前置检查失败，跳过';
+    const requiredSet = new Set(requiredFiles);
+    const errors = [];
+    const requiredScriptNames = new Set(requiredWirings.map(w => w.script).filter(Boolean));
+    const hookFiles = Array.from(requiredScriptNames).map(f => path.join(SCRIPTS_HOOKS_DIR, f));
+    for (const hookFile of hookFiles) {
+      for (const dep of localRequireDeps(hookFile)) {
+        const relFrom = path.relative(KIT_ROOT, dep.from);
+        const relDep = path.relative(KIT_ROOT, dep.resolved);
+        if (!dep.exists) {
+          errors.push(`${relFrom} require(${dep.dep}) 指向不存在文件`);
+          continue;
+        }
+        if (!requiredSet.has(relDep)) {
+          errors.push(`${relFrom} require(${dep.dep}) → ${relDep} 未列入 required_files，init 可能漏复制`);
+        }
+      }
+    }
+    if (errors.length > 0) return errors.join('\n      ');
   });
 
   // ── T5: 必选 rule 模板存在 + 含关键内容 ──
@@ -425,6 +475,25 @@ function runTemplateIntegrityTests() {
         return `SKILL.md 在 ${span} 行内列出 ${hookRefs.length} 个 hook 路径，疑似硬编码必选清单 (违反 C-INIT-04)`;
       }
     }
+  });
+
+  check('skill: harness-init Step 4 检查 hook 本地 require 依赖', () => {
+    const files = [HARNESS_INIT_SKILL, INIT_PROMPT_RESOURCE, INIT_PROMPT];
+    const errors = [];
+    for (const file of files) {
+      if (!fs.existsSync(file)) {
+        errors.push(`文件不存在: ${path.relative(KIT_ROOT, file)}`);
+        continue;
+      }
+      const content = fs.readFileSync(file, 'utf8');
+      const hasDependencyCheck = /require\(\)|require\(['"]\.\//.test(content) &&
+        /本地依赖|共享库依赖|内部依赖/.test(content) &&
+        /存在/.test(content);
+      if (!hasDependencyCheck) {
+        errors.push(`${path.relative(KIT_ROOT, file)} 缺少 Step 4 hook require 依赖存在性检查`);
+      }
+    }
+    if (errors.length > 0) return errors.join('\n      ');
   });
 
   // ── T9: stage-guard.js 内部 READ_TOOLS / TASK_TOOLS 数组与 required-wiring.json 一致性检测 ──

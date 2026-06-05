@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- **Init now checks hook local dependencies**: 修复 Issue #10：`harness-stage-guard.js` 依赖 `scripts/lib/spec-quality.js`，新项目 init 不能只检查 hook 文件存在，还必须检查 settings 引用 hook 的本地 `require()` 依赖也存在。`tests/template-integrity.js` 新增守门，`harness-init` Step 4 也明确把本地依赖检查列入用户层完整性检查。
 - **Delivery gate now requires fresh READY evidence**: REVIEW/FEEDBACK 阶段也不能在缺少 `.harness/verify-evidence.json`、证据不是 `READY`、证据过期、E2E 充分性不是 READY、测试有效性不是 READY 或包含 `DEGRADED` 时说“完成了”。失败、降级、缺证据和不充分必须原样告诉用户，不能包装成 PASS。
 - **Release tag evidence gate**: release tag 要求 release 风险证据里 E2E、E2E 充分性和 runtime 都是 `PASS`；runtime 只要是 `DEGRADED`，tag 会被阻止并提示限制说明。
 
