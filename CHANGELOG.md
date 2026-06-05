@@ -16,6 +16,7 @@
 - **Phase 2 process doc**: 新增 `docs/quality-engineering-gate.md` 和 `docs/phase2-quality-gate/`，用人话解释第二阶段的 spec 驱动流程：SPEC → PLAN → EXECUTE → TEST GENERATION → TEST EFFECTIVENESS → VERIFY → REVIEW。文档明确这些 `shk` 命令是 AI Harness 的后端探针，不是让用户手动背的 CLI。
 - **Real OSS dogfood for Phase 2**: 新增 `tests/scripts/17-oss-dogfood-validation.sh`。它不再只用 SHK 自己造的 fixture 证明测试有效，而是把 SHK 接入两个真实开源工程的临时副本：TodoMVC 前端和 Express API。正常代码下 E2E 必须通过；故意改坏真实源码后，同一条 E2E 必须失败；fake / smoke-only / 注释关键词脚本不能被当成 READY。
 - **Upstream CI and browser E2E dogfood**: 新增 `tests/scripts/18-upstream-ci-dogfood.sh` 和 `tests/scripts/19-browser-e2e-dogfood.sh`。18 会真实跑 OSS npm install/ci，并把空壳上游 test 标成 `NO_PROOF`；19 会用 headless browser 打开真实 TodoMVC 页面，跑输入、DOM、计数、筛选和清理链路，再用 mutation 证明 UI 坏掉会被抓住。
+- **Human-readable GitHub landing docs**: 重写 `README.md` / `README.zh-CN.md`，把首页从“方法论 + 命令清单”调整为“AI 工具内怎么用 SHK 交付一个目标工程”。新增 `docs/release-notes/v0.10.0-github.md` 和 `docs/release-notes/v0.11.0.md`，分别用于补强已发布的 v0.10.0 GitHub release 正文和准备 Phase 2 后续发布说明。
 
 ### Fixed
 
