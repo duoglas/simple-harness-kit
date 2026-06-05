@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "test": "node -e \"process.exit(0)\"",
+    "test:e2e": "echo ok"
+  }
+}

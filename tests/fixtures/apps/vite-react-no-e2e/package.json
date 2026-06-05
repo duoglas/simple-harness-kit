@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "test": "node -e \"process.exit(0)\""
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^latest",
+    "vite": "^latest",
+    "react": "^latest",
+    "react-dom": "^latest"
+  }
+}

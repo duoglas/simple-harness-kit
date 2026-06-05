@@ -8,11 +8,14 @@
       "stop_reason": "end_turn"
     },
     "setup": {
-      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}"
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
+      ".harness/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"},\"e2e\":{\"status\":\"PASS\",\"command\":\"npm run test:e2e\"},\"e2e_sufficiency\":{\"status\":\"PASS\",\"overall\":\"READY\"}}}"
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["未完成 VERIFY"]
+      "stderr": [
+        "未完成 VERIFY"
+      ]
     }
   },
   {
@@ -28,11 +31,13 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["缺少验证证据"]
+      "stderr": [
+        "缺少结构化 READY 验证证据"
+      ]
     }
   },
   {
-    "name": "delivery-gate: REVIEW 阶段 → 放行",
+    "name": "delivery-gate: REVIEW 阶段 + fresh READY evidence → 放行",
     "hook": "delivery-gate.js",
     "stdin": {
       "hook_event_name": "Stop",
@@ -40,7 +45,8 @@
       "stop_reason": "end_turn"
     },
     "setup": {
-      ".harness/current-stage.json": "{\"stage\":\"REVIEW\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}"
+      ".harness/current-stage.json": "{\"stage\":\"REVIEW\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
+      ".harness/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"},\"e2e\":{\"status\":\"PASS\",\"command\":\"npm run test:e2e\"},\"e2e_sufficiency\":{\"status\":\"PASS\",\"overall\":\"READY\"}}}"
     },
     "expect": {
       "exitCode": 0
@@ -70,7 +76,8 @@
       "stop_reason": "end_turn"
     },
     "setup": {
-      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}"
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
+      ".harness/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"},\"e2e\":{\"status\":\"PASS\",\"command\":\"npm run test:e2e\"},\"e2e_sufficiency\":{\"status\":\"PASS\",\"overall\":\"READY\"}}}"
     },
     "expect": {
       "exitCode": 0
@@ -112,11 +119,14 @@
       "stop_reason": "end_turn"
     },
     "setup": {
-      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}"
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
+      ".harness/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"},\"e2e\":{\"status\":\"PASS\",\"command\":\"npm run test:e2e\"},\"e2e_sufficiency\":{\"status\":\"PASS\",\"overall\":\"READY\"}}}"
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["未完成 VERIFY"]
+      "stderr": [
+        "未完成 VERIFY"
+      ]
     }
   }
 ]

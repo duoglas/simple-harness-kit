@@ -12,6 +12,7 @@
     "scripts/hooks/session-logger.js",
     "scripts/hooks/safety-guard.js",
     "scripts/hooks/find-root.js",
+    "scripts/lib/spec-quality.js",
     "scripts/hooks/session-end.js",
     "scripts/hooks/stage-since-autofill.js",
     "docs/constraints.md",

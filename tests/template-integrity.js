@@ -794,6 +794,147 @@ function runTemplateIntegrityTests() {
     }
   });
 
+  check('docs/skills: Phase 2 质量工程门禁说明完整', () => {
+    const files = [
+      path.join(KIT_ROOT, 'docs', 'quality-engineering-gate.md'),
+      path.join(KIT_ROOT, 'skills', 'harness-start', 'SKILL.md'),
+      path.join(KIT_ROOT, 'skills', 'auto-harness-test-bootstrap', 'SKILL.md'),
+      README_EN,
+      README_ZH,
+    ];
+    const requiredGroups = [
+      ['测试生成', 'generate or select meaningful tests'],
+      ['有效测试验证', 'test effectiveness'],
+      ['交付准出', 'delivery'],
+      ['流量', 'traffic'],
+      ['iteration-spec'],
+      ['test effectiveness'],
+      ['NOT_SUFFICIENT'],
+    ];
+    const errors = [];
+    for (const file of files) {
+      if (!fs.existsSync(file)) {
+        errors.push('缺文件: ' + path.relative(KIT_ROOT, file));
+        continue;
+      }
+      const content = fs.readFileSync(file, 'utf8');
+      const missing = requiredGroups.filter(group => !group.some(x => content.includes(x))).map(group => group[0]);
+      if (missing.length > 0) {
+        errors.push(`${path.relative(KIT_ROOT, file)} 缺少: ${missing.join(', ')}`);
+      }
+    }
+    if (errors.length > 0) return errors.join(' | ');
+  });
+
+  check('docs/tests: Phase 2 必须是 spec 驱动而不是事后总结', () => {
+    const requiredFiles = [
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', 'README.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '01-spec-driven-workflow.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '02-iteration-spec-template.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '03-spec-quality-rules.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '04-target-app-acceptance.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '06-oss-dogfood-validation.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '07-upstream-ci-and-browser-dogfood.md'),
+      path.join(KIT_ROOT, 'tests', 'scripts', '16-spec-driven-target-app-acceptance.sh'),
+      path.join(KIT_ROOT, 'tests', 'scripts', '17-oss-dogfood-validation.sh'),
+      path.join(KIT_ROOT, 'tests', 'scripts', '18-upstream-ci-dogfood.sh'),
+      path.join(KIT_ROOT, 'tests', 'scripts', '19-browser-e2e-dogfood.sh'),
+    ];
+    const errors = [];
+    for (const file of requiredFiles) {
+      if (!fs.existsSync(file)) errors.push('缺文件: ' + path.relative(KIT_ROOT, file));
+    }
+    const doc = path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '01-spec-driven-workflow.md');
+    if (fs.existsSync(doc)) {
+      const content = fs.readFileSync(doc, 'utf8');
+      const required = ['spec 是交付流程的输入', 'SPEC → PLAN → EXECUTE', '错误顺序', '最后补文档', 'NOT_READY', 'NOT_SUFFICIENT'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('01-spec-driven-workflow.md 缺少: ' + missing.join(', '));
+    }
+    const script = path.join(KIT_ROOT, 'tests', 'scripts', '16-spec-driven-target-app-acceptance.sh');
+    if (fs.existsSync(script)) {
+      const content = fs.readFileSync(script, 'utf8');
+      const required = ['missing spec must block', 'write spec before generating tests', 'spec, e2e, effectiveness and verify must be READY', 'mutate target behavior'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('16-spec-driven-target-app-acceptance.sh 缺少: ' + missing.join(', '));
+    }
+    const ossDoc = path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '06-oss-dogfood-validation.md');
+    if (fs.existsSync(ossDoc)) {
+      const content = fs.readFileSync(ossDoc, 'utf8');
+      const required = ['真实开源工程', '不是 SHK 仓库里的 fixture', '1Marc/modern-todomvc-vanillajs', 'rwieruch/node-express-server-rest-api', 'mutation', '还没证明'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('06-oss-dogfood-validation.md 缺少: ' + missing.join(', '));
+    }
+    const ossScript = path.join(KIT_ROOT, 'tests', 'scripts', '17-oss-dogfood-validation.sh');
+    if (fs.existsSync(ossScript)) {
+      const content = fs.readFileSync(ossScript, 'utf8');
+      const required = ['1Marc/modern-todomvc-vanillajs', 'rwieruch/node-express-server-rest-api', 'SHK_OSS_DOGFOOD_ALLOW_DOWNLOAD', 'fake E2E keyword stub reached READY', 'mutate real OSS source', 'killed'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('17-oss-dogfood-validation.sh 缺少: ' + missing.join(', '));
+    }
+    const upstreamDoc = path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '07-upstream-ci-and-browser-dogfood.md');
+    if (fs.existsSync(upstreamDoc)) {
+      const content = fs.readFileSync(upstreamDoc, 'utf8');
+      const required = ['upstream npm install', 'NO_PROOF', '浏览器真实页面', 'Playwright Chromium', '线上真实流量'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('07-upstream-ci-and-browser-dogfood.md 缺少: ' + missing.join(', '));
+    }
+    const upstreamScript = path.join(KIT_ROOT, 'tests', 'scripts', '18-upstream-ci-dogfood.sh');
+    if (fs.existsSync(upstreamScript)) {
+      const content = fs.readFileSync(upstreamScript, 'utf8');
+      const required = ['npm ci', 'NO_PROOF', 'SHK_NPM_PROXY', 'No test specified', 'phase2-upstream-ci-dogfood-result.json'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('18-upstream-ci-dogfood.sh 缺少: ' + missing.join(', '));
+    }
+    const browserScript = path.join(KIT_ROOT, 'tests', 'scripts', '19-browser-e2e-dogfood.sh');
+    if (fs.existsSync(browserScript)) {
+      const content = fs.readFileSync(browserScript, 'utf8');
+      const required = ['playwright-chromium', 'SHK_BROWSER_E2E_ALLOW_INSTALL', 'listen EPERM', 'completed: false', 'phase2-browser-e2e-dogfood-result.json'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('19-browser-e2e-dogfood.sh 缺少: ' + missing.join(', '));
+    }
+    if (errors.length > 0) return errors.join(' | ');
+  });
+
+  check('docs/skills: 用户可见报告必须说人话，不用机器状态开头', () => {
+    const files = [
+      path.join(KIT_ROOT, 'docs', 'quality-engineering-gate.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '01-spec-driven-workflow.md'),
+      path.join(KIT_ROOT, 'skills', 'harness-start', 'SKILL.md'),
+      path.join(KIT_ROOT, 'skills', 'auto-harness-qa', 'SKILL.md'),
+      path.join(KIT_ROOT, 'skills', 'auto-harness-test-bootstrap', 'SKILL.md'),
+      path.join(KIT_ROOT, 'skills', 'auto-harness-review', 'SKILL.md'),
+      path.join(KIT_ROOT, 'skills', 'auto-harness-santa', 'SKILL.md'),
+      path.join(KIT_ROOT, 'skills', 'harness-feedback', 'SKILL.md'),
+      path.join(KIT_ROOT, 'templates', 'agents-md.tmpl'),
+      path.join(KIT_ROOT, 'templates', 'claude-md.tmpl'),
+    ];
+    const errors = [];
+    const banned = ['当前不是 READY', '所以这是 NOT_SUFFICIENT', '下一步我会先补', 'E2E 没证明本次风险'];
+    for (const file of files) {
+      if (!fs.existsSync(file)) {
+        errors.push('缺文件: ' + path.relative(KIT_ROOT, file));
+        continue;
+      }
+      const content = fs.readFileSync(file, 'utf8');
+      const hits = banned.filter(x => content.includes(x));
+      if (hits.length > 0) errors.push(`${path.relative(KIT_ROOT, file)} 仍有机器腔: ${hits.join(', ')}`);
+    }
+    const exampleDocs = [
+      path.join(KIT_ROOT, 'docs', 'quality-engineering-gate.md'),
+      path.join(KIT_ROOT, 'docs', 'phase2-quality-gate', '01-spec-driven-workflow.md'),
+      path.join(KIT_ROOT, 'skills', 'auto-harness-test-bootstrap', 'SKILL.md'),
+    ];
+    for (const file of exampleDocs) {
+      if (!fs.existsSync(file)) continue;
+      const content = fs.readFileSync(file, 'utf8');
+      const required = ['现在还不能交付', '没证明', '我会先补', '机器状态：NOT_SUFFICIENT'];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push(`${path.relative(KIT_ROOT, file)} 缺少人话报告锚点: ${missing.join(', ')}`);
+    }
+    if (errors.length > 0) return errors.join(' | ');
+  });
+
   const pass = results.filter(r => r.ok).length;
   const fail = results.length - pass;
   return { pass, fail, results };
