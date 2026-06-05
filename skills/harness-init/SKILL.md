@@ -24,7 +24,7 @@ description: 为当前项目初始化完整的 Harness Engineering 配置（Rule
 **路径解析约定**（C-SKILL-01, VH-10 教训）：本 SKILL.md 中所有 `./resources/xxx` 路径均**相对 SKILL.md 文件本身的位置**（通常是 `~/.claude/skills/harness-init/resources/` 或 `<project>/.claude/skills/harness-init/resources/`），这是 skill 安装后的真实路径，与 AI 当前 cwd 无关。kit 仓库相关的文件（hooks、templates/rules、e2e-acceptance-validate.sh）通过 Step 0 定位的 `$KIT_ROOT` 变量访问。cwd-relative 路径（如直接写 `simple-harness-kit/foo`）会直接失败——60+ 用户把 kit 放在任意位置。
 
 1. **`.claude/settings.json` 不能凭记忆生成**。必须先读取 `./resources/settings-json.tmpl`（skill-relative），以模板为唯一真实源，再做项目定制（替换路径、可选 hook 增删）。
-2. **Hook 脚本不能凭记忆生成**。必须从 kit 仓库 `scripts/hooks/` 读取对应脚本（定位方式见 Step 0），复制到目标项目，**不修改脚本内容**——它们是 kit 的一部分，会随升级更新。如目标项目用 monorepo，复制策略由项目结构决定，但脚本本体保持不变。
+2. **Hook 脚本不能凭记忆生成**。必须从 kit 仓库 `scripts/hooks/` 读取对应脚本，并同步 `scripts/lib/` 下的共享库（定位方式见 Step 0），复制到目标项目，**不修改脚本内容**——它们是 kit 的一部分，会随升级更新。如目标项目用 monorepo，复制策略由项目结构决定，但脚本本体保持不变。
 3. **Rules 文件不能凭记忆生成**。必须从 kit 仓库 `templates/rules/` 下的 `*.tmpl` 派生，做项目占位符替换。
 4. **必选/可选组件清单以 `./resources/init-prompt.md` 为权威**（skill-relative）。本文件不复述清单——任何看到必选项变化的人，都必须改 init-prompt.md，而不是改这里。
 5. **wiring（hook event/matcher 注册）以 `./resources/required-wiring.json` 为权威**（skill-relative）。这是工程层的 single source of truth，validate.sh 和 template-integrity 都从它派生。
@@ -39,7 +39,7 @@ description: 为当前项目初始化完整的 Harness Engineering 配置（Rule
 ### Step 0: 定位 kit 仓库（只为 Step 3 的脚本/rule 拷贝 + Step 4 的 validate.sh）
 
 本 skill 已自包含 4 个关键资源（`./resources/` 下），Step 1 全部从 resources/ 读取。
-但 Step 3 需要把 kit 的 `scripts/hooks/*.js` 和 `templates/rules/*.tmpl` 拷贝到目标项目——这一步需要知道 kit 仓库在哪。
+但 Step 3 需要把 kit 的 `scripts/hooks/*.js`、`scripts/lib/*.js` 和 `templates/rules/*.tmpl` 拷贝到目标项目——这一步需要知道 kit 仓库在哪。
 
 **定位顺序**（取第一个命中且锚点校验通过的）：
 1. 环境变量 `SIMPLE_HARNESS_KIT_ROOT` 指向的目录（若用户显式设置，最可信）
@@ -102,6 +102,7 @@ description: 为当前项目初始化完整的 Harness Engineering 配置（Rule
 
 拷贝 kit 脚本和 rule 模板到目标项目时，用 Step 0 定位到的 kit 根目录 `$KIT_ROOT`：
 - Hook 脚本源: `$KIT_ROOT/scripts/hooks/*.js`
+- Hook 共享库源: `$KIT_ROOT/scripts/lib/*.js`
 - Rule 模板源: `$KIT_ROOT/templates/rules/*.tmpl`
 
 > **生成 settings.json 的两种策略 — 默认走更安全的那条**：
@@ -157,7 +158,7 @@ node $KIT_ROOT/scripts/generate-codex-hooks.js --input .claude/settings.json --o
 
 生成产物后，做以下 **4 项用户层检查**（不跑 76 项 kit CI）:
 
-1. **必选文件存在**: `.claude/settings.json` / `.claude/rules/` 下 4 个必选 .md / `scripts/hooks/` 下必选 .js（至少 harness-stage-guard / harness-session-start / session-logger / safety-guard / find-root / session-end）/ `docs/constraints.md` / `CLAUDE.md`
+1. **必选文件存在**: `.claude/settings.json` / `.claude/rules/` 下 4 个必选 .md / `scripts/hooks/` 下必选 .js（至少 harness-stage-guard / harness-session-start / session-logger / safety-guard / find-root / session-end）/ `scripts/lib/spec-quality.js` / `docs/constraints.md` / `CLAUDE.md`
 2. **settings.json JSON 有效**: `node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`
 3. **hook 脚本存在**: settings.json 里每个 `command` 引用的 `scripts/hooks/xxx.js` 都有对应文件
 4. **CLAUDE.md 非空**: 大于 200 bytes

@@ -6,8 +6,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Phase 2 Quality Engineering Gate**: SHK 现在不只是要求 AI “跑测试、交 evidence”，而是把 spec 变成交付流程的前置依赖。每轮 medium / high / release 任务必须先有有效 spec：需求是什么、准备怎么做、风险在哪里、要测哪些流量路径、验收证据是什么。没有 spec 不能开工，不能事后补文档冒充 spec。
+- **Spec-backed workflow for AI tools**: 新增 `shk spec status` 作为 AI Harness 后端探针，用来检查 `.harness/iteration-spec.json` 是否完整，must 需求、风险点、测试计划、流量路径和验收项是否互相映射。没有 spec 是 `NOT_READY`；spec 写了但没覆盖关键需求/风险/流量，是 `NOT_SUFFICIENT`。
+- **Test generation + effectiveness gate**: 目标工程缺 E2E 时，AI 不能只报告“缺测试”。它要先识别工程类型，再进入测试生成/bootstrap：Web/fullstack 优先 Playwright，已有 Cypress 就沿用，API 服务生成 API E2E。生成后的测试还要通过 `shk test effectiveness` 判断是否真的有效。
+- **E2E sufficiency + test effectiveness in `verify`**: `shk verify` 现在聚合 `spec_status`、`e2e_sufficiency`、`test_effectiveness`。E2E PASS 不再等于可以交付；fake E2E、只打开首页、无真实断言、没覆盖本轮流量路径、没有 mutation/fault 证据，都不能变成 READY。
+- **Bounded repair loop for insufficient delivery**: 新增 `auto-harness-loop-fix` skill，并把 loop 规则接入 `harness-start`、QA、review、santa、feedback 和项目入口模板。测试失败或 `NOT_SUFFICIENT` 时，AI 最多尝试 3 轮；每轮只修一个失败点，重跑最小测试，没进展就停下来说明原因，不自动 push/tag/release。
+- **Phase 2 process doc**: 新增 `docs/quality-engineering-gate.md` 和 `docs/phase2-quality-gate/`，用人话解释第二阶段的 spec 驱动流程：SPEC → PLAN → EXECUTE → TEST GENERATION → TEST EFFECTIVENESS → VERIFY → REVIEW。文档明确这些 `shk` 命令是 AI Harness 的后端探针，不是让用户手动背的 CLI。
+- **Real OSS dogfood for Phase 2**: 新增 `tests/scripts/17-oss-dogfood-validation.sh`。它不再只用 SHK 自己造的 fixture 证明测试有效，而是把 SHK 接入两个真实开源工程的临时副本：TodoMVC 前端和 Express API。正常代码下 E2E 必须通过；故意改坏真实源码后，同一条 E2E 必须失败；fake / smoke-only / 注释关键词脚本不能被当成 READY。
+- **Upstream CI and browser E2E dogfood**: 新增 `tests/scripts/18-upstream-ci-dogfood.sh` 和 `tests/scripts/19-browser-e2e-dogfood.sh`。18 会真实跑 OSS npm install/ci，并把空壳上游 test 标成 `NO_PROOF`；19 会用 headless browser 打开真实 TodoMVC 页面，跑输入、DOM、计数、筛选和清理链路，再用 mutation 证明 UI 坏掉会被抓住。
+- **Human-readable GitHub landing docs**: 重写 `README.md` / `README.zh-CN.md`，把首页从“方法论 + 命令清单”调整为“AI 工具内怎么用 SHK 交付一个目标工程”。新增 `docs/release-notes/v0.10.0-github.md` 和 `docs/release-notes/v0.11.0.md`，分别用于补强已发布的 v0.10.0 GitHub release 正文和准备 Phase 2 后续发布说明。
+
+### Fixed
+
+- **Delivery gate now requires fresh READY evidence**: REVIEW/FEEDBACK 阶段也不能在缺少 `.harness/verify-evidence.json`、证据不是 `READY`、证据过期、E2E 充分性不是 READY、测试有效性不是 READY 或包含 `DEGRADED` 时说“完成了”。失败、降级、缺证据和不充分必须原样告诉用户，不能包装成 PASS。
+- **Release tag evidence gate**: release tag 要求 release 风险证据里 E2E、E2E 充分性和 runtime 都是 `PASS`；runtime 只要是 `DEGRADED`，tag 会被阻止并提示限制说明。
+
 ### Known Issues
 
+- **Codex runtime smoke 仍可能 DEGRADED**: 当前 `codex exec` runtime 在部分环境会因为 `Operation not permitted` 无法完成完整 project hook smoke。这个状态必须原样报告，不能当作 runtime PASS，也不能用于 release READY。
 - **PLAN Bash `sed -n` 仍存在写文件边界**: 当前 `harness-stage-guard.js` 将 `sed -n` 视为只读探索，但 `sed -n '1w pwned' input.txt` 这类 sed `w` command 仍可写文件。此项先记录为已知问题，后续应收窄 PLAN 阶段 sed 白名单或移除 sed 放行，并补回归 fixture。
 
 ## [0.10.0] - 2026-06-03

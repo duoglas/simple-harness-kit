@@ -737,7 +737,7 @@
     }
   },
   {
-    "name": "stage-guard: 切 EXECUTE（非 REVIEW）→ 放行无 Gate",
+    "name": "stage-guard: 切 EXECUTE + spec READY → 放行",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "Write",
@@ -748,7 +748,8 @@
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
-      ".harness/tool-count.json": "{\"count\":1}"
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/iteration-spec.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"requirements\":[{\"id\":\"REQ-1\",\"text\":\"test feature must work\",\"priority\":\"must\",\"source\":\"test\"}],\"design\":{\"summary\":\"test feature design\",\"risk_points\":[{\"id\":\"RISK-1\",\"text\":\"feature can fail silently\"}]},\"traffic_flows\":[{\"id\":\"FLOW-1\",\"name\":\"feature flow\",\"entrypoint\":\"test\",\"steps\":[\"run feature\",\"assert result\"],\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"]}],\"test_plan\":[{\"id\":\"TEST-1\",\"type\":\"contract\",\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"],\"traffic_flows\":[\"FLOW-1\"],\"scenario\":\"feature positive and blocking path\",\"assertions\":[\"positive passes\",\"bad input blocks\"],\"negative_or_boundary\":true}],\"acceptance\":[{\"id\":\"AC-1\",\"text\":\"feature is proven by contract test\",\"covers\":[\"REQ-1\"],\"tests\":[\"TEST-1\"],\"must_have_evidence\":true}]}"
     },
     "expect": {
       "exitCode": 0,
@@ -1270,7 +1271,8 @@
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
-      ".harness/tool-count.json": "{\"count\":1}"
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/iteration-spec.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"requirements\":[{\"id\":\"REQ-1\",\"text\":\"test feature must work\",\"priority\":\"must\",\"source\":\"test\"}],\"design\":{\"summary\":\"test feature design\",\"risk_points\":[{\"id\":\"RISK-1\",\"text\":\"feature can fail silently\"}]},\"traffic_flows\":[{\"id\":\"FLOW-1\",\"name\":\"feature flow\",\"entrypoint\":\"test\",\"steps\":[\"run feature\",\"assert result\"],\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"]}],\"test_plan\":[{\"id\":\"TEST-1\",\"type\":\"contract\",\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"],\"traffic_flows\":[\"FLOW-1\"],\"scenario\":\"feature positive and blocking path\",\"assertions\":[\"positive passes\",\"bad input blocks\"],\"negative_or_boundary\":true}],\"acceptance\":[{\"id\":\"AC-1\",\"text\":\"feature is proven by contract test\",\"covers\":[\"REQ-1\"],\"tests\":[\"TEST-1\"],\"must_have_evidence\":true}]}"
     },
     "expect": {
       "exitCode": 0,
@@ -1315,7 +1317,8 @@
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
-      ".harness/tool-count.json": "{\"count\":1}"
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/iteration-spec.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"requirements\":[{\"id\":\"REQ-1\",\"text\":\"test feature must work\",\"priority\":\"must\",\"source\":\"test\"}],\"design\":{\"summary\":\"test feature design\",\"risk_points\":[{\"id\":\"RISK-1\",\"text\":\"feature can fail silently\"}]},\"traffic_flows\":[{\"id\":\"FLOW-1\",\"name\":\"feature flow\",\"entrypoint\":\"test\",\"steps\":[\"run feature\",\"assert result\"],\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"]}],\"test_plan\":[{\"id\":\"TEST-1\",\"type\":\"contract\",\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"],\"traffic_flows\":[\"FLOW-1\"],\"scenario\":\"feature positive and blocking path\",\"assertions\":[\"positive passes\",\"bad input blocks\"],\"negative_or_boundary\":true}],\"acceptance\":[{\"id\":\"AC-1\",\"text\":\"feature is proven by contract test\",\"covers\":[\"REQ-1\"],\"tests\":[\"TEST-1\"],\"must_have_evidence\":true}]}"
     },
     "expect": {
       "exitCode": 0,
@@ -1338,7 +1341,8 @@
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
-      ".harness/tool-count.json": "{\"count\":1}"
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/iteration-spec.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"requirements\":[{\"id\":\"REQ-1\",\"text\":\"test feature must work\",\"priority\":\"must\",\"source\":\"test\"}],\"design\":{\"summary\":\"test feature design\",\"risk_points\":[{\"id\":\"RISK-1\",\"text\":\"feature can fail silently\"}]},\"traffic_flows\":[{\"id\":\"FLOW-1\",\"name\":\"feature flow\",\"entrypoint\":\"test\",\"steps\":[\"run feature\",\"assert result\"],\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"]}],\"test_plan\":[{\"id\":\"TEST-1\",\"type\":\"contract\",\"covers\":[\"REQ-1\"],\"risks\":[\"RISK-1\"],\"traffic_flows\":[\"FLOW-1\"],\"scenario\":\"feature positive and blocking path\",\"assertions\":[\"positive passes\",\"bad input blocks\"],\"negative_or_boundary\":true}],\"acceptance\":[{\"id\":\"AC-1\",\"text\":\"feature is proven by contract test\",\"covers\":[\"REQ-1\"],\"tests\":[\"TEST-1\"],\"must_have_evidence\":true}]}"
     },
     "expect": {
       "exitCode": 0,

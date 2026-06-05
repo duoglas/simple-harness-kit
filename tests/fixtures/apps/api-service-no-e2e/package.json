@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "start": "node server.js",
+    "test": "node -e \"process.exit(0)\""
+  },
+  "dependencies": {
+    "express": "^latest"
+  }
+}

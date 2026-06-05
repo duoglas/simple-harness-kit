@@ -2,22 +2,60 @@
 
 **[中文文档](README.zh-CN.md)**
 
-A portable, tool-agnostic **Harness Engineering** methodology + template repo.
+Simple Harness Kit (SHK) is an **AI engineering harness** for Claude Code, Codex, and other hook-capable coding agents.
 
-> "Don't ask which model is smarter. Ask whose execution system is more reliable."
+It is not a JavaScript SDK you import into your app. You install it into a software project so the AI working in that project has a repeatable delivery system: write a short spec, choose or generate meaningful tests, verify the evidence, loop on failures, and stop before unsafe delivery.
 
-### The Problem
+> Do not ask which model is smarter. Ask whether the workflow can prove the change is safe.
 
-| Pain Point | Solution |
-|-----------|---------|
-| Rule drift in long conversations | Hook enforcement (100% tool-level interception) |
-| Unstable code quality | 5-Layer QA Pyramid (AI does 4 layers, humans do final review) |
-| No knowledge accumulation | Constraint ID tracing + F1-F5 feedback loops |
-| Blind to actual behavior | Continuous learning (auto-captures patterns, improvement suggestions) |
+## What SHK fixes
 
-### Quick Start
+| Without SHK | What usually happens | With SHK |
+|---|---|---|
+| Long AI sessions lose rules | The agent starts careful, then skips steps later | Hooks keep enforcing the same stage rules |
+| “Tests passed” is too weak | A smoke script or `echo ok` looks green | E2E must prove the changed path, not just exit 0 |
+| No clear spec | Requirements, risks, and acceptance drift during the chat | Each medium/high/release task starts from an iteration spec |
+| Failed tests stall progress | The agent retries randomly or changes too much | A bounded repair loop fixes one failure at a time |
+| Delivery is based on trust | “I ran it” becomes oral history | `verify` writes fresh, structured evidence |
+| Lessons disappear | Same mistake shows up in the next task | Feedback becomes constraints and regression checks |
 
-**Step 1: Install Skills (one command)**
+## The user experience
+
+After SHK is initialized in a target project, you keep working inside Claude Code or Codex as usual:
+
+```text
+Implement checkout coupon support.
+```
+
+The harness changes what the AI must do before it can claim the work is done:
+
+1. **Classify risk** — low, medium, high, or release.
+2. **Write or read the iteration spec** — requirement, approach, risks, traffic paths, test plan, acceptance.
+3. **Find the project’s test surface** — unit, integration, API, browser E2E, upstream CI.
+4. **Generate missing tests when needed** — for example the first Playwright or API E2E in a new app.
+5. **Run the smallest useful checks first** — then widen only when needed.
+6. **Assess test effectiveness** — did the tests cover the changed business path, assertions, negative path, and mutation/fault evidence?
+7. **Loop on failures** — at most 3 repair rounds, one failure point per round.
+8. **Report in plain language** — what is proven, what is still missing, and what happens next.
+
+A good SHK report should read like this:
+
+```text
+I cannot hand this off yet.
+
+The new order creation path is not covered by an E2E or API-level acceptance test.
+The current checks only prove that the service starts and /health responds.
+They do not prove that POST /orders creates an order, rejects invalid input, or fails when the order logic is broken.
+
+Next I will add one positive order creation test and one invalid-order blocking test, then rerun the smallest API E2E.
+Machine state: NOT_SUFFICIENT
+```
+
+The machine state is still useful for hooks, but the user-facing report should explain the engineering reason first.
+
+## Quick start
+
+### 1. Install SHK once
 
 ```bash
 git clone https://github.com/duoglas/simple-harness-kit.git ~/simple-harness-kit
@@ -25,180 +63,180 @@ bash ~/simple-harness-kit/install.sh
 ```
 
 `install.sh` will:
-- Install skills to `~/.claude/skills/` and/or `~/.codex/skills/` (auto-detect, or `--target claude|codex|both`)
-- Write `~/.simple-harness-kit-root` so `harness-init` can auto-locate the kit later
-- (Codex only) Ask if you want `alias codex='codex --enable hooks --sandbox workspace-write --ask-for-approval on-request'` written to `~/.zshrc` / `~/.bashrc` — recommended; enables hooks and uses the current explicit sandbox/approval flags
 
-Update: `git -C ~/simple-harness-kit pull && bash ~/simple-harness-kit/install.sh`
+- install skills into `~/.claude/skills/` and/or `~/.codex/skills/`;
+- write `~/.simple-harness-kit-root` so project init can find the kit later;
+- optionally add a Codex alias with the current explicit hook/sandbox/approval flags.
 
-**Step 2: Initialize Harness for your project (once per project)**
-
-Enter your project directory, then:
+Update later:
 
 ```bash
-# Claude Code:
-claude              # start TUI
-# then in TUI:
+git -C ~/simple-harness-kit pull
+bash ~/simple-harness-kit/install.sh
+```
+
+### 2. Initialize each project once
+
+In the target project:
+
+```bash
+# Claude Code
+claude
 /harness-init
 
-# Codex (must be TUI mode — exec/non-interactive deadlocks at kit lookup):
-codex               # if you accepted the alias in Step 1, this is enough
-# OR if no alias:
+# Codex: use TUI mode, not codex exec
 codex --enable hooks --sandbox workspace-write --ask-for-approval on-request
-# then in TUI:
-$harness-init       # NOTE: $ not / — Codex skill trigger sigil is $
+$harness-init
 ```
 
-Or paste this prompt directly (works in both, no skill needed):
+Or paste the init prompt directly:
 
-```
+```text
 Read ~/simple-harness-kit/init-prompt.md and the methodology/ directory.
 Initialize Harness for this project.
-
-Required steps:
-1. Auto-scan project structure (package.json/directories/existing config), detect tech stack automatically — don't ask me for info
-2. Generate ALL mandatory components (marked in init-prompt.md):
-   - 8 hook scripts: harness-stage-guard.js, harness-session-start.js, harness-entry-banner.js, session-logger.js, safety-guard.js, find-root.js, session-end.js, stage-since-autofill.js
-   - 4 rules: role-constraints.md, qa-standards.md, feedback-workflow.md, harness-entry.md
-   - settings.json (use minimum config from init-prompt.md, register all mandatory hooks)
-   - docs/constraints.md, CLAUDE.md
-3. Select optional components based on project needs (must explain why for any skipped)
-4. Copy all hook scripts from ~/simple-harness-kit/scripts/hooks/ — do NOT write from scratch
-5. Output completeness checklist (OK/MISSING for each mandatory component)
-6. Fix any MISSING items immediately
-7. Remind me: hooks take effect in the NEXT session, I need to start a new one
+Copy hook scripts from the kit. Do not rewrite them from scratch.
+Generate the required rules, settings, docs/constraints.md, and project guide.
+Print a completeness checklist and fix any missing required item.
+Remind me that hooks take effect in the next session.
 ```
 
-> **Important:** You must start a new session after init. Hooks don't take effect in the current session.
+Start a new AI session after initialization. Hooks do not affect the session that created them.
 
-**Step 3: Daily usage**
+### 3. Use the harness every day
 
-After starting a new session, Harness takes over automatically (hooks drive the 6-Stage Loop). Two options:
-
-Option A — Skill (recommended, interactive):
-```
-/harness-start          # Claude Code
-$harness-start          # Codex (note the $ sigil)
-```
-The skill asks for your feature description and automatically includes all constraints (PLAN pause, VERIFY evidence, delivery checklist).
-
-Option B — Manual:
-```
-Follow Harness 6-Stage Loop. PLAN pause for my confirmation, VERIFY needs quantitative evidence, answer delivery checklist before presenting results.
-Feature: implement XXX
+```text
+/harness-start     # Claude Code
+$harness-start     # Codex
 ```
 
-**Handling feedback:**
+Then describe the task. For feedback or review findings:
 
+```text
+/harness-feedback  # Claude Code
+$harness-feedback  # Codex
 ```
-/harness-feedback       # Claude Code
-$harness-feedback       # Codex
+
+## How SHK decides whether a change can ship
+
+SHK uses the 6-stage loop:
+
+```text
+PLAN → SETUP → EXECUTE → VERIFY → REVIEW → FEEDBACK
 ```
 
-The skill asks for the issue and expected behavior, then runs F1-F5 automatically. Or manually: `[Harness Feedback] Issue: XXX Expected: YYY`.
+For real code changes, the important question is not “did a command pass?” It is “what did the tests prove?”
 
-### Core Mechanisms
+### Evidence levels
 
-- **6-Stage Loop:** Plan → Setup → Execute → Verify → Review → Feedback (loops until quality gates pass)
-- **5-Layer QA Pyramid:** TDD self-verify → Tool checks (build/lint/test) → Spec review (independent reviewer) → Santa Method (dual adversarial) → Human review
-- **Hook enforcement:** core hooks + optional/helper scripts cover stage guard, safety, verification, commit, delivery, learning, session logging, branch policy, and Codex compatibility — fire at 100% reliability regardless of context length
-- **Continuous Learning:** Auto-captures tool usage patterns (<50ms, no overhead), analyzes at each REVIEW stage. Pure local analysis, zero API calls. Discovers workflow habits, hot files needing tests, stable patterns to promote to Rules (token savings)
-- **Quality Gate Suite:** `scripts/shk.js` provides `verify` for structured evidence, `doctor` for stage/evidence/hook-enforce health, `security scan` for secrets/leak/config risk, `test-infra assess` for Infra Tier, profile dry-run/repair, and `e2e detect` for E2E quickstart. `verification-gate.js` reads `.harness/verify-evidence.json` first and requires `overall=READY` before commit/tag gates pass.
+| State | Meaning |
+|---|---|
+| `READY` | The required checks ran, the evidence is fresh, and the tests cover the relevant spec/risk paths. |
+| `NOT_READY` | Something required is missing, failed, stale, or degraded. |
+| `NOT_SUFFICIENT` | A command passed, but it did not prove the change is safe. Fake E2E, smoke-only checks, no assertions, uncovered traffic, or no mutation/fault evidence land here. |
 
-### Preset System (v0.9.0)
+### What counts as an effective E2E
 
-Commit format and branch policy are **data-driven** — different companies / teams / projects often need different rules (TICKET-ID prefixes, protected branches, no `feat` on `release-*` etc.). Instead of forking the kit and rewriting hooks, drop a preset config.
+For medium/high/release work, SHK expects more than a browser opening a page or an API returning 200:
 
-**Zero config = zero behavior change.** Default fallback to `generic` is silent and back-compatible — existing users upgrading from v0.8.x see no new warnings.
+- a spec that names the requirement, risk, traffic path, and acceptance evidence;
+- a real positive path;
+- a real negative or blocking path;
+- assertions that would fail if the behavior changed;
+- structured evidence written during this run, not a stale file;
+- mutation or fault evidence showing that broken critical behavior is caught;
+- clear reporting when runtime evidence is degraded.
 
-**Built-in presets:**
-- `presets/generic/` — default, equivalent to Conventional Commits + Co-Authored-By
-- `presets/example-company/` — public scaffold demonstrating TICKET-ID prefix + protected branches + single-release constraint + feat-on-release block. Copy and rename to author your own.
+If the key logic is broken and the test still passes, the test is not effective.
 
-**Opt-in to a non-default preset:**
+## Phase 2: Quality Engineering Gate
+
+Phase 2 is SHK’s shift from “AI should run tests” to “AI must produce measurable, reviewable, and improvable delivery evidence.” In practice, that means spec-driven work, test generation, test effectiveness checks, and delivery gates that block weak proof. The AI should generate or select meaningful tests instead of asking users to memorize backend commands.
+
+It adds four practical behaviors inside the AI workflow:
+
+1. **Spec-driven work** — medium/high/release tasks depend on `.harness/iteration-spec.json` before implementation.
+2. **Test generation for target apps** — when a target project has no E2E, the AI must bootstrap one instead of merely reporting the gap.
+3. **E2E sufficiency and test effectiveness** — `verify` aggregates spec status, E2E proof strength, test effectiveness, security, diff, and runtime status.
+4. **Bounded repair loop** — failures and insufficient proof trigger up to 3 focused repair rounds; no auto-push, auto-tag, or unsafe reset.
+
+Read more:
+
+- [Quality Engineering Gate](docs/quality-engineering-gate.md)
+- [Phase 2 docs](docs/phase2-quality-gate/README.md)
+- [v0.11.0 draft release notes](docs/release-notes/v0.11.0.md)
+
+## Quality Gate Suite
+
+The CLI under `scripts/shk.js` is mainly a backend for AI skills and hooks. Users can run it manually, but the intended path is that Claude Code or Codex calls it during VERIFY.
+
+Useful backend probes include:
 
 ```bash
-cp .harness.local.example.json .harness.local.json
-# edit "preset" field, e.g. "example-company" or your own
+node scripts/shk.js verify --risk medium --write-evidence
+node scripts/shk.js spec status --format json
+node scripts/shk.js e2e inspect --format json
+node scripts/shk.js e2e bootstrap --risk medium --format json
+node scripts/shk.js e2e assess --risk medium --format json
+node scripts/shk.js test effectiveness --risk medium --format json
+node scripts/shk.js security scan
 ```
 
-Or env override for one-shot: `HARNESS_PRESET=example-company`.
+`verify` writes `.harness/verify-evidence.json` and a human-readable report. Commit/tag hooks read that evidence before allowing delivery-sensitive actions.
 
-**What gets enforced:**
-- `commit-check` warns when subject doesn't match active preset's `subject_regex`
-- `branch-policy-guard` blocks `git push` to `merge_only_branches`, blocks `--all`/`--mirror` when protected branches exist, blocks commit types listed in `type_blocked_on_branch` (e.g. `feat` on `release-*`)
-- `HARNESS_SKIP_GATE=1` bypasses for one-off emergency
+## Presets for teams
 
-Full reference: [methodology/19-company-presets.md](methodology/19-company-presets.md)
+Commit format and branch policy are data-driven. The built-in presets are:
 
-### Real-World Validation
+- `presets/generic/` — default Conventional Commits + Co-Authored-By behavior;
+- `presets/example-company/` — public example for ticket prefixes, protected branches, and release constraints.
 
-| Experiment | Project | Type | Tests | Loops | Key Finding |
-|-----------|---------|------|-------|-------|------------|
-| **A** | [json-2-csv](https://github.com/mrodrig/json-2-csv) (459 stars) | TS library | TDD + 6 unit tests | 1 | Independent reviewer caught interaction bug missed by implementer |
-| **B** | [Fyrre Magazine](https://github.com/asbhogal/Fyrre-Magazine) | Next.js frontend | 14 Playwright E2E + axe a11y | 3 | Santa Method dual reviewers found 8 deep issues (aria-live, React key, unused components...) |
-| **C** | [Planka](https://github.com/plankanban/planka) (11.5k stars) | Full-stack (Sails.js + React) | 7 API E2E + Playwright UI | 1 | Claude Code vs Codex comparison: independent reviewer is the core value; prompt quality determines output |
+Opt in per project with `.harness.local.json` or `HARNESS_PRESET=...`. Zero config means zero behavior change for older projects.
 
-13 methodology corrections (M1-M13) produced across all experiments, all fed back into this repo.
+See [methodology/19-company-presets.md](methodology/19-company-presets.md).
 
-**Experiment B — feature delivery:**
+## Real-world validation
 
-| Initial state | Search filtering |
-|---------|---------|
-| ![Initial](https://github.com/duoglas/simple-harness-kit/releases/download/v0.1.0/demo-1-top.png) | ![Search](https://github.com/duoglas/simple-harness-kit/releases/download/v0.1.0/demo-2-search-secret.png) |
+SHK was originally shaped through public project experiments:
 
-| Category filter | Search + filter combo |
-|---------|-------------|
-| ![Filter](https://github.com/duoglas/simple-harness-kit/releases/download/v0.1.0/demo-3-sculptures.png) | ![Combo](https://github.com/duoglas/simple-harness-kit/releases/download/v0.1.0/demo-4-combo.png) |
+| Experiment | Project | What it showed |
+|---|---|---|
+| A | [json-2-csv](https://github.com/mrodrig/json-2-csv) | Independent review caught a data interaction bug missed during implementation. |
+| B | [Fyrre Magazine](https://github.com/asbhogal/Fyrre-Magazine) | Browser E2E + accessibility checks needed multiple feedback loops before handoff. |
+| C | [Planka](https://github.com/plankanban/planka) | Tool choice mattered less than having review, evidence, and loop discipline. |
 
-| Empty state | Mobile responsive |
-|--------|-----------|
-| ![Empty](https://github.com/duoglas/simple-harness-kit/releases/download/v0.1.0/demo-5-empty-state.png) | ![Mobile](https://github.com/duoglas/simple-harness-kit/releases/download/v0.1.0/demo-6-mobile.png) |
+Phase 2 adds dogfood checks against temporary copies of real OSS projects, including TodoMVC browser flows and an Express API service. Those checks must pass on normal behavior and fail after targeted mutation.
 
-> Details: [examples/experiment-a/](examples/experiment-a/) | [examples/experiment-b/](examples/experiment-b/) | [examples/experiment-c-planka/](examples/experiment-c-planka/)
+## Tool support
 
-### Selection Rationale
+| Tool | Status |
+|---|---|
+| Claude Code | Primary supported path through skills and hooks. |
+| Codex | Supported through TUI skills and hook configuration; runtime smoke may still be degraded in some environments. |
+| Gemini CLI / Cursor / OpenCode | Analyzed for compatibility; not the primary verified path yet. |
+| Windsurf | Audit-only hooks are not enough for SHK’s blocking gate model. |
 
-We surveyed three layers: **agent frameworks** (DeerFlow/LangGraph/CrewAI — build agent platforms, need Python deployment), **coding tools** (Claude Code/Codex/Gemini/Cursor — all support hooks now except Windsurf), and **methodology systems** (ECC Superpowers/Ralphinho/OpenAI Harness Eng. — good skills but no unified loop). We chose **high constraint strength + low setup cost**: hooks guarantee enforcement, pure docs guarantee zero deployment. See [methodology/01-comparison.md](methodology/01-comparison.md) for full analysis.
+## Known limits
 
-### Tool Compatibility
+- Codex `exec` runtime smoke can still be `DEGRADED` in some environments because project hook execution is not fully proven. SHK must report that honestly and must not count it as runtime PASS for release readiness.
+- SHK improves process discipline; it does not replace human product judgment or final review.
+- Phase 2 sufficiency checks intentionally start with practical engineering signals: spec mapping, structured evidence, assertions, positive/negative paths, and mutation/fault proof. They are not a full formal coverage proof.
 
-> Experiments A/B/C verified on **Claude Code**. Experiment C also verified on **Codex CLI**. Codex cross-compatibility testing (hooks.json format, stdin JSON, exit 2 blocking protocol) independently verified. Other tools analyzed from docs, not yet tested.
+## Repository map
 
-| Tool | Hook Support | Status |
-|------|-------------|--------|
-| **Claude Code** | Native PreToolUse/PostToolUse | **Verified** (Exp A/B/C) |
-| **Codex CLI** | Native hooks (`hooks` flag required) | **Verified** (Exp C + cross-test) |
-| **Gemini CLI** | v0.26+ BeforeTool/AfterTool | Untested |
-| **Cursor** | v1.7+ hooks | Untested |
-| **OpenCode** | Plugin API (needs rewrite) | Untested |
-| **Windsurf** | Audit only, no block | **Not supported** |
-
-### Environment Variables
-
-| Variable | Value | Effect |
-|----------|-------|--------|
-| `HARNESS_LOG` | `off` | Disable session-log recording |
-| `HARNESS_AUTO` | `full` | Full auto, no PLAN pause |
-| `HARNESS_AUTO` | `off` | Pause at every stage |
-| `HARNESS_LEARN` | `off` | Disable observations.jsonl |
-| `HARNESS_ATTRIBUTION` | `off` | Don't add "Harnessed by" to README |
-
-### Repo Structure
-
-```
+```text
 simple-harness-kit/
-├── methodology/   22 methodology docs
-├── presets/       2 built-in (generic + example-company), data-driven commit & branch rules
-├── templates/     11 templates
-├── scripts/hooks/ 16 hook/helper scripts
-├── skills/        11 skills (init user-triggered | rest AI-auto)
-├── examples/      3 real-world experiments (A + B + C)
-├── tests/         170 hook scenarios + template integrity + scripted matrix + codex smoke
-└── init-prompt.md initialization prompt
+├── methodology/                engineering method docs
+├── docs/                       constraints, release process, Phase 2 docs
+├── skills/                     Claude Code / Codex skills
+├── scripts/hooks/              stage, safety, verification, delivery hooks
+├── scripts/shk.js              backend probes used by skills/hooks
+├── templates/                  project guide templates
+├── presets/                    commit and branch policy presets
+├── examples/                   public validation experiments
+└── tests/                      hook scenarios, integrity tests, dogfood scripts
 ```
 
-### License
+## License
 
 MIT
 

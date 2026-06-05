@@ -42,3 +42,9 @@ AGENTS 只负责模型行为约束；确定性拦截由项目 hooks 执行。若
 - `docs/constraints.md` — 约束系统
 - `.claude/rules/` — 规则文件（Claude Code 使用）
 - {{其他关键文件...}}
+
+## AI 工具内测试准出
+
+涉及代码变更时，AI 必须先判断风险等级，并在 VERIFY 阶段做测试准出：单测、lint、coverage、E2E、runtime smoke 按风险选择。medium / high / release 任务必须有 E2E 证据；只有 low 小改可以不强制 E2E；测试失败时进入受控修复 loop，最多 3 轮，一轮只修一个失败点。交付说明必须说人话：先说结果，再说跑了什么，最后说限制，不能把 DEGRADED 说成 PASS。
+- 新应用没有 E2E 时，AI 不能只报告缺失；要先用 `shk e2e inspect/bootstrap` 识别项目并生成第一套有正向、负向、真实断言和 evidence 的 E2E。
+- E2E PASS 不等于充分；如果只是 echo ok、空脚本、只 smoke、或没覆盖本次风险，用户报告要先说“现在还不能交付”，再说明测到了什么、没测到什么、下一步补什么；机器状态放最后，例如：机器状态：NOT_SUFFICIENT。DEGRADED 不能说成 PASS。

@@ -127,6 +127,30 @@ DIMS+=("08-content-quality.sh")
 # 维度 11: codex-smoke 契约 — 用 fake codex 验证脚本退出码/输出语义，不依赖真实 Codex runtime
 DIMS+=("11-codex-smoke-contract.sh")
 
+# 维度 12: AI 工具内质量准出 / E2E / 修复 loop 后端契约
+DIMS+=("12-quality-gate-loop-contract.sh")
+
+# 维度 13: 推荐 E2E wrapper — install/init 链路 + quality gate 阻断合同
+DIMS+=("13-e2e-sufficiency.sh")
+
+# 维度 14: 新应用工程 E2E bootstrap + mutation 有效性证明
+DIMS+=("14-app-e2e-bootstrap-mutation.sh")
+
+# 维度 15: AI 工具 Harness 装入目标应用后的端到端工作流合同
+DIMS+=("15-ai-harness-app-workflow.sh")
+
+# 维度 16: spec 驱动目标应用验收 — 缺 spec 先失败，spec 前置后才能生成测试并准出
+DIMS+=("16-spec-driven-target-app-acceptance.sh")
+
+# 维度 17: 真实开源工程 dogfood — 不能只用 fixture 证明 Phase 2，有缓存时跑真实 OSS mutation 验证
+DIMS+=("17-oss-dogfood-validation.sh")
+
+# 维度 18: upstream CI dogfood — 真实 OSS npm install / 原项目 CI 证明力分级
+DIMS+=("18-upstream-ci-dogfood.sh")
+
+# 维度 19: browser E2E dogfood — 真实 TodoMVC 页面 + headless browser + mutation
+DIMS+=("19-browser-e2e-dogfood.sh")
+
 # 维度 09-10 依赖 codex AI runtime, 不进常规 CI, 只在 release 前手动跑:
 #   bash tests/scripts/09-behavior-observation.sh
 #   bash tests/scripts/10-output-quality.sh

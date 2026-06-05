@@ -37,6 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const { isLegitimateHarnessRoot } = require('./find-root');
 const findRoot = require('./find-root');
+const specQuality = require('../lib/spec-quality');
 const ROOT_RAW = findRoot();
 // macOS /tmp → /private/tmp symlink 导致 path.resolve 和 Claude Code 的绝对路径不一致。
 // 用 realpathSync 跟随 symlink 统一为真实路径, 确保 PLAN 阶段 Write .harness/* 路径比较正确。
@@ -93,7 +94,10 @@ function safeFileExists(filePath) {
 }
 
 const STAGES = ['PLAN', 'SETUP', 'EXECUTE', 'VERIFY', 'REVIEW', 'FEEDBACK'];
+const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
 const PLAN_FILE = path.join(ROOT, '.harness/current-plan.md');
+const ITERATION_SPEC_FILE = path.join(ROOT, '.harness/iteration-spec.json');
+const SPEC_GATE_CACHE_FILE = path.join(ROOT, '.harness/spec-gate-cache.json');
 const TOOL_COUNT_FILE = path.join(ROOT, '.harness/tool-count.json');
 const STAGE_HISTORY_FILE = path.join(ROOT, '.harness/stage-history.jsonl');
 const PRETOOL_OBS_FILE = path.join(ROOT, '.harness/pretool-observations.jsonl');
@@ -260,6 +264,7 @@ function patchFileRefs(input) {
   const refs = [];
   if (txt.includes('.harness/current-stage.json')) refs.push('.harness/current-stage.json');
   if (txt.includes('.harness/current-plan.md')) refs.push('.harness/current-plan.md');
+  if (txt.includes('.harness/iteration-spec.json')) refs.push('.harness/iteration-spec.json');
   return refs;
 }
 
@@ -285,6 +290,11 @@ function patchTouchesOnlyHarnessStage(input) {
 function patchTouchesOnlyHarnessPlan(input) {
   const refs = patchFileRefs(input);
   return refs.length > 0 && refs.every(p => patchRefMatches(p, PLAN_FILE));
+}
+
+function patchTouchesOnlyIterationSpec(input) {
+  const refs = patchFileRefs(input);
+  return refs.length > 0 && refs.every(p => patchRefMatches(p, ITERATION_SPEC_FILE));
 }
 
 function denyPreToolUse(input, message) {
@@ -332,8 +342,8 @@ const PLAN_BLOCK_MSG = `[Harness Stage Guard] PLAN 阶段禁止此操作。
 你是否已经向用户输出了阶段声明？如果没有，先输出：
   进入 PLAN 阶段 — [任务描述]
 
-PLAN 阶段只允许：Read/Grep/Glob/WebFetch/WebSearch、只读 Bash(pwd/ls/find/rg/grep/sed -n/cat/git status/git diff --stat/name-only)、TaskUpdate/TaskCreate/TaskList/TaskGet、Write 或 apply_patch(.harness/current-plan.md|.harness/current-stage.json)
-流程：澄清需求 → 任务拆解 → 等用户确认 → Write current-stage.json 切换到 EXECUTE
+PLAN 阶段只允许：Read/Grep/Glob/WebFetch/WebSearch、只读 Bash(pwd/ls/find/rg/grep/sed -n/cat/git status/git diff --stat/name-only)、TaskUpdate/TaskCreate/TaskList/TaskGet、Write 或 apply_patch(.harness/current-plan.md|.harness/iteration-spec.json|.harness/current-stage.json)
+流程：写/更新 iteration spec → 按 spec 拆计划 → 等用户确认 → Write current-stage.json 切换到 EXECUTE
 `;
 
 // session-log 提醒——附加在每个阶段 directive 后面
@@ -352,13 +362,13 @@ const STAGE_DIRECTIVES = {
 只允许：读文件了解现状、与用户对齐需求。
 
 必须完成以下步骤再继续：
-1. 向用户澄清需求和验收标准
-2. 任务拆解——每个任务 ≤15 分钟可独立验证
-3. 定义每个任务的 done 条件
+1. 写/更新 .harness/iteration-spec.json：需求、方案、风险、流量路径、测试计划、验收标准
+2. 按 spec 拆任务——每个任务 ≤15 分钟可独立验证
+3. 定义每个任务的 done 条件，并关联 spec 中的 requirement / risk / traffic_flow
 4. 识别任务间依赖关系
 5. 输出任务清单，然后停下来等用户说"go"或确认
 
-Gate: 每个任务有验收标准 + 粒度≤15min + 单一主要风险 + 依赖已标注
+Gate: 有可执行 iteration spec + 每个任务有验收标准 + 粒度≤15min + 单一主要风险 + 依赖已标注
 用户没确认之前，不要进入下一阶段。方向错了后面全白做。
 `,
   SETUP: `[SETUP 阶段要求]
@@ -510,6 +520,176 @@ function infraTierTransitionError(newData) {
     '→ 先执行 `shk test-infra assess` 并补齐最小测试入口；若本任务就是修复测试基础设施，请在 task 中明确包含 test/infra/测试 等字样。';
 }
 
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function idSet(items, key = 'id') {
+  return new Set(asArray(items).map(item => String(item && item[key] || '').trim()).filter(Boolean));
+}
+
+function coveredIds(items, key) {
+  const out = new Set();
+  for (const item of asArray(items)) {
+    const values = asArray(item && item[key]);
+    for (const value of values) {
+      const id = String(value || '').trim();
+      if (id) out.add(id);
+    }
+  }
+  return out;
+}
+
+function missingFrom(requiredSet, coveredSet) {
+  return [...requiredSet].filter(id => !coveredSet.has(id));
+}
+
+function evaluateIterationSpecForExecute() {
+  if (!safeFileExists(ITERATION_SPEC_FILE)) {
+    return {
+      overall: 'NOT_READY',
+      missing: ['.harness/iteration-spec.json'],
+      weak: [],
+    };
+  }
+
+  let spec = null;
+  try {
+    spec = JSON.parse(safeReadFileSync(ITERATION_SPEC_FILE) || 'null');
+  } catch {
+    return {
+      overall: 'NOT_READY',
+      missing: ['.harness/iteration-spec.json 不是合法 JSON'],
+      weak: [],
+    };
+  }
+
+  return specQuality.evaluateIterationSpec(spec);
+}
+
+function iterationSpecRegularStat() {
+  try {
+    const st = fs.lstatSync(ITERATION_SPEC_FILE);
+    if (st.isSymbolicLink() || !st.isFile()) return null;
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null;
+  }
+}
+
+function evaluateIterationSpecForExecuteCached() {
+  const st = iterationSpecRegularStat();
+  if (!st) return evaluateIterationSpecForExecute();
+  try {
+    const cached = JSON.parse(fs.readFileSync(SPEC_GATE_CACHE_FILE, 'utf8'));
+    if (cached
+      && cached.path === '.harness/iteration-spec.json'
+      && cached.mtimeMs === st.mtimeMs
+      && cached.size === st.size
+      && cached.report
+      && cached.report.overall) {
+      return cached.report;
+    }
+  } catch {}
+  const report = evaluateIterationSpecForExecute();
+  try {
+    fs.mkdirSync(path.dirname(SPEC_GATE_CACHE_FILE), { recursive: true });
+    fs.writeFileSync(SPEC_GATE_CACHE_FILE, JSON.stringify({
+      path: '.harness/iteration-spec.json',
+      mtimeMs: st.mtimeMs,
+      size: st.size,
+      report,
+      cached_at: new Date().toISOString(),
+    }) + '\n');
+  } catch {}
+  return report;
+}
+
+function enforceExecuteSpecGateIfNeeded(newData) {
+  if (!newData || newData.stage !== 'EXECUTE') return;
+  const report = evaluateIterationSpecForExecuteCached();
+  if (report.overall === 'READY') return;
+
+  const status = report.overall;
+  const lines = [
+    '[Harness Stage Guard] 现在还不能进入 EXECUTE。',
+    '',
+    status === 'NOT_READY'
+      ? '这次迭代还没有可执行的 spec。先把需求、方案、风险、流量路径、测试计划和验收标准写清楚，再开始改代码。'
+      : '这次迭代的 spec 还不够支撑开工。现在能看出要做事，但还没说明哪些测试要覆盖哪些需求、风险和业务路径。',
+    '',
+  ];
+  if (report.missing.length > 0) {
+    lines.push('缺少：');
+    for (const item of report.missing) lines.push(`  - ${item}`);
+    lines.push('');
+  }
+  if (report.weak.length > 0) {
+    lines.push('还没说清楚：');
+    for (const item of report.weak.slice(0, 12)) lines.push(`  - ${item}`);
+    if (report.weak.length > 12) lines.push(`  - ... 还有 ${report.weak.length - 12} 项`);
+    lines.push('');
+  }
+  lines.push('下一步：先回到 PLAN，把 .harness/iteration-spec.json 补到能指导测试生成和验收，再切 EXECUTE。');
+  lines.push(`机器状态：${status}`);
+  process.stderr.write(lines.join('\n') + '\n');
+  process.exit(2);
+}
+
+function resolvedPathMaybe(filePath) {
+  try { return fs.realpathSync(path.resolve(String(filePath || ''))); } catch { return path.resolve(String(filePath || '')); }
+}
+
+function isWriteToHarnessPlanningFile(input) {
+  const toolName = input.tool_name || '';
+  const writePath = String(input.tool_input?.file_path || '');
+  if (toolName === 'Write') {
+    const resolvedWrite = resolvedPathMaybe(writePath);
+    return [PLAN_FILE, ITERATION_SPEC_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f));
+  }
+  return isPatchTool(toolName)
+    && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input) || patchTouchesOnlyHarnessStage(input));
+}
+
+function shouldRecheckSpecDuringExecute(data, input) {
+  if (!data || data.stage !== 'EXECUTE') return false;
+  if (!input || input.hook_event_name !== 'PreToolUse') return false;
+  const toolName = input.tool_name || '';
+  if (TASK_TOOLS.includes(toolName)) return false;
+  if (READ_TOOLS.includes(toolName)) return false;
+  if (toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command)) return false;
+  if (isWriteToHarnessPlanningFile(input)) return false;
+  return true;
+}
+
+function enforceExecuteSpecRecheck(data, input) {
+  if (!shouldRecheckSpecDuringExecute(data, input)) return;
+  const report = evaluateIterationSpecForExecuteCached();
+  if (report.overall === 'READY') return;
+  const lines = [
+    '[Harness Stage Guard] 现在还不能继续 EXECUTE。',
+    '',
+    report.overall === 'NOT_READY'
+      ? '这次迭代的 spec 已经缺失或损坏。继续改代码会变成无验收依据的执行。'
+      : '这次迭代的 spec 已经降级到不够支撑实现。继续改代码前，要先补清楚测试、断言、负向路径和验收证据。',
+    '',
+  ];
+  if (report.missing.length > 0) {
+    lines.push('缺少：');
+    for (const item of report.missing) lines.push(`  - ${item}`);
+    lines.push('');
+  }
+  if (report.weak.length > 0) {
+    lines.push('还没说清楚：');
+    for (const item of report.weak.slice(0, 12)) lines.push(`  - ${item}`);
+    if (report.weak.length > 12) lines.push(`  - ... 还有 ${report.weak.length - 12} 项`);
+    lines.push('');
+  }
+  lines.push('下一步：先修 .harness/iteration-spec.json，或者切回 PLAN 重新对齐。');
+  lines.push(`机器状态：${report.overall}`);
+  return denyPreToolUse(input, lines.join('\n') + '\n');
+}
+
 // 从 Write tool_input 中解析 newData 并校验 stage + since；错误时直接写 stderr + exit 2
 function validateStageData(newData) {
   // 校验 stage 值合法性（Issue #2: 防止写入 "COMPLETE" 等无效值）
@@ -531,6 +711,7 @@ function validateStageData(newData) {
     process.stderr.write(infraErr + '\n');
     process.exit(2);
   }
+  enforceExecuteSpecGateIfNeeded(newData);
   return newData;
 }
 
@@ -577,6 +758,33 @@ function recordStageHistory(stage) {
   } catch {}
 }
 
+
+function readStructuredVerifyEvidence() {
+  const jsonPath = path.join(ROOT, '.harness/verify-evidence.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    if (data && data.schema_version && data.overall) return data;
+  } catch {}
+  return null;
+}
+
+function hasDegradedRequiredCheck(evidence) {
+  const checks = evidence && evidence.checks || {};
+  return Object.values(checks).some(c => c && (c.status === 'DEGRADED' || c.degraded === true));
+}
+
+function e2eSufficiencyEvidenceBlockers(evidence) {
+  const risk = evidence && evidence.risk || 'low';
+  if ((RISK_ORDER[risk] || 0) < RISK_ORDER.medium) return [];
+  const checks = evidence && evidence.checks || {};
+  const sufficiency = checks.e2e_sufficiency;
+  if (!sufficiency) return ['e2e_sufficiency=MISSING'];
+  if (sufficiency.overall !== 'READY' || sufficiency.status !== 'PASS') {
+    return [`e2e_sufficiency=${sufficiency.overall || sufficiency.status || 'UNKNOWN'}`];
+  }
+  return [];
+}
+
 function enforceReviewGateIfNeeded(newData, input) {
   if (!newData || newData.stage !== 'REVIEW') return;
   const gateErrors = [];
@@ -598,6 +806,14 @@ function enforceReviewGateIfNeeded(newData, input) {
     try { return fs.statSync(p).isFile(); } catch { return false; }
   });
   if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + VERIFY_EVIDENCE.join(' / ') + '）');
+
+  const structured = readStructuredVerifyEvidence();
+  if (structured) {
+    if (structured.overall !== 'READY') gateErrors.push(`结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}`);
+    if (hasDegradedRequiredCheck(structured)) gateErrors.push('结构化验证证据包含 DEGRADED 检查，不能进入 REVIEW');
+    const sufficiencyBlockers = e2eSufficiencyEvidenceBlockers(structured);
+    if (sufficiencyBlockers.length > 0) gateErrors.push('E2E 充分性证据不足: ' + sufficiencyBlockers.join('; '));
+  }
 
   if (gateErrors.length > 0) {
     const message = REVIEW_GATE_BLOCK + '\n具体问题:\n' + gateErrors.map(e => '  - ' + e).join('\n') + '\n';
@@ -758,8 +974,8 @@ process.stdin.on('end', () => {
           // 精确匹配：realpathSync 后比对, 跟随 symlink 确保 /tmp ↔ /private/tmp 一致
           const resolvedWrite = (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })();
           const isAllowedWrite = (toolName === 'Write' &&
-            [PLAN_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f))) ||
-            (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyHarnessStage(input)));
+            [PLAN_FILE, ITERATION_SPEC_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f))) ||
+            (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input) || patchTouchesOnlyHarnessStage(input)));
 
           if (isReadTool || isReadOnlyBash) {
             // 读操作 / 只读 Bash 放行，注入 directive
@@ -776,6 +992,7 @@ process.stdin.on('end', () => {
           }
         } else {
           // 非 PLAN 阶段：注入阶段工作要求，不阻止
+          enforceExecuteSpecRecheck(data, input);
           process.stderr.write(
             `[Harness ON] 当前阶段: ${data.stage}` + (data.task ? ` — ${data.task}` : '') + '\n'
           );

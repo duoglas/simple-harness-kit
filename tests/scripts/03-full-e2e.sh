@@ -6,7 +6,7 @@
 #
 # 本脚本 **不派 AI** — 纯 shell 按 SKILL.md 的 init 步骤模拟 init 产物生成:
 #   1. 从 $HOME/.claude/skills/harness-init/resources/settings-json.tmpl 派生 settings.json
-#   2. 从 kit 拷 scripts/hooks/*.js 到 $CWD/scripts/hooks/
+#   2. 从 kit 拷 scripts/hooks/*.js 和 scripts/lib/*.js 到 $CWD/scripts/
 #   3. 从 kit templates/rules/*.tmpl 派生到 $CWD/.claude/rules/*.md
 #   4. 从 kit 拷 templates/constraints.md.tmpl → $CWD/docs/constraints.md
 #   5. 写个最小 CLAUDE.md (要求 > 200 字节)
@@ -56,9 +56,13 @@ assert "install 后 resources/required-wiring.json 存在" "[ -f \"$SKILL_RES/re
 mkdir -p "$TMP_CWD/.claude"
 cp "$SKILL_RES/settings-json.tmpl" "$TMP_CWD/.claude/settings.json"
 
-# ── Step 3: 拷 hook 脚本 ──
+# ── Step 3: 拷 hook 脚本 + 共享库 ──
 mkdir -p "$TMP_CWD/scripts/hooks"
 cp "$TMP_KIT/scripts/hooks/"*.js "$TMP_CWD/scripts/hooks/"
+if [ -d "$TMP_KIT/scripts/lib" ]; then
+  mkdir -p "$TMP_CWD/scripts/lib"
+  cp "$TMP_KIT/scripts/lib/"*.js "$TMP_CWD/scripts/lib/"
+fi
 
 # ── Step 4: 派生 rules ──
 mkdir -p "$TMP_CWD/.claude/rules"
