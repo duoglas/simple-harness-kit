@@ -7,14 +7,13 @@
 #               用户手动测出来" (C-GATE-08 提案)。本脚本在 kit 本地复现并预防回归。
 #
 # 已知限制 (VH-18 R3 调查结论)：
-#   Codex 0.134.x exec 模式使用 TUI trust 时建立的 hook 缓存。任何未经 TUI trust
-#   对话框注册（hooks.state hash 缺失）的 hook entry 在 exec 模式下不会执行——
-#   即使设置 --dangerously-bypass-hook-trust 也不例外（该 flag 只跳过已注册 entry
-#   的 hash 验证，不能让未注册 entry 执行）。
-#   因此，smoke 无法通过 runtime 注入来"证明 project hook command 真实执行"。
+#   当前验证环境 Codex 0.137.0 下，最小 codex exec run 能完成且未出现 hook
+#   failure marker，但 smoke 注入的 project sentinel hook 不执行；因此 smoke
+#   无法通过 runtime 注入来"证明 project .codex/hooks.json command 真实执行"。
 #   当前 C-GATE-08 在 exec 模式下只能降级为 DEGRADED：确认 codex runtime
 #   完成一次启动且没有出现 "hook (failed)" / invalid JSON 告警；project-level
-#   hook 的正确性由 tests/run.js hook-scenarios 覆盖（195 PASS）。
+#   hook 脚本逻辑由 tests/run.js hook-scenarios 覆盖，但这不能替代真实 Codex
+#   执行 project hooks 的 runtime evidence。
 #
 # 行为:
 #   - codex 可用且 exit 0 → 跑冒烟，断言无 hook (failed) 告警，DEGRADED + exit 0
