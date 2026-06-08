@@ -962,6 +962,22 @@ function runTemplateIntegrityTests() {
       const missing = required.filter(x => !content.includes(x));
       if (missing.length > 0) errors.push('19-browser-e2e-dogfood.sh 缺少: ' + missing.join(', '));
     }
+    const releaseGate = path.join(KIT_ROOT, 'tests', 'pre-release-check.sh');
+    if (fs.existsSync(releaseGate)) {
+      const content = fs.readFileSync(releaseGate, 'utf8');
+      const required = [
+        'SHK_OSS_DOGFOOD_REQUIRED=1',
+        'SHK_UPSTREAM_CI_REQUIRED=1',
+        'SHK_BROWSER_E2E_REQUIRED=1',
+        'CODEX_REQUIRED=1',
+        'doctor --format json',
+        'DEGRADED_COUNT',
+        'WARN_COUNT',
+        'SKIP_SYNC_CHECK=1 is diagnostic only',
+      ];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('pre-release-check.sh 缺少 release-ready 证据门控: ' + missing.join(', '));
+    }
     if (errors.length > 0) return errors.join(' | ');
   });
 

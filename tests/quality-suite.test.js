@@ -1072,6 +1072,31 @@ function testVerificationGateRejectsReleaseTagWithoutE2ESufficiency() {
   }
 }
 
+function testVerifyReleaseConsumesRequiredEvidenceSet() {
+  const dir = tmpProject();
+  try {
+    fs.mkdirSync(path.join(dir, 'tests/scripts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'tests/codex-smoke.sh'), '#!/bin/bash\necho "DEGRADED: sentinel hook not observed"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/codex-smoke-selftest.sh'), '#!/bin/bash\necho "PASS: selftest"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/scripts/17-oss-dogfood-validation.sh'), '#!/bin/bash\necho "PASS: oss dogfood"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/scripts/18-upstream-ci-dogfood.sh'), '#!/bin/bash\necho "SKIP: missing npm proof"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/scripts/19-browser-e2e-dogfood.sh'), '#!/bin/bash\necho "PASS: browser dogfood"\nexit 0\n');
+    const { makeEvidence } = require(SHK);
+    const evidence = makeEvidence(dir, 'release');
+    assert.strictEqual(evidence.overall, 'NOT_READY');
+    assert.strictEqual(evidence.checks.runtime.status, 'DEGRADED');
+    assert.strictEqual(evidence.checks.runtime_selftest.status, 'PASS');
+    assert.strictEqual(evidence.checks.dogfood_oss.status, 'PASS');
+    assert.strictEqual(evidence.checks.upstream_dogfood.status, 'SKIP');
+    assert.strictEqual(evidence.checks.browser_e2e_dogfood.status, 'PASS');
+    assert.strictEqual(evidence.checks.doctor.status, 'WARN');
+    assert.strictEqual(evidence.checks.runtime.release_required, true);
+    assert.strictEqual(evidence.checks.doctor.release_required, true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function writeIterationSpec(dir, overrides = {}) {
   const spec = {
     schema_version: '1.0',
@@ -1542,6 +1567,7 @@ const tests = [
   testVerificationGateRejectsReleaseTagWithoutE2ERuntimePass,
   testVerificationGateRejectsNotSufficientEvidence,
   testVerificationGateRejectsReleaseTagWithoutE2ESufficiency,
+  testVerifyReleaseConsumesRequiredEvidenceSet,
   testVerifyWritesEvidence,
   testVerificationGateRejectsFailEvidence,
   testVerificationGateAcceptsReadyEvidence,
