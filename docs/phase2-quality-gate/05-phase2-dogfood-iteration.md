@@ -67,7 +67,7 @@
 - `bash tests/scripts/18-upstream-ci-dogfood.sh`：PASS，两个真实 OSS 工程 npm install/ci 完成；原项目 CI 证明力单独标注。
 - `bash tests/scripts/19-browser-e2e-dogfood.sh`：PASS（需 headless browser / localhost 权限），真实 TodoMVC 页面 mutation 后失败。
 - `bash tests/scripts/run-all.sh`：17 个维度全部 PASS（本机具备 OSS tarball、npm cache、browser runtime 时包含 17/18/19；普通沙盒没有浏览器权限时 19 会 SKIP，不会假装通过）。
-- `node tests/run.js`：216 passed, 0 failed。
+- `node tests/run.js`：218 passed, 0 failed。
 - `node scripts/shk.js verify --risk medium --write-evidence`：overall READY。
 - `node scripts/shk.js security scan`：0 findings。
 
