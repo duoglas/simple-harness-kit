@@ -4,7 +4,7 @@
     "minimal": ["stage-guard", "session-logger"],
     "core": ["minimal", "safety-guard", "verification-gate"],
     "full": ["core", "delivery-gate", "context-monitor", "doctor", "infra-tier"],
-    "release": ["full", "runtime-smoke", "pre-release-check", "santa-review"],
+    "release": ["full", "runtime-smoke", "runtime-smoke-selftest", "dogfood-oss", "upstream-dogfood", "browser-e2e-dogfood", "pre-release-check", "santa-review"],
     "codex": ["core", "codex-hooks", "permission-request-guard"]
   },
   "components": {
@@ -17,6 +17,10 @@
     "doctor": { "kind": "cli", "script": "scripts/shk.js", "command": "shk doctor" },
     "infra-tier": { "kind": "cli", "script": "scripts/shk.js", "command": "shk test-infra assess" },
     "runtime-smoke": { "kind": "test", "script": "tests/codex-smoke.sh" },
+    "runtime-smoke-selftest": { "kind": "test", "script": "tests/codex-smoke-selftest.sh" },
+    "dogfood-oss": { "kind": "test", "script": "tests/scripts/17-oss-dogfood-validation.sh" },
+    "upstream-dogfood": { "kind": "test", "script": "tests/scripts/18-upstream-ci-dogfood.sh" },
+    "browser-e2e-dogfood": { "kind": "test", "script": "tests/scripts/19-browser-e2e-dogfood.sh" },
     "pre-release-check": { "kind": "test", "script": "tests/pre-release-check.sh" },
     "santa-review": { "kind": "skill", "skill": "auto-harness-santa" },
     "codex-hooks": { "kind": "config", "script": "scripts/generate-codex-hooks.js" },

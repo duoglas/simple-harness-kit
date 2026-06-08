@@ -12,13 +12,19 @@ const MANIFEST_PATH = path.join(KIT_ROOT, 'manifests/shk-profiles.json');
 const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
 const ALL_CHECKS = [
   'quality_gate', 'build', 'types', 'lint', 'tests', 'coverage', 'e2e',
-  'security', 'diff', 'spec', 'santa', 'runtime', 'clean_tree', 'upstream',
+  'security', 'diff', 'spec', 'santa', 'runtime', 'runtime_selftest',
+  'doctor', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood',
+  'clean_tree', 'upstream',
 ];
 const RISK_CHECKS = {
   low: ['build', 'tests', 'diff', 'security'],
   medium: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e'],
   high: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa'],
-  release: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa', 'runtime', 'clean_tree', 'upstream'],
+  release: [
+    'build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa',
+    'runtime', 'runtime_selftest', 'doctor', 'dogfood_oss', 'upstream_dogfood',
+    'browser_e2e_dogfood', 'clean_tree', 'upstream',
+  ],
 };
 
 const DEFAULT_MANIFEST = {
@@ -143,6 +149,10 @@ function detectCommands(root) {
     coverage: scripts.coverage ? 'npm run coverage' : '',
     e2e: scripts['test:e2e'] ? 'npm run test:e2e' : scripts.e2e ? 'npm run e2e' : exists(path.join(root, 'tests/scripts/13-e2e-sufficiency.sh')) ? 'bash tests/scripts/13-e2e-sufficiency.sh' : exists(path.join(root, 'tests/scripts/03-full-e2e.sh')) ? 'bash tests/scripts/03-full-e2e.sh' : exists(path.join(root, 'tests/e2e-acceptance-validate.sh')) ? 'bash tests/e2e-acceptance-validate.sh' : '',
     runtime: exists(path.join(root, 'tests/codex-smoke.sh')) ? 'bash tests/codex-smoke.sh' : '',
+    runtime_selftest: exists(path.join(root, 'tests/codex-smoke-selftest.sh')) ? 'bash tests/codex-smoke-selftest.sh' : '',
+    dogfood_oss: exists(path.join(root, 'tests/scripts/17-oss-dogfood-validation.sh')) ? 'bash tests/scripts/17-oss-dogfood-validation.sh' : '',
+    upstream_dogfood: exists(path.join(root, 'tests/scripts/18-upstream-ci-dogfood.sh')) ? 'bash tests/scripts/18-upstream-ci-dogfood.sh' : '',
+    browser_e2e_dogfood: exists(path.join(root, 'tests/scripts/19-browser-e2e-dogfood.sh')) ? 'bash tests/scripts/19-browser-e2e-dogfood.sh' : '',
   };
 }
 
@@ -1286,6 +1296,45 @@ function cmdLoop(args, root) {
   return 0;
 }
 
+function releaseCommandEnv(check) {
+  if (check === 'runtime' || check === 'runtime_selftest') return { CODEX_REQUIRED: '1' };
+  if (check === 'dogfood_oss') return { SHK_OSS_DOGFOOD_REQUIRED: '1' };
+  if (check === 'upstream_dogfood') return { SHK_UPSTREAM_CI_REQUIRED: '1' };
+  if (check === 'browser_e2e_dogfood') return { SHK_BROWSER_E2E_REQUIRED: '1' };
+  return {};
+}
+
+function releaseCommandTimeout(check) {
+  if (check === 'dogfood_oss') return Number(process.env.SHK_DOGFOOD_OSS_TIMEOUT_MS || 900000);
+  if (check === 'upstream_dogfood') return Number(process.env.SHK_UPSTREAM_DOGFOOD_TIMEOUT_MS || 900000);
+  if (check === 'browser_e2e_dogfood') return Number(process.env.SHK_BROWSER_E2E_DOGFOOD_TIMEOUT_MS || 900000);
+  return 120000;
+}
+
+function normalizeReleaseCommandResult(result) {
+  const out = String(result.stdout_tail || '') + '\n' + String(result.stderr_tail || '');
+  if (result.status === 'PASS') {
+    if (/\bDEGRADED\b/.test(out)) result.status = 'DEGRADED';
+    else if (/\bSKIP\b/.test(out)) result.status = 'SKIP';
+    else if (/\bWARN\b/.test(out)) result.status = 'WARN';
+  }
+  result.release_required = true;
+  return result;
+}
+
+function doctorEvidenceCheck(root) {
+  const report = doctorReport(root);
+  return {
+    status: report.overall,
+    command: 'node scripts/shk.js doctor --format json',
+    release_required: true,
+    checks: report.checks.map(c => ({ id: c.id, status: c.status, message: c.message })).slice(0, 50),
+    summary: report.overall === 'PASS'
+      ? 'doctor PASS'
+      : `doctor ${report.overall}: ${report.checks.filter(c => c.status !== 'PASS').map(c => `${c.id}=${c.status}`).join(', ')}`,
+  };
+}
+
 function makeEvidence(root, risk) {
   const started = new Date().toISOString();
   const commands = detectCommands(root);
@@ -1299,9 +1348,12 @@ function makeEvidence(root, risk) {
     else if (check === 'diff') checks.diff = diffCheck(root);
     else if (check === 'clean_tree') checks.clean_tree = cleanTreeCheck(root);
     else if (check === 'upstream') checks.upstream = upstreamCheck(root);
-    else if (['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime'].includes(check)) {
+    else if (check === 'doctor') checks.doctor = doctorEvidenceCheck(root);
+    else if (['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
       const checkTimeout = check === 'tests'
         ? Number(process.env.SHK_VERIFY_TEST_TIMEOUT_MS || 360000)
+        : ['dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)
+          ? releaseCommandTimeout(check)
         : 120000;
       if (check === 'e2e') {
         const runToken = createRunToken();
@@ -1310,12 +1362,12 @@ function makeEvidence(root, risk) {
           run_token: runToken,
         });
       } else {
-        checks[check] = runCommand(root, commands[check], checkTimeout);
+        checks[check] = runCommand(root, commands[check], checkTimeout, {
+          env: risk === 'release' ? releaseCommandEnv(check) : {},
+        });
       }
-      if (check === 'runtime') {
-        const out = String(checks[check].stdout_tail || '') + String(checks[check].stderr_tail || '');
-        checks[check].degraded = /\bDEGRADED\b/.test(out);
-        if (checks[check].status === 'PASS' && checks[check].degraded) checks[check].status = 'DEGRADED';
+      if (risk === 'release' && ['runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
+        checks[check] = normalizeReleaseCommandResult(checks[check]);
       }
     }
     else checks[check] = { status: 'SKIP', command: '', reason: `${check} requires agent/human review` };
@@ -1351,7 +1403,12 @@ function makeEvidence(root, risk) {
     };
   }
   const notSufficient = Object.values(checks).some(c => c && c.overall === 'NOT_SUFFICIENT');
-  const failed = Object.values(checks).some(c => c.status === 'FAIL' || c.status === 'DEGRADED');
+  const releaseRequired = new Set(risk === 'release' ? RISK_CHECKS.release : []);
+  const failed = Object.entries(checks).some(([name, c]) => {
+    if (!c) return false;
+    if (c.status === 'FAIL' || c.status === 'DEGRADED') return true;
+    return releaseRequired.has(name) && c.status !== 'PASS';
+  });
   return {
     schema_version: '1.0',
     task_id: process.env.SHK_TASK_ID || path.basename(root),
