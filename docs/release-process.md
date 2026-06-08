@@ -70,9 +70,10 @@ T10/T11 任一 FAIL → 本 release **禁止进 Step 1**。必须先：
 ```bash
 bash tests/scripts/run-all.sh
 
-# 必须看到:
-#   维度总数:   9
-#   PASS:       9
+# 必须看到（具备 OSS tarball、npm/browser runtime 时）:
+#   维度总数:   17
+#   PASS:       17
+#   SKIP:       0
 #   FAIL:       0
 #   全部维度 PASS ✓
 ```
@@ -94,6 +95,50 @@ bash tests/scripts/run-all.sh
 **为什么在这一步**: VH-10 两个 P0 bug（cp -r 嵌套 + cwd-rel 路径失效）在 v0.7.0 release 时全部静默逃逸, 因为当时的测试体系(1) 只测"从零状态"不测"二次执行", (2) 只做 SKILL.md 静态内容检查不验"真实 cwd 下路径能不能打开", (3) 在 dogfooding workspace (cwd 恰好是 kit 父目录) 跑测试, 这个特殊环境完美掩盖 cwd-rel bug。Step 0.5 的 3-random-dir 要求 + mutation 反证是"不依赖 AI 能力的脚本化防线"，是 v0.7.2 起 release gate 的硬门槛。
 
 **关联约束**: C-SKILL-01, C-TEST-04, C-TEST-05, C-TEST-06, C-HOOK-07
+
+---
+
+### Step 0.6: Phase 2 Dogfood Release Evidence（强制，2026-06-08 v0.11.0 后加入）
+
+**必须先做**。这一步收口 Phase 2 dogfood 的真实 release 证据，避免把缺依赖的 SKIP、fixture 结果或 degraded runtime 包装成 PASS。
+
+```bash
+# 无缓存时允许下载真实 OSS tarball
+SHK_OSS_DOGFOOD_ALLOW_DOWNLOAD=1 bash tests/scripts/17-oss-dogfood-validation.sh
+
+# 上游 npm install / 原项目 CI 证明力分级；如需 npm 代理可加 SHK_NPM_PROXY
+SHK_OSS_DOGFOOD_ALLOW_DOWNLOAD=1 bash tests/scripts/18-upstream-ci-dogfood.sh
+
+# 浏览器真实页面 E2E；无 browser tool 时允许安装到 /private/tmp
+SHK_OSS_DOGFOOD_ALLOW_DOWNLOAD=1 \
+SHK_BROWSER_E2E_ALLOW_INSTALL=1 \
+bash tests/scripts/19-browser-e2e-dogfood.sh
+
+# 完整 scripted matrix
+SHK_OSS_DOGFOOD_ALLOW_DOWNLOAD=1 \
+SHK_BROWSER_E2E_ALLOW_INSTALL=1 \
+bash tests/scripts/run-all.sh
+```
+
+17/18/19 每个脚本的 release 记录必须包含三件套：
+
+1. 脚本退出码；
+2. 末行 `PASS` / `SKIP` / `FAIL` 及原因；
+3. 落盘 JSON 产物的 `status`。
+
+产物位置：
+
+- `17`: `/private/tmp/shk-oss-dogfood-artifacts/phase2-oss-dogfood-result.json`
+- `18`: `/private/tmp/shk-upstream-ci-artifacts/phase2-upstream-ci-dogfood-result.json`，并单独记录每个 OSS 项目的 `original_ci.proof`；`NO_PROOF` 只能说明原项目脚本没有质量证明力，不能说成有效 CI。
+- `19`: `/private/tmp/shk-browser-e2e-artifacts/phase2-browser-e2e-dogfood-result.json`
+
+`run-all.sh` 汇总必须逐维度区分真 `PASS`、`SKIP-计绿` 和 `FAIL`。如果 17/18/19 因缺 tarball、npm/browser tool、本地 HTTP 服务权限而 `SKIP`，release notes 必须显式写成证据缺口，不能写成 PASS。
+
+同时必须分开报告 upstream install/CI、SHK E2E/mutation、browser E2E、Codex runtime smoke；Codex runtime `DEGRADED` / `SKIP` 不能混入 browser E2E 或 scripted matrix PASS。
+
+**为什么在这一步**: Phase 2 的关键风险在“证据强度”而不是“命令跑过”。这一步要求 release 文案引用 17/18/19 的真实产物和状态，防止数字滞后、证据混用或 SKIP 冒充 PASS。
+
+**关联约束**: C-GATE-08, C-GATE-09, C-TEST-06
 
 ---
 

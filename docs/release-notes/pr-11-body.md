@@ -35,8 +35,8 @@ That means fake E2E, smoke-only flows, missing assertions, uncovered traffic, or
 Latest evidence from this branch:
 
 ```text
-node tests/run.js: 216 passed, 0 failed
-run-all matrix: 16 PASS / 1 SKIP / 0 FAIL in sandbox
+node tests/run.js: 218 passed, 0 failed
+run-all matrix: 17 PASS / 0 SKIP / 0 FAIL
 Phase 2 dogfood: fake/smoke-only blocked, target-app mutation caught, spec-driven acceptance caught broken behavior
 security scan: PASS
 Codex runtime smoke: DEGRADED / SKIP, not runtime PASS
