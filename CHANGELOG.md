@@ -19,6 +19,7 @@
 - **Real OSS dogfood for Phase 2**: 新增 `tests/scripts/17-oss-dogfood-validation.sh`。它不再只用 SHK 自己造的 fixture 证明测试有效，而是把 SHK 接入两个真实开源工程的临时副本：TodoMVC 前端和 Express API。正常代码下 E2E 必须通过；故意改坏真实源码后，同一条 E2E 必须失败；fake / smoke-only / 注释关键词脚本不能被当成 READY。
 - **Upstream CI and browser E2E dogfood**: 新增 `tests/scripts/18-upstream-ci-dogfood.sh` 和 `tests/scripts/19-browser-e2e-dogfood.sh`。18 会真实跑 OSS npm install/ci，并把空壳上游 test 标成 `NO_PROOF`；19 会用 headless browser 打开真实 TodoMVC 页面，跑输入、DOM、计数、筛选和清理链路，再用 mutation 证明 UI 坏掉会被抓住。
 - **Human-readable GitHub landing docs**: 重写 `README.md` / `README.zh-CN.md`，把首页从“方法论 + 命令清单”调整为“AI 工具内怎么用 SHK 交付一个目标工程”。新增 `docs/release-notes/v0.10.0-github.md` 和 `docs/release-notes/v0.11.0.md`，分别用于补强已发布的 v0.10.0 GitHub release 正文和准备 Phase 2 后续发布说明。
+- **v0.11.0 release readiness evidence refresh**: `docs/TODO.md` 已从过期 v0.9.0 收尾项改为 v0.11.0 Phase 2 checklist；`docs/release-notes/v0.11.0.md` 记录 2026-06-08 无外部 dogfood 依赖的本地门禁结果：`node tests/template-integrity.js` exit 0，30 passed / 0 failed；`node tests/run.js` exit 0，218 passed / 0 failed；scripted matrix 14 PASS / 3 SKIP / 0 FAIL。脚本 17/18/19 只有满足真实 OSS / npm / browser 依赖时才能写成 PASS，缺依赖 SKIP 不能包装成 PASS。
 
 ### Fixed
 
@@ -29,6 +30,7 @@
 ### Known Issues
 
 - **Codex runtime smoke 仍可能 DEGRADED**: 当前 `codex exec` runtime 在部分环境会因为 `Operation not permitted` 无法完成完整 project hook smoke。这个状态必须原样报告，不能当作 runtime PASS，也不能用于 release READY。
+- **默认 dogfood matrix 有条件 SKIP**: `tests/scripts/17-oss-dogfood-validation.sh` / `18-upstream-ci-dogfood.sh` 需要真实 OSS tarball、离线源码或允许下载；`19-browser-e2e-dogfood.sh` 需要 `playwright-chromium` 或允许安装到 `/private/tmp`。这些 SKIP 只说明依赖未满足，不证明真实 OSS / browser dogfood 已通过。
 - **PLAN Bash `sed -n` 仍存在写文件边界**: 当前 `harness-stage-guard.js` 将 `sed -n` 视为只读探索，但 `sed -n '1w pwned' input.txt` 这类 sed `w` command 仍可写文件。此项先记录为已知问题，后续应收窄 PLAN 阶段 sed 白名单或移除 sed 放行，并补回归 fixture。
 
 ## [0.10.0] - 2026-06-03
