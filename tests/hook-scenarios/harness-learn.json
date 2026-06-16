@@ -1,0 +1,28 @@
+[
+  {
+    "name": "harness-learn: observations → report + instincts",
+    "hook": "harness-learn.js",
+    "setup": {
+      ".harness/observations.jsonl": "{\"t\":\"TS_OFFSET_-9M\",\"tool\":\"Read\",\"input\":\"README.md\"}\n{\"t\":\"TS_OFFSET_-8M\",\"tool\":\"Grep\",\"input\":\"pattern\"}\n{\"t\":\"TS_OFFSET_-7M\",\"tool\":\"Bash\",\"input\":\"node tests/run.js\"}\n{\"t\":\"TS_OFFSET_-6M\",\"tool\":\"Read\",\"input\":\"README.md\"}\n{\"t\":\"TS_OFFSET_-5M\",\"tool\":\"Grep\",\"input\":\"pattern\"}\n{\"t\":\"TS_OFFSET_-4M\",\"tool\":\"Bash\",\"input\":\"node tests/run.js\"}\n{\"t\":\"TS_OFFSET_-3M\",\"tool\":\"Read\",\"input\":\"README.md\"}\n{\"t\":\"TS_OFFSET_-2M\",\"tool\":\"Grep\",\"input\":\"pattern\"}\n{\"t\":\"TS_OFFSET_-1M\",\"tool\":\"Bash\",\"input\":\"node tests/run.js\"}\n{\"t\":\"TS_OFFSET_-50S\",\"tool\":\"Edit\",\"input\":\"scripts/hooks/harness-learn.js | patch\"}\n{\"t\":\"TS_OFFSET_-40S\",\"tool\":\"Edit\",\"input\":\"scripts/hooks/harness-learn.js | patch\"}\n{\"t\":\"TS_OFFSET_-30S\",\"tool\":\"Edit\",\"input\":\"scripts/hooks/harness-learn.js | patch\"}\n"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": ["分析完成: 12 条观察", "报告:"],
+      "files": {
+        ".harness/learn-report.md": {
+          "contains": [
+            "观察数据: 12 条",
+            "Read → Grep → Bash",
+            "scripts/hooks/harness-learn.js"
+          ]
+        },
+        ".harness/instincts/read-grep-bash.json": {
+          "contains": [
+            "\"trigger\": \"Read → Grep → Bash\"",
+            "\"type\": \"tool-sequence\""
+          ]
+        }
+      }
+    }
+  }
+]
