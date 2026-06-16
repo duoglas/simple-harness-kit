@@ -47,6 +47,8 @@ git diff --name-only | grep -E '\.(ts|js|py|go|rs)$'
 # 对每个变更文件，检查是否有对应测试文件
 ```
 
+如果改的是已有接口、数据格式、模板或 gate，必须同时有正例、负例，以及旧路径或混合新旧输入的兼容用例。medium / high / release 任务至少保留一个负向或边界验证。
+
 ### Layer 2: Verification Loop
 
 按顺序执行，任一失败则停止并报告：
@@ -131,7 +133,7 @@ Issues:      [待修复问题列表]
 
 只要任务涉及代码变更，AI 不能等用户提醒才验证。按下面顺序做：
 
-1. 先判断风险等级：low / medium / high / release。
+1. 先判断风险等级：low / medium / high / release，并检查 iteration spec 是否包含 requirements、design、risk_points、traffic_flows、test_plan、acceptance、tasks、irreversible_actions。
 新应用没有 E2E 时，AI 不能只报告缺失；要先用 `shk e2e inspect/bootstrap` 识别项目并生成第一套有正向、负向、真实断言和 evidence 的 E2E。
 E2E PASS 不等于充分；如果只是 echo ok、空脚本、只 smoke、或没覆盖本次风险，用户报告要先说“现在还不能交付”，再说明测到了什么、没测到什么、下一步补什么；机器状态放最后，例如：机器状态：NOT_SUFFICIENT。DEGRADED 不能说成 PASS。
 2. 识别测试能力：单测、lint、coverage、E2E、runtime smoke。

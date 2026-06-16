@@ -56,6 +56,7 @@ SHK 第二阶段的目标不是让本仓库多跑脚本，而是让 SHK 装进�
 只要任务涉及代码变更，AI 不能等用户提醒才验证。按下面顺序做：
 
 1. 先判断风险等级：low / medium / high / release，并为本轮目标工程生成/更新 iteration spec。
+iteration spec 必须包含 tasks 和 irreversible_actions。每个 task 要有 covers、单一 risk、客观 done，且拆到 ≤15 分钟、可独立验证；不可逆动作即使本轮不执行，也要列出并标明是否需要人确认。
 新应用没有 E2E 时，AI 不能只报告缺失；要先用 `shk e2e inspect/bootstrap` 识别项目并生成第一套有正向、负向、真实断言和 evidence 的 E2E。
 E2E PASS 不等于充分；如果只是 echo ok、空脚本、只 smoke、或没覆盖本次风险，用户报告要先说“现在还不能交付”，再说明测到了什么、没测到什么、下一步补什么；机器状态放最后，例如：机器状态：NOT_SUFFICIENT。DEGRADED 不能说成 PASS。
 2. 识别测试能力：单测、lint、coverage、E2E、runtime smoke，并判断是否需要为目标工程生成测试。

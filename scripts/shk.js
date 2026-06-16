@@ -411,6 +411,9 @@ function specStatusData(root, risk) {
         requirements_covered: 'FAIL',
         risks_covered: 'FAIL',
         traffic_flows_covered: 'FAIL',
+        tasks_present: 'FAIL',
+        irreversible_actions_present: 'FAIL',
+        task_quality: 'FAIL',
       },
       missing: ['.harness/iteration-spec.json'],
       spec: null,
@@ -425,17 +428,22 @@ function specStatusData(root, risk) {
   const hasTrafficFlows = c.trafficFlows.length > 0;
   const hasTestPlan = c.tests.length > 0;
   const hasAcceptance = c.acceptance.length > 0;
+  const hasTasks = c.tasks.length > 0;
+  const hasIrreversibleActions = c.irreversibleActions.length > 0;
   const missing = [];
   if (!hasRequirements) missing.push('缺 requirements');
   if (!hasDesign) missing.push('缺 design.summary 或 design.risk_points');
   if (!hasTrafficFlows) missing.push('缺 traffic_flows');
   if (!hasTestPlan) missing.push('缺 test_plan');
   if (!hasAcceptance) missing.push('缺 acceptance');
+  if (!hasTasks) missing.push('缺 tasks');
+  if (!hasIrreversibleActions) missing.push('缺 irreversible_actions');
   c.missingRequirements.forEach(id => missing.push(`must requirement 未被测试覆盖：${id}`));
   c.missingRisks.forEach(id => missing.push(`风险点未被测试覆盖：${id}`));
   c.missingTrafficFlows.forEach(id => missing.push(`流量路径未被测试计划覆盖：${id}`));
   c.invalidTests.forEach(item => missing.push(item));
   c.missingAcceptance.forEach(item => missing.push(item));
+  c.invalidTasks.forEach(item => missing.push(item));
 
   const overall = evaluation.overall;
   return {
@@ -450,11 +458,14 @@ function specStatusData(root, risk) {
       traffic_flows_present: hasTrafficFlows ? 'PASS' : 'FAIL',
       test_plan_present: hasTestPlan ? 'PASS' : 'FAIL',
       acceptance_present: hasAcceptance ? 'PASS' : 'FAIL',
+      tasks_present: hasTasks ? 'PASS' : 'FAIL',
+      irreversible_actions_present: hasIrreversibleActions ? 'PASS' : 'FAIL',
       requirements_covered: c.missingRequirements.length === 0 ? 'PASS' : 'FAIL',
       risks_covered: c.missingRisks.length === 0 ? 'PASS' : 'FAIL',
       traffic_flows_covered: c.missingTrafficFlows.length === 0 ? 'PASS' : 'FAIL',
       test_plan_semantic: c.invalidTests.length === 0 ? 'PASS' : 'FAIL',
       acceptance_evidence: c.missingAcceptance.length === 0 ? 'PASS' : 'FAIL',
+      task_quality: c.invalidTasks.length === 0 ? 'PASS' : 'FAIL',
     },
     counts: {
       requirements: c.requirements.length,
@@ -463,6 +474,8 @@ function specStatusData(root, risk) {
       traffic_flows: c.trafficFlows.length,
       tests: c.tests.length,
       acceptance: c.acceptance.length,
+      tasks: c.tasks.length,
+      irreversible_actions: c.irreversibleActions.length,
     },
     missing,
     spec,

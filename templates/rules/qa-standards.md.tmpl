@@ -31,7 +31,9 @@
    - 写最少代码通过测试（GREEN）
    - 重构（REFACTOR）
 2. 实现完成后运行全部相关测试
-3. 检查自己的改动是否引入新的 warning/error
+3. 对 medium / high / release 任务，至少保留一个负向或边界用例
+4. 改已有接口、数据格式或 gate 时，保留旧路径或混合新旧输入的兼容用例
+5. 检查自己的改动是否引入新的 warning/error
 
 **Gate 条件：** 测试通过 + 无新 warning
 
@@ -76,6 +78,7 @@ Overall:   [READY/NOT READY]
 1. Reviewer 收到：需求规格 + Agent 的代码变更
 2. 逐项对照规格检查
 3. 输出结构化报告
+4. 检查是否有项目专属默认约束污染通用规则或模板
 
 **关键设计：Reviewer ≠ Author**
 

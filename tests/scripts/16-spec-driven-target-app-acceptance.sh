@@ -137,6 +137,23 @@ cat > "$APP_DIR/.harness/iteration-spec.json" <<'JSON'
       "tests": ["TEST-ORDER-1"],
       "must_have_evidence": true
     }
+  ],
+  "tasks": [
+    {
+      "id": "W1",
+      "stage": "EXECUTE",
+      "title": "implement order creation",
+      "covers": ["REQ-ORDER-1"],
+      "risk": "low",
+      "done": "E2E proves ORDER_CREATED and empty-order blocking"
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "action": "release, deploy, delete data, or overwrite a real environment",
+      "needs_human": true,
+      "planned": "not executed in this fixture"
+    }
   ]
 }
 JSON
