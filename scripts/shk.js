@@ -1363,6 +1363,33 @@ function makeEvidence(root, risk) {
       summary: effectiveness.human_summary,
     };
   }
+  const limitations = [];
+  if (checks.coverage && checks.coverage.status === 'SKIP') {
+    limitations.push({
+      check: 'coverage',
+      status: 'SKIP',
+      claims_ready: false,
+      reason: checks.coverage.reason || 'not configured',
+      summary: 'Coverage is not configured; this run does not claim an 80% line/branch coverage proof.',
+    });
+  }
+  if (checks.runtime && checks.runtime.status === 'SKIP') {
+    limitations.push({
+      check: 'runtime',
+      status: 'SKIP',
+      claims_ready: false,
+      reason: checks.runtime.reason || 'not required or not configured',
+      summary: 'Runtime/Codex smoke was not required for this risk level and is not counted as runtime PASS evidence.',
+    });
+  } else if (checks.runtime && checks.runtime.status === 'DEGRADED') {
+    limitations.push({
+      check: 'runtime',
+      status: 'DEGRADED',
+      claims_ready: false,
+      reason: 'runtime smoke degraded',
+      summary: 'Runtime/Codex smoke is DEGRADED and cannot be reported as READY evidence.',
+    });
+  }
   const notSufficient = Object.values(checks).some(c => c && c.overall === 'NOT_SUFFICIENT');
   const failed = Object.values(checks).some(c => c.status === 'FAIL' || c.status === 'DEGRADED');
   return {
@@ -1373,6 +1400,7 @@ function makeEvidence(root, risk) {
     started_at: started,
     completed_at: new Date().toISOString(),
     checks,
+    limitations,
     overall: failed ? (notSufficient ? 'NOT_SUFFICIENT' : 'NOT_READY') : 'READY',
   };
 }
@@ -1390,6 +1418,14 @@ function evidenceMarkdown(e) {
   for (const [name, c] of Object.entries(e.checks || {})) {
     const detail = c.summary || c.command || c.reason || (c.findings !== undefined ? `${c.findings} findings` : c.files !== undefined ? `${c.files} files` : '');
     lines.push(`| ${name} | ${c.status} | ${String(detail).replace(/\|/g, '/')} |`);
+  }
+  if (Array.isArray(e.limitations) && e.limitations.length > 0) {
+    lines.push('');
+    lines.push('## Limitations');
+    lines.push('');
+    for (const item of e.limitations) {
+      lines.push(`- ${item.check}: ${item.summary}`);
+    }
   }
   lines.push('');
   return lines.join('\n');

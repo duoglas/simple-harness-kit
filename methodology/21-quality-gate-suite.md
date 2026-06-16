@@ -28,7 +28,7 @@ node scripts/shk.js qa report
 | high | medium + e2e / santa |
 | release | high + runtime smoke + clean tree + local==upstream |
 
-未配置的项目命令标记为 `SKIP`；失败命令标记为 `FAIL` 并使 overall 变为 `NOT_READY`。release 风险额外要求工作区干净且本地 HEAD 与 upstream 一致。
+未配置的项目命令标记为 `SKIP`；失败命令标记为 `FAIL` 并使 overall 变为 `NOT_READY`。coverage 或 runtime/Codex smoke 为 `SKIP` 时，报告必须写入 limitations，说明没有覆盖率 80% 证明或 runtime hook 完整执行证明；不得把 SKIP/DEGRADED 写成 PASS。release 风险额外要求工作区干净且本地 HEAD 与 upstream 一致。
 
 ## Gate 行为
 

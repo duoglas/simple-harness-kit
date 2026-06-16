@@ -142,7 +142,8 @@ medium / high / release 想进入 `READY`，至少要同时满足：
 - E2E 充分性 READY；
 - 测试有效性 READY；
 - security / diff 等基础检查通过；
-- runtime 如果是 `DEGRADED`，必须原样报告，不能包装成 PASS。
+- coverage 如果未配置，必须在 verification report 的 limitations 中原样说明，不能写成“80% 已达标”；
+- runtime / Codex smoke 如果是 `SKIP` 或 `DEGRADED`，必须原样报告，不能包装成 PASS 或 release-ready runtime evidence。
 
 ## 3. 持续优化：失败后进入 bounded loop
 

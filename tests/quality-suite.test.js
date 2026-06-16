@@ -1558,6 +1558,28 @@ function testVerifyAggregatesSpecStatusAndTestEffectiveness() {
   }
 }
 
+function testVerifyReportsCoverageAndRuntimeSkipsAsLimitations() {
+  const dir = tmpProject();
+  try {
+    writeEffectiveE2EProject(dir);
+    writeIterationSpec(dir);
+    const res = runNode(SHK, ['verify', '--risk', 'medium', '--write-evidence'], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stdout || res.stderr);
+    const evidence = JSON.parse(fs.readFileSync(path.join(dir, '.harness/verify-evidence.json'), 'utf8'));
+    assert.strictEqual(evidence.overall, 'READY');
+    assert.strictEqual(evidence.checks.coverage.status, 'SKIP');
+    assert.strictEqual(evidence.checks.runtime.status, 'SKIP');
+    assert.ok(Array.isArray(evidence.limitations), 'verify evidence should include limitations');
+    assert.ok(evidence.limitations.some(item => item.check === 'coverage' && item.claims_ready === false), JSON.stringify(evidence.limitations));
+    assert.ok(evidence.limitations.some(item => item.check === 'runtime' && item.claims_ready === false), JSON.stringify(evidence.limitations));
+    const md = fs.readFileSync(path.join(dir, '.harness/verify-evidence.md'), 'utf8');
+    assert.ok(md.includes('Limitations'), md);
+    assert.ok(md.includes('coverage'), md);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 const tests = [
   testSpecStatusRejectsMissingIterationSpecForMediumRisk,
   testSpecStatusRejectsUncoveredMustRequirement,
@@ -1574,6 +1596,7 @@ const tests = [
   testStageGuardRechecksSpecDuringExecuteBeforeCodeWrite,
   testTestEffectivenessReadyWithSpecTrafficAssertionsAndMutation,
   testVerifyAggregatesSpecStatusAndTestEffectiveness,
+  testVerifyReportsCoverageAndRuntimeSkipsAsLimitations,
   testQualityStatusReleaseRequiresE2EInAIWorkflow,
   testQualityStatusMediumRequiresE2EForDelivery,
   testE2EPlanDetectsPackageScriptForAIWorkflow,

@@ -153,4 +153,4 @@ Phase 4: Fix Until Nice
 | 安全扫描 | 0 critical | `grep -rn "sk-\|api_key\|password" {{源码目录}}/` |
 
 > 上面的 `{{占位符}}` 在 init 时由 AI 按项目实际情况替换。
-> 如果项目暂未配置某工具（如 lint），标注"待配置"并在首次 EXECUTE 前补齐。
+> 如果项目暂未配置某工具（如 lint 或 coverage），标注"待配置"或写入 limitations；不得把 SKIP/DEGRADED 写成 PASS，也不得声称覆盖率 80% 已被证明。
