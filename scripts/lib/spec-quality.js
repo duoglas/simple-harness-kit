@@ -35,6 +35,12 @@ function hasText(value) {
   return String(value || '').trim().length > 0;
 }
 
+function hasObjectiveDone(value) {
+  const text = String(value || '').trim();
+  if (text.length < 12) return false;
+  return !/^(done|完成|ok|pass|通过)$/i.test(text);
+}
+
 function specCoverageData(spec) {
   const requirements = asArray(spec && spec.requirements);
   const mustRequirements = requirements.filter(r => (r.priority || 'must') === 'must');
@@ -42,6 +48,8 @@ function specCoverageData(spec) {
   const trafficFlows = asArray(spec && spec.traffic_flows);
   const tests = asArray(spec && spec.test_plan);
   const acceptance = asArray(spec && spec.acceptance);
+  const tasks = asArray(spec && spec.tasks);
+  const irreversibleActions = asArray(spec && spec.irreversible_actions);
 
   const testIds = idSet(tests);
   const requirementIds = idSet(mustRequirements);
@@ -87,6 +95,17 @@ function specCoverageData(spec) {
   const missingRisks = missingFrom(riskIds, testRisksSet);
   const missingTrafficFlows = missingFrom(flowIds, testFlowsSet);
 
+  const invalidTasks = [];
+  for (const task of tasks) {
+    const id = itemId(task) || '(unknown)';
+    if (!itemId(task)) invalidTasks.push(`tasks 条目缺 id`);
+    if (!hasText(task && task.title)) invalidTasks.push(`tasks ${id} 缺 title`);
+    if (!hasText(task && task.stage)) invalidTasks.push(`tasks ${id} 缺 stage`);
+    if (asArray(task && task.covers).filter(hasText).length === 0) invalidTasks.push(`tasks ${id} 缺 covers`);
+    if (!hasText(task && task.risk) || /^mixed$/i.test(String(task && task.risk))) invalidTasks.push(`tasks ${id} 缺单一 risk`);
+    if (!hasObjectiveDone(task && task.done)) invalidTasks.push(`tasks ${id} 缺客观 done`);
+  }
+
   return {
     requirements,
     mustRequirements,
@@ -94,6 +113,8 @@ function specCoverageData(spec) {
     trafficFlows,
     tests,
     acceptance,
+    tasks,
+    irreversibleActions,
     testCovers: unique(Array.from(testCoversSet)),
     testRisks: unique(Array.from(testRisksSet)),
     testFlows: unique(Array.from(testFlowsSet)),
@@ -102,6 +123,7 @@ function specCoverageData(spec) {
     missingTrafficFlows,
     missingAcceptance: unique(missingAcceptance),
     invalidTests: unique(invalidTests),
+    invalidTasks: unique(invalidTasks),
   };
 }
 
@@ -125,12 +147,15 @@ function evaluateIterationSpec(spec) {
   if (c.trafficFlows.length === 0) missing.push('traffic_flows');
   if (c.tests.length === 0) missing.push('test_plan');
   if (c.acceptance.length === 0) missing.push('acceptance');
+  if (c.tasks.length === 0) missing.push('tasks');
+  if (c.irreversibleActions.length === 0) missing.push('irreversible_actions');
 
   for (const id of c.missingRequirements) weak.push(`must requirement 未被测试覆盖：${id}`);
   for (const id of c.missingRisks) weak.push(`风险点未被测试覆盖：${id}`);
   for (const id of c.missingTrafficFlows) weak.push(`流量路径未被测试计划覆盖：${id}`);
   for (const item of c.invalidTests) weak.push(item);
   for (const item of c.missingAcceptance) weak.push(item);
+  for (const item of c.invalidTasks) weak.push(item);
 
   return {
     overall: missing.length > 0 ? 'NOT_READY' : weak.length > 0 ? 'NOT_SUFFICIENT' : 'READY',

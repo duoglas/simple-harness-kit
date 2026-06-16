@@ -1111,6 +1111,19 @@ function writeIterationSpec(dir, overrides = {}) {
     acceptance: [
       { id: 'AC-1', text: '健康检查正向和错误内容阻断都有自动化证据', covers: ['REQ-1'], tests: ['TEST-1'], must_have_evidence: true }
     ],
+    tasks: [
+      {
+        id: 'W1',
+        stage: 'EXECUTE',
+        title: '实现健康检查',
+        covers: ['REQ-1'],
+        risk: 'low',
+        done: '自动化测试证明 /health 正向和错误内容阻断'
+      }
+    ],
+    irreversible_actions: [
+      { action: '发布或部署服务变更', needs_human: true, planned: '本轮不执行' }
+    ],
     ...overrides,
   };
   fs.writeFileSync(path.join(dir, '.harness/iteration-spec.json'), JSON.stringify(spec, null, 2) + '\n');
@@ -1249,6 +1262,47 @@ function testSpecStatusChecksAcceptanceEvidencePerItem() {
     const report = JSON.parse(res.stdout);
     assert.strictEqual(report.overall, 'NOT_SUFFICIENT');
     assert.ok(report.missing.some(m => m.includes('AC-2')), JSON.stringify(report.missing));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testSpecStatusRejectsMissingTasksAndIrreversibleActions() {
+  const dir = tmpProject();
+  try {
+    writeIterationSpec(dir, {
+      tasks: [],
+      irreversible_actions: []
+    });
+    const res = runNode(SHK, ['spec', 'status', '--risk', 'medium', '--format', 'json'], { cwd: dir });
+    assert.strictEqual(res.status, 1, res.stdout || res.stderr);
+    const report = JSON.parse(res.stdout);
+    assert.strictEqual(report.overall, 'NOT_READY');
+    assert.strictEqual(report.dimensions.tasks_present, 'FAIL');
+    assert.strictEqual(report.dimensions.irreversible_actions_present, 'FAIL');
+    assert.ok(report.missing.some(m => m.includes('tasks')), JSON.stringify(report.missing));
+    assert.ok(report.missing.some(m => m.includes('irreversible_actions')), JSON.stringify(report.missing));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testSpecStatusRejectsTaskWithoutObjectiveDoneRiskAndCover() {
+  const dir = tmpProject();
+  try {
+    writeIterationSpec(dir, {
+      tasks: [
+        { id: 'W1', stage: 'EXECUTE', title: '处理所有问题', covers: [], risk: 'mixed', done: '完成' }
+      ]
+    });
+    const res = runNode(SHK, ['spec', 'status', '--risk', 'medium', '--format', 'json'], { cwd: dir });
+    assert.strictEqual(res.status, 1, res.stdout || res.stderr);
+    const report = JSON.parse(res.stdout);
+    assert.strictEqual(report.overall, 'NOT_SUFFICIENT');
+    assert.strictEqual(report.dimensions.task_quality, 'FAIL');
+    assert.ok(report.missing.some(m => m.includes('covers')), JSON.stringify(report.missing));
+    assert.ok(report.missing.some(m => m.includes('done')), JSON.stringify(report.missing));
+    assert.ok(report.missing.some(m => m.includes('risk')), JSON.stringify(report.missing));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1504,11 +1558,35 @@ function testVerifyAggregatesSpecStatusAndTestEffectiveness() {
   }
 }
 
+function testVerifyReportsCoverageAndRuntimeSkipsAsLimitations() {
+  const dir = tmpProject();
+  try {
+    writeEffectiveE2EProject(dir);
+    writeIterationSpec(dir);
+    const res = runNode(SHK, ['verify', '--risk', 'medium', '--write-evidence'], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stdout || res.stderr);
+    const evidence = JSON.parse(fs.readFileSync(path.join(dir, '.harness/verify-evidence.json'), 'utf8'));
+    assert.strictEqual(evidence.overall, 'READY');
+    assert.strictEqual(evidence.checks.coverage.status, 'SKIP');
+    assert.strictEqual(evidence.checks.runtime.status, 'SKIP');
+    assert.ok(Array.isArray(evidence.limitations), 'verify evidence should include limitations');
+    assert.ok(evidence.limitations.some(item => item.check === 'coverage' && item.claims_ready === false), JSON.stringify(evidence.limitations));
+    assert.ok(evidence.limitations.some(item => item.check === 'runtime' && item.claims_ready === false), JSON.stringify(evidence.limitations));
+    const md = fs.readFileSync(path.join(dir, '.harness/verify-evidence.md'), 'utf8');
+    assert.ok(md.includes('Limitations'), md);
+    assert.ok(md.includes('coverage'), md);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 const tests = [
   testSpecStatusRejectsMissingIterationSpecForMediumRisk,
   testSpecStatusRejectsUncoveredMustRequirement,
   testSpecStatusRejectsHollowTestPlanWithoutScenarioAssertionsAndNegativePath,
   testSpecStatusChecksAcceptanceEvidencePerItem,
+  testSpecStatusRejectsMissingTasksAndIrreversibleActions,
+  testSpecStatusRejectsTaskWithoutObjectiveDoneRiskAndCover,
   testTestEffectivenessRejectsUncoveredTrafficFlow,
   testMutationEvidenceRejectsStatusPassWithZeroMutants,
   testMutationEvidenceRejectsSourceTextFallback,
@@ -1518,6 +1596,7 @@ const tests = [
   testStageGuardRechecksSpecDuringExecuteBeforeCodeWrite,
   testTestEffectivenessReadyWithSpecTrafficAssertionsAndMutation,
   testVerifyAggregatesSpecStatusAndTestEffectiveness,
+  testVerifyReportsCoverageAndRuntimeSkipsAsLimitations,
   testQualityStatusReleaseRequiresE2EInAIWorkflow,
   testQualityStatusMediumRequiresE2EForDelivery,
   testE2EPlanDetectsPackageScriptForAIWorkflow,
