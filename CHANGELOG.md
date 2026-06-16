@@ -26,7 +26,7 @@
 
 ### Known Issues
 
-- **Codex runtime smoke 仍可能 DEGRADED**: 当前 `codex exec` runtime 在部分环境会因为 `Operation not permitted` 无法完成完整 project hook smoke。这个状态必须原样报告，不能当作 runtime PASS，也不能用于 release READY。
+- **Codex runtime smoke 仍可能 DEGRADED**: 当前验证环境 Codex 0.137.0 下，最小 `codex exec` run 能完成且无 hook failure marker，但注入的 project sentinel hook 不执行，因此不能证明 `.codex/hooks.json` command 真实执行。这个状态必须原样报告，不能当作 runtime PASS，也不能用于 release READY；`CODEX_REQUIRED=1 bash tests/codex-smoke-selftest.sh` 会把未验证 sentinel 升级为 FAIL。
 - **PLAN Bash `sed -n` 仍存在写文件边界**: 当前 `harness-stage-guard.js` 将 `sed -n` 视为只读探索，但 `sed -n '1w pwned' input.txt` 这类 sed `w` command 仍可写文件。此项先记录为已知问题，后续应收窄 PLAN 阶段 sed 白名单或移除 sed 放行，并补回归 fixture。
 
 ## [0.10.0] - 2026-06-03

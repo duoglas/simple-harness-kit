@@ -4,7 +4,8 @@
 # 不启动真实 Codex。用 PATH 里的 fake codex 模拟 runtime 结果，专门守：
 # - CODEX_REQUIRED=1 时 codex exec 非 0 必须 FAIL
 # - 非强制模式下 runtime 启动失败只能 DEGRADED/SKIP，不能假装 PASS
-# - 当前 exec 模式无法验证 project hook 时，selftest 必须显式 DEGRADED 而不是强制 FAIL
+# - 当前 exec 模式无法验证 project hook 时，optional selftest 必须显式 DEGRADED
+# - CODEX_REQUIRED=1 时，未验证 sentinel 必须 FAIL，避免 release gate 误判 READY
 
 set -uo pipefail
 
@@ -101,9 +102,9 @@ run_case \
   env FAKE_CODEX_EXIT=1 FAKE_CODEX_LOG='Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)' bash "$SMOKE"
 
 run_case \
-  "required selftest unverified is degraded" \
-  "0" \
-  "[codex-smoke-selftest] DEGRADED:" \
+  "required selftest unverified fails" \
+  "nonzero" \
+  "[codex-smoke-selftest] FAIL:" \
   env CODEX_REQUIRED=1 FAKE_CODEX_EXIT=0 bash "$SELFTEST"
 
 run_case \
