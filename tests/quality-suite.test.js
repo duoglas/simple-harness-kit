@@ -14,6 +14,7 @@ const VERIFY_GATE = path.join(KIT_ROOT, 'scripts/hooks/verification-gate.js');
 const STAGE_GUARD = path.join(KIT_ROOT, 'scripts/hooks/harness-stage-guard.js');
 const DELIVERY_GATE = path.join(KIT_ROOT, 'scripts/hooks/delivery-gate.js');
 const ENTRY_BANNER = path.join(KIT_ROOT, 'scripts/hooks/harness-entry-banner.js');
+const PRE_RELEASE_CHECK = path.join(KIT_ROOT, 'tests/pre-release-check.sh');
 
 function tmpProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-quality-'));
@@ -1097,6 +1098,52 @@ function testVerifyReleaseConsumesRequiredEvidenceSet() {
   }
 }
 
+function writeExecutable(file, body) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, body);
+  fs.chmodSync(file, 0o755);
+}
+
+function testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-pre-release-'));
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-pre-release-origin-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'tests/scripts'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+    fs.copyFileSync(PRE_RELEASE_CHECK, path.join(dir, 'tests/pre-release-check.sh'));
+    fs.chmodSync(path.join(dir, 'tests/pre-release-check.sh'), 0o755);
+
+    writeExecutable(path.join(dir, 'tests/run.js'), '#!/usr/bin/env node\nconsole.log("Total: 1 passed, 0 failed, 1 total");\n');
+    for (const script of [
+      '17-oss-dogfood-validation.sh',
+      '18-upstream-ci-dogfood.sh',
+      '19-browser-e2e-dogfood.sh',
+    ]) {
+      writeExecutable(path.join(dir, 'tests/scripts', script), '#!/bin/bash\necho "PASS: dogfood"\n');
+    }
+    writeExecutable(path.join(dir, 'tests/codex-smoke.sh'), '#!/bin/bash\necho "PASS: codex smoke"\n');
+    writeExecutable(path.join(dir, 'tests/codex-smoke-selftest.sh'), '#!/bin/bash\necho "PASS: codex selftest"\n');
+    writeExecutable(path.join(dir, 'scripts/shk.js'), '#!/usr/bin/env node\nconsole.log(JSON.stringify({ overall: "PASS", checks: [{ id: "ok", status: "PASS", message: "ok" }] }));\n');
+
+    spawnSync('git', ['init', '--bare', bare], { encoding: 'utf8' });
+    spawnSync('git', ['init', '-b', 'release/b2b-test', dir], { encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['commit', '-m', 'test fixture'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['remote', 'add', 'origin', bare], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['push', '-u', 'origin', 'release/b2b-test'], { cwd: dir, encoding: 'utf8' });
+
+    const res = runBash(path.join(dir, 'tests/pre-release-check.sh'), [], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stdout + res.stderr);
+    assert.ok(res.stdout.includes('Pre-Release Check: READY'), res.stdout);
+    assert.ok(res.stdout.includes('upstream sync'), res.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(bare, { recursive: true, force: true });
+  }
+}
+
 function writeIterationSpec(dir, overrides = {}) {
   const spec = {
     schema_version: '1.0',
@@ -1647,6 +1694,7 @@ const tests = [
   testVerificationGateRejectsNotSufficientEvidence,
   testVerificationGateRejectsReleaseTagWithoutE2ESufficiency,
   testVerifyReleaseConsumesRequiredEvidenceSet,
+  testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream,
   testVerifyWritesEvidence,
   testVerificationGateRejectsFailEvidence,
   testVerificationGateAcceptsReadyEvidence,

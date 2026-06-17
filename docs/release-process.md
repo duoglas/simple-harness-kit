@@ -153,7 +153,7 @@ bash tests/scripts/run-all.sh
 - `tests/codex-smoke.sh` 与 `tests/codex-smoke-selftest.sh`（`CODEX_REQUIRED=1`）
 - `node scripts/shk.js doctor --format json`
 - working tree 干净
-- local `master/main` 与 upstream 同步
+- local `master/main/release/*` 或跟踪的 upstream `master/main/release/*` 与 upstream 同步
 
 ```bash
 bash tests/pre-release-check.sh

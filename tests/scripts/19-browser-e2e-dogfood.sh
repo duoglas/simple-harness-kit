@@ -224,6 +224,24 @@ JSON
       "tests": ["TEST-BROWSER-TODO-1"],
       "must_have_evidence": true
     }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-BROWSER-TODO-1",
+      "stage": "VERIFY",
+      "title": "验证真实 TodoMVC 浏览器 E2E 和 mutation",
+      "objective": "启动真实 TodoMVC 页面，运行浏览器 E2E，并用源码 mutation 证明测试能抓住 completed 默认值风险。",
+      "done": "正常浏览器 E2E PASS、completed 默认值 mutation FAIL、spec/e2e/effectiveness/verify 均 READY。",
+      "risk": "medium",
+      "covers": ["REQ-BROWSER-TODO-1"]
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "action": "release, tag, push, deploy, delete data, or mutate upstream repository",
+      "needs_human": true,
+      "planned": "not executed by this local browser dogfood script"
+    }
   ]
 }
 JSON

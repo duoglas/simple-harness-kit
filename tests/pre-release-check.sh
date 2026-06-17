@@ -7,7 +7,7 @@
 #   3. Codex runtime smoke 与 selftest PASS
 #   4. shk doctor PASS
 #   5. 工作树干净
-#   6. local master/main 与 upstream 同步
+#   6. local master/main 或 release/* 与 upstream 同步
 #
 # 任一 required check 出现 SKIP / DEGRADED / WARN / FAIL → exit 1, 拒绝 release.
 # 强制约束见 docs/constraints.md C-GATE-09.
@@ -119,24 +119,26 @@ else
   record_status "working tree clean" "FAIL" "dirty files present"
 fi
 
-header "9. local master/main ≡ upstream"
+header "9. local master/main/release ≡ upstream"
 if [ "${SKIP_SYNC_CHECK:-0}" = "1" ]; then
   record_status "upstream sync" "SKIP" "SKIP_SYNC_CHECK=1 is diagnostic only and cannot produce release-ready PASS"
 else
   BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
-  if [ "$BRANCH" != "master" ] && [ "$BRANCH" != "main" ]; then
-    record_status "upstream sync" "FAIL" "current branch $BRANCH is not master/main"
+  UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || echo "")"
+  UPSTREAM_BRANCH="${UPSTREAM_REF#*/}"
+  if [ -z "$UPSTREAM_REF" ]; then
+    record_status "upstream sync" "FAIL" "no upstream"
+  elif [ "$BRANCH" != "master" ] && [ "$BRANCH" != "main" ] && [[ "$BRANCH" != release/* ]] && [ "$UPSTREAM_BRANCH" != "master" ] && [ "$UPSTREAM_BRANCH" != "main" ] && [[ "$UPSTREAM_BRANCH" != release/* ]]; then
+    record_status "upstream sync" "FAIL" "current branch $BRANCH tracks $UPSTREAM_REF; expected master/main or release/*"
   else
     LOCAL="$(git rev-parse HEAD 2>/dev/null)"
     REMOTE="$(git rev-parse "@{u}" 2>/dev/null || echo "")"
-    if [ -z "$REMOTE" ]; then
-      record_status "upstream sync" "FAIL" "no upstream"
-    elif [ "$LOCAL" != "$REMOTE" ]; then
+    if [ "$LOCAL" != "$REMOTE" ]; then
       AHEAD="$(git rev-list --count "$REMOTE..HEAD")"
       BEHIND="$(git rev-list --count "HEAD..$REMOTE")"
       record_status "upstream sync" "FAIL" "local ahead=$AHEAD / behind=$BEHIND commits"
     else
-      record_status "upstream sync" "PASS" "HEAD=$LOCAL"
+      record_status "upstream sync" "PASS" "branch=$BRANCH upstream=$UPSTREAM_REF HEAD=$LOCAL"
     fi
   fi
 fi
