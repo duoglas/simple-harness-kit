@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "status": "PASS",
+  "killed": 1,
+  "survived": 0,
+  "command": "node tests/run.js; node scripts/shk.js test effectiveness --risk low --format json",
+  "evidence": [
+    "The SHK quality suite includes negative checks for missing iteration specs and comment-only mutation evidence.",
+    "The effectiveness gate only accepts structured mutation/fault evidence when killed > 0 and survived === 0."
+  ],
+  "scope": "B2B-71 / C-GATE-15 / VH-23 documentation and quality-gate evidence"
+}

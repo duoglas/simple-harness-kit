@@ -1,0 +1,140 @@
+{
+  "schema_version": "1.0",
+  "issue": "B2B-71",
+  "feedback_chain": ["B2B-101", "B2B-102", "B2B-104"],
+  "risk": "low",
+  "requirements": [
+    {
+      "id": "REQ-C-GATE-15",
+      "text": "Document C-GATE-15 so every needs_human_confirmation gate must notify the responsible requester with a member mention and clear unblock conditions.",
+      "priority": "must",
+      "source": "VH-23"
+    },
+    {
+      "id": "REQ-VH-23",
+      "text": "Record VH-23 as feedback evidence that waiting_on and blocked_reason alone are not human-visible notification.",
+      "priority": "must",
+      "source": "B2B-71"
+    },
+    {
+      "id": "REQ-PR-LINK",
+      "text": "Keep PR #19 linkable to B2B-71 and explain the B2B-101/B2B-102 feedback chain without close intent.",
+      "priority": "must",
+      "source": "B2B-104"
+    }
+  ],
+  "design": {
+    "summary": "This low-risk iteration adds durable documentation evidence for the B2B-71 feedback loop and keeps PR #19 discoverable by Multica issue linking. The code surface is unchanged; verification relies on the existing SHK quality gate test suite plus explicit spec and mutation evidence.",
+    "risk_points": [
+      {
+        "id": "RISK-NOTIFY-OWNER",
+        "text": "The rule could describe waiting metadata but fail to require an actual member mention to the accountable human."
+      },
+      {
+        "id": "RISK-PR-UNLINKED",
+        "text": "PR #19 could remain invisible to Multica if B2B-71 is absent from the PR title/body/branch-visible metadata."
+      },
+      {
+        "id": "RISK-SPEC-EVIDENCE",
+        "text": "Verification can regress to NOT_READY if the iteration spec or evidence mapping is absent."
+      }
+    ]
+  },
+  "traffic_flows": [
+    {
+      "id": "FLOW-HUMAN-GATE",
+      "name": "comment-only mutation evidence is rejected",
+      "entrypoint": "fake E2E, missing spec, comment-only mutation and mutated app are blocked",
+      "steps": [
+        "A feedback item reports that a needs-human gate is not visible to the requester.",
+        "C-GATE-15 is added to require owner identification, member mention, decision options, unblock conditions, and fallback handling.",
+        "VH-23 records the user-visible failure mode and maps it back to C-GATE-15.",
+        "Release and dogfood notes describe the same notification requirement without changing runtime code."
+      ],
+      "covers": ["REQ-C-GATE-15", "REQ-VH-23"],
+      "risks": ["RISK-NOTIFY-OWNER", "RISK-SPEC-EVIDENCE"]
+    },
+    {
+      "id": "FLOW-PR-LINK",
+      "name": "contract-backed E2E is accepted",
+      "entrypoint": "install/init E2E and contract-backed target app E2E pass",
+      "steps": [
+        "PR #19 metadata includes B2B-71 so Multica can link the PR to the parent feedback issue.",
+        "The PR body explains that B2B-101 and B2B-102 are the feedback and verification child issues.",
+        "The wording avoids Closes/Fixes/Resolves close intent for B2B-71."
+      ],
+      "covers": ["REQ-PR-LINK"],
+      "risks": ["RISK-PR-UNLINKED"]
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "TEST-RUN-JS",
+      "type": "regression",
+      "covers": ["REQ-C-GATE-15", "REQ-VH-23"],
+      "risks": ["RISK-NOTIFY-OWNER"],
+      "traffic_flows": ["FLOW-HUMAN-GATE"],
+      "scenario": "Run the existing SHK regression suite after the documentation update.",
+      "assertions": [
+        "node tests/run.js passes with no failed tests.",
+        "The suite still rejects weak quality-gate evidence and preserves C-GATE/VH documentation contracts."
+      ],
+      "negative_or_boundary": true
+    },
+    {
+      "id": "TEST-SPEC-STATUS",
+      "type": "quality-gate",
+      "covers": ["REQ-PR-LINK", "REQ-VH-23"],
+      "risks": ["RISK-PR-UNLINKED", "RISK-SPEC-EVIDENCE"],
+      "traffic_flows": ["FLOW-PR-LINK", "FLOW-HUMAN-GATE"],
+      "scenario": "Run shk spec status for this low-risk iteration.",
+      "assertions": [
+        "The iteration spec exists and evaluates READY.",
+        "Every must requirement, risk point, traffic flow, test plan item, and acceptance item has an explicit mapping."
+      ],
+      "negative_or_boundary": true
+    },
+    {
+      "id": "TEST-EFFECTIVENESS",
+      "type": "quality-gate",
+      "covers": ["REQ-C-GATE-15", "REQ-VH-23", "REQ-PR-LINK"],
+      "risks": ["RISK-NOTIFY-OWNER", "RISK-PR-UNLINKED", "RISK-SPEC-EVIDENCE"],
+      "traffic_flows": ["FLOW-HUMAN-GATE", "FLOW-PR-LINK"],
+      "scenario": "Run shk test effectiveness after spec and mutation evidence are present.",
+      "assertions": [
+        "The report is not NOT_READY for missing .harness/iteration-spec.json.",
+        "The report has structured mutation/fault evidence with killed > 0 and survived === 0.",
+        "The generated E2E evidence covers the spec traffic flows."
+      ],
+      "negative_or_boundary": true
+    },
+    {
+      "id": "TEST-DIFF-CHECK",
+      "type": "hygiene",
+      "covers": ["REQ-PR-LINK"],
+      "risks": ["RISK-SPEC-EVIDENCE"],
+      "traffic_flows": ["FLOW-PR-LINK"],
+      "scenario": "Run git diff --check before handoff.",
+      "assertions": [
+        "The PR does not introduce whitespace errors in tracked files."
+      ],
+      "negative_or_boundary": true
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "AC-C-GATE-15",
+      "text": "C-GATE-15 and VH-23 remain documented as the durable rule and feedback evidence for human-confirmation notification.",
+      "covers": ["REQ-C-GATE-15", "REQ-VH-23"],
+      "tests": ["TEST-RUN-JS", "TEST-SPEC-STATUS", "TEST-EFFECTIVENESS"],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-PR-LINK",
+      "text": "PR #19 contains B2B-71 and explains the B2B-101/B2B-102 feedback chain without close intent.",
+      "covers": ["REQ-PR-LINK"],
+      "tests": ["TEST-SPEC-STATUS", "TEST-EFFECTIVENESS", "TEST-DIFF-CHECK"],
+      "must_have_evidence": true
+    }
+  ]
+}
