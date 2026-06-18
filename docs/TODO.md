@@ -1,11 +1,12 @@
 # Harness Kit TODO
 
-## 当前发版（v0.9.0 草案，未打 tag）
+## 当前发版（v0.11.0 Phase 2 草案，未打 tag）
 
-- [x] ~~**Preset 系统**~~ — `presets/{generic,example-company}` + load-preset.js + branch-policy-guard.js + commit-check.js 接 preset + methodology/19 (commits b4895bb / 90c78a7 / 5f8a283)
-- [ ] **v0.9.0 release 收尾**：等切回 master 后 `tests/pre-release-check.sh` 全绿 → tag → push → 同步 dogfooding workspace
-- [ ] **`tests/hook-scenarios/branch-policy-guard.json`** — 新 hook 还没有 scenario 覆盖（手动验证已通过 5/5：master / --all / feature-* block；personal / 非 push 放行）
-- [ ] **`tests/run.js` stage-guard symlink 测试在 Windows 缺 SeCreateSymbolicLinkPrivilege 时崩**：当前 `pre-release-check.sh` 在 Win 非管理员 / 未开 Developer Mode 的机器上无法跑完，需要 setupTempDir 检测 symlink 权限 fallback 跳过
+- [x] ~~**Phase 2 Quality Engineering Gate 文档草案**~~ — `docs/quality-engineering-gate.md` + `docs/phase2-quality-gate/` + `docs/release-notes/v0.11.0.md`
+- [x] ~~**交付时本地门禁刷新**~~ — 2026-06-08 运行 `node tests/template-integrity.js`：exit 0，30 passed, 0 failed；`node tests/run.js`：exit 0，218 passed, 0 failed，scripted matrix 14 PASS / 3 SKIP / 0 FAIL
+- [ ] **最终 tag 前刷新 release evidence**：在目标发版机器重跑 `node tests/run.js`，并把 `docs/release-notes/v0.11.0.md` / `CHANGELOG.md` 的数字同步到最终输出
+- [ ] **真实 OSS / browser dogfood 证据**：`tests/scripts/17/18/19` 默认环境可能 SKIP；只有满足各自依赖条件时才能写成 PASS
+- [ ] **Codex runtime smoke**：当前 `codex exec` smoke 只能报告 `DEGRADED / SKIP`，不能作为 release-ready runtime PASS；release tag 仍要求 runtime PASS
 - [ ] **example-company preset → company-private 实物 preset**（属于私有 overlay repo 的事，跨仓库工作）
 
 ## 近期

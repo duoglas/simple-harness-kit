@@ -194,6 +194,24 @@ JSON
       "tests": ["TEST-TODO-STORE-1"],
       "must_have_evidence": true
     }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-TODO-STORE-1",
+      "stage": "VERIFY",
+      "title": "验证真实 TodoMVC store E2E 和 mutation",
+      "objective": "在真实 TodoMVC 临时副本上运行 TodoStore E2E，并用源码 mutation 证明测试能抓住风险。",
+      "done": "正常 E2E PASS、completed 默认值 mutation FAIL、spec/e2e/effectiveness/verify 均 READY。",
+      "risk": "medium",
+      "covers": ["REQ-TODO-STORE-1"]
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "action": "release, tag, push, deploy, delete data, or mutate upstream repository",
+      "needs_human": true,
+      "planned": "not executed by this local dogfood script"
+    }
   ]
 }
 JSON
@@ -374,6 +392,24 @@ JSON
       "covers": ["REQ-MESSAGE-API-1"],
       "tests": ["TEST-MESSAGE-API-1"],
       "must_have_evidence": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-MESSAGE-API-1",
+      "stage": "VERIFY",
+      "title": "验证真实 Express message API E2E 和 mutation",
+      "objective": "在真实 Express API 临时副本上运行 message route E2E，并用源码 mutation 证明测试能抓住风险。",
+      "done": "正常 E2E PASS、message text mutation FAIL、spec/e2e/effectiveness/verify 均 READY。",
+      "risk": "medium",
+      "covers": ["REQ-MESSAGE-API-1"]
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "action": "release, tag, push, deploy, delete data, or mutate upstream repository",
+      "needs_human": true,
+      "planned": "not executed by this local dogfood script"
     }
   ]
 }

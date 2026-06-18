@@ -10,9 +10,12 @@
 - 有 traffic_flows；
 - 有 test_plan；
 - 有 acceptance；
+- 有 tasks；
+- 有 irreversible_actions；
 - 每个 must requirement 都被 test_plan 覆盖；
 - 每个 risk point 都被 test_plan 覆盖；
 - 每个关键 traffic flow 都被 test_plan 覆盖。
+- 每个 task 都有 covers、单一 risk 和客观 done。
 
 ## NOT_READY
 
@@ -24,6 +27,8 @@
 - 缺 design；
 - 缺 test_plan；
 - 缺 acceptance；
+- 缺 tasks；
+- 缺 irreversible_actions；
 - 风险等级是 medium/high/release，但没有 spec 输入。
 
 `NOT_READY` 的意思是：还没资格谈实现和准出。
@@ -38,6 +43,7 @@
 - E2E PASS，但没有证明 spec 里的关键路径；
 - 测试没有真实断言；
 - 没有负向/边界路径；
+- task 只有口号式 done、没有 covers、或把多个风险混成一个任务；
 - 没有 mutation/fault evidence 证明坏代码会失败。
 
 `NOT_SUFFICIENT` 的意思是：流程走了，但证明力不够，不能交付。

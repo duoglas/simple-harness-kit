@@ -41,6 +41,16 @@ AI 会自动扫描项目（package.json、技术栈、目录结构），不需�
 | 反馈流程 | `.claude/rules/feedback-workflow.md` | F1-F5 反馈处理 |
 | 入口规则 | `.claude/rules/harness-entry.md` | 新 session banner + 等待指令 |
 
+### 生成顺序（必须遵守，防半安装 hook 自爆）
+
+1. 先创建目录：`.claude/rules`、`scripts/hooks`、`scripts/lib`、`docs`、`.harness`，需要 Codex 时再创建 `.codex`。
+2. 读取 `tests/required-wiring.json` 的 `required_files`，先复制其中所有 `scripts/hooks/*.js` 和 `scripts/lib/*.js` 到目标项目；不得只复制旧的 6 个 hook。
+3. 必须在写 `.claude/settings.json` 前确认 `scripts/lib/spec-quality.js` 已存在。`harness-stage-guard.js` 会 `require('../lib/spec-quality')`；Claude Code 写入 settings 后，同一轮后续工具调用就可能立即触发该 hook。
+4. 再生成 rules、`docs/constraints.md`、`CLAUDE.md`、`AGENTS.md` 等非 runtime 配置。
+5. 最后写 `.claude/settings.json`；如适用，再由它生成 `.codex/hooks.json`。
+
+禁止先写 `.claude/settings.json`、后补 `scripts/lib/`。真实 Claude Code 验收已证明这种半安装顺序会导致 `MODULE_NOT_FOUND: ../lib/spec-quality`。
+
 ### 可选（按项目需要选配）
 
 | 组件 | 文件 | 何时需要 | 何时跳过 |
@@ -58,7 +68,7 @@ AI 会自动扫描项目（package.json、技术栈、目录结构），不需�
 
 init 完成后，做 **5 项用户层完整性检查**（不要跑 kit 的 76 项 CI 工具 `e2e-acceptance-validate.sh`，那是 kit 维护者的工具，用户不需要看）：
 
-1. **必选文件存在**: `.claude/settings.json` / `.claude/rules/` 下 4 个必选 .md (`role-constraints` / `qa-standards` / `feedback-workflow` / `harness-entry`) / `scripts/hooks/` 下 8 个必选 .js (`harness-stage-guard` / `harness-session-start` / `harness-entry-banner` / `session-logger` / `safety-guard` / `find-root` / `session-end` / `stage-since-autofill`) / `scripts/lib/spec-quality.js` / `docs/constraints.md` / `CLAUDE.md`
+1. **必选文件存在**: 以 `tests/required-wiring.json.required_files` 为准，确认所有必选文件存在；不得用旧的“6 个 hook”清单代替真实源。最低必须包含 `.claude/settings.json`、4 个 `.claude/rules/*.md`、全部 required `scripts/hooks/*.js`、`scripts/lib/spec-quality.js`、`docs/constraints.md`、`CLAUDE.md`
 2. **settings.json JSON 有效**: `node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`
 3. **hook 脚本存在**: settings.json 里每个 `command` 引用的 .js 都有对应文件
 4. **hook 本地 require 依赖存在**: 对 settings.json 引用的每个 hook，扫描 `require('./...')` / `require('../...')` 这类本地依赖，确认目标文件存在；例如 `harness-stage-guard.js` 的 `require('../lib/spec-quality')` 必须对应 `scripts/lib/spec-quality.js`。缺依赖会导致新 session 一触发 hook 就 `MODULE_NOT_FOUND`，不能放行。
