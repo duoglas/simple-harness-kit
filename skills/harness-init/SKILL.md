@@ -28,9 +28,10 @@ description: 为当前项目初始化完整的 Harness Engineering 配置（Rule
 3. **Rules 文件不能凭记忆生成**。必须从 kit 仓库 `templates/rules/` 下的 `*.tmpl` 派生，做项目占位符替换。
 4. **必选/可选组件清单以 `./resources/init-prompt.md` 为权威**（skill-relative）。本文件不复述清单——任何看到必选项变化的人，都必须改 init-prompt.md，而不是改这里。
 5. **wiring（hook event/matcher 注册）以 `./resources/required-wiring.json` 为权威**（skill-relative）。这是工程层的 single source of truth，validate.sh 和 template-integrity 都从它派生。
-6. **生成完毕后必须做 Step 4 的 4 项用户层完整性检查**（C-SKILL-03），全部通过才可宣称 init 完成。**不要**默认跑 kit CI 工具 `tests/e2e-acceptance-validate.sh`（那是 kit 维护者用的 76 项全量检查，不是用户 flow）。用户如需深度验证可自行跑。
+6. **生成完毕后必须做 Step 4 的 6 项用户层完整性检查**（C-SKILL-03），全部通过才可宣称 init 完成。**不要**默认跑 kit CI 工具 `tests/e2e-acceptance-validate.sh`（那是 kit 维护者用的 76 项全量检查，不是用户 flow）。用户如需深度验证可自行跑。
+7. **必须先复制 hook/lib，再写 runtime 配置**（C-INIT-06, VH-24）：写 `.claude/settings.json` 前，先根据 `./resources/required-wiring.json` 的 `required_files` 复制所有本地 hook 脚本和共享库依赖，尤其 `scripts/lib/spec-quality.js`；如需 `.codex/hooks.json`，也必须在这些文件存在后再生成。禁止先写 settings、后补 lib；Claude Code 会在同一轮后续工具调用中立即加载刚写入的 hook，半安装状态会直接 `MODULE_NOT_FOUND`。
 
-任何"为了简化/适配/AI 觉得这样更好"而违反以上 6 条的行为，都是 bug，不是优化。
+任何"为了简化/适配/AI 觉得这样更好"而违反以上 7 条的行为，都是 bug，不是优化。
 
 ---
 
@@ -105,6 +106,16 @@ description: 为当前项目初始化完整的 Harness Engineering 配置（Rule
 - Hook 共享库源: `$KIT_ROOT/scripts/lib/*.js`
 - Rule 模板源: `$KIT_ROOT/templates/rules/*.tmpl`
 
+**强制生成顺序（C-INIT-06，禁止调整）**：
+
+1. 创建目标目录：`.claude/rules`、`scripts/hooks`、`scripts/lib`、`docs`、`.harness`，需要 Codex 时再创建 `.codex`。
+2. 读取 `./resources/required-wiring.json` 的 `required_files`。
+3. 先复制 `required_files` 里的所有 `scripts/hooks/*.js` 和 `scripts/lib/*.js` 到目标项目。不要只复制旧的 6 个 hook；必须包含 `scripts/hooks/harness-entry-banner.js`、`scripts/hooks/stage-since-autofill.js`、`scripts/lib/spec-quality.js`。
+4. 再复制 rule 模板和 `docs/constraints.md` / `CLAUDE.md` / `AGENTS.md` 等非 runtime 配置。
+5. 最后写 `.claude/settings.json`，然后如适用再由 `.claude/settings.json` 派生 `.codex/hooks.json`。
+
+原因：`.claude/settings.json` 一旦写入，Claude Code 后续工具调用可能立刻触发 `PreToolUse`。如果此时 `harness-stage-guard.js` 已存在但 `scripts/lib/spec-quality.js` 尚未复制，真实 runtime 会报 `MODULE_NOT_FOUND: ../lib/spec-quality`。
+
 > **生成 settings.json 的两种策略 — 默认走更安全的那条**：
 >
 > - **(推荐) 从 `./resources/required-wiring.json` 直接派生最小集** — 这是工程层的 single source of truth，只包含必选 wiring，不含 optional hooks。一行一行翻译成 `{event, matcher, hooks: [{type, command}]}` 即可。**优点**：默认安全，AI 不会"忘记删 optional"
@@ -158,7 +169,7 @@ node $KIT_ROOT/scripts/generate-codex-hooks.js --input .claude/settings.json --o
 
 生成产物后，做以下 **6 项用户层检查**（不跑 76 项 kit CI）:
 
-1. **必选文件存在**: `.claude/settings.json` / `.claude/rules/` 下 4 个必选 .md / `scripts/hooks/` 下必选 .js（至少 harness-stage-guard / harness-session-start / session-logger / safety-guard / find-root / session-end）/ `scripts/lib/spec-quality.js` / `docs/constraints.md` / `CLAUDE.md`
+1. **必选文件存在**: 以 `./resources/required-wiring.json.required_files` 为准，确认所有必选文件存在；不得使用旧的“6 个 hook”清单代替真实源。
 2. **settings.json JSON 有效**: `node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`
 3. **hook 脚本存在**: settings.json 里每个 `command` 引用的 `scripts/hooks/xxx.js` 都有对应文件
 4. **hook 本地 require 依赖存在**: 对 settings.json 引用的每个 hook，扫描 `require('./...')` / `require('../...')` 这类本地依赖，确认目标文件存在；例如 `harness-stage-guard.js` 的 `require('../lib/spec-quality')` 必须对应 `scripts/lib/spec-quality.js`。缺依赖会导致新 session 一触发 hook 就 `MODULE_NOT_FOUND`，不能放行。

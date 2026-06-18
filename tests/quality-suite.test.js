@@ -479,6 +479,93 @@ function testDoctorReportsCodexEntryBannerWiring() {
   }
 }
 
+function testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence() {
+  const dir = tmpProject();
+  try {
+    fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.codex/hooks.json'), JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [{
+          hooks: [{ type: 'command', command: 'node scripts/hooks/harness-entry-banner.js' }]
+        }]
+      }
+    }) + '\n');
+    fs.copyFileSync(ENTRY_BANNER, path.join(dir, 'scripts/hooks/harness-entry-banner.js'));
+    fs.writeFileSync(path.join(dir, '.harness/pretool-observations.jsonl'), JSON.stringify({
+      t: new Date().toISOString(),
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      command: 'printf smoke'
+    }) + '\n');
+
+    const res = runNode(SHK, ['doctor', '--format', 'json'], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const report = JSON.parse(res.stdout);
+    const check = report.checks.find(c => c.id === 'codex-entry-banner');
+    assert.ok(check, 'doctor should include codex-entry-banner check');
+    assert.strictEqual(check.status, 'PASS');
+    assert.strictEqual(check.entry_banner_recent, false);
+    assert.strictEqual(check.pretool_recent, true);
+    assert.ok(check.message.includes('PreToolUse evidence'), check.message);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testDoctorWarnsWhenCodexExactProjectTrustMissing() {
+  const dir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-codex-home-'));
+  try {
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.codex/config.toml'), `
+[projects."/parent/path"]
+trust_level = "trusted"
+`);
+    const res = runNode(SHK, ['doctor', '--format', 'json'], {
+      cwd: dir,
+      env: { HOME: home }
+    });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const report = JSON.parse(res.stdout);
+    const check = report.checks.find(c => c.id === 'codex-project-trust');
+    assert.ok(check, 'doctor should include codex-project-trust check');
+    assert.strictEqual(check.status, 'WARN');
+    assert.strictEqual(check.exact_project_trusted, false);
+    assert.ok(check.message.includes('exact project trust missing'), check.message);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function testDoctorPassesWhenCodexExactProjectTrustExists() {
+  const dir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-codex-home-'));
+  try {
+    const realDir = fs.realpathSync(dir);
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.codex/config.toml'), `
+[projects."${dir.replace(/\\/g, '\\\\')}"]
+trust_level = "trusted"
+[projects."${realDir.replace(/\\/g, '\\\\')}"]
+trust_level = "trusted"
+`);
+    const res = runNode(SHK, ['doctor', '--format', 'json'], {
+      cwd: dir,
+      env: { HOME: home }
+    });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const report = JSON.parse(res.stdout);
+    const check = report.checks.find(c => c.id === 'codex-project-trust');
+    assert.ok(check, 'doctor should include codex-project-trust check');
+    assert.strictEqual(check.status, 'PASS');
+    assert.strictEqual(check.exact_project_trusted, true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
 
 
 function testQualityStatusReleaseRequiresE2EInAIWorkflow() {
@@ -1711,6 +1798,9 @@ const tests = [
   testUpdateHooksOnlySkipsPersonalSkills,
   testUpdateHooksReportsCodexGenerationFailure,
   testDoctorReportsCodexEntryBannerWiring,
+  testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence,
+  testDoctorWarnsWhenCodexExactProjectTrustMissing,
+  testDoctorPassesWhenCodexExactProjectTrustExists,
 ];
 
 let pass = 0;

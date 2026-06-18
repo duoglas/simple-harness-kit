@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const specQuality = require('./lib/spec-quality');
@@ -1544,12 +1545,37 @@ function codexHasEntryBannerWiring(codexHooks) {
   });
 }
 
+function recentPretoolObservation(root) {
+  const obsPath = path.join(root, '.harness/pretool-observations.jsonl');
+  const text = readText(obsPath);
+  if (!text) return { observed: false, ageSeconds: null, path: rel(root, obsPath) };
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const row = JSON.parse(lines[i]);
+      if (row && row.hook_event_name === 'PreToolUse' && row.t) {
+        const t = new Date(row.t).getTime();
+        if (!Number.isNaN(t)) {
+          const ageSeconds = Math.max(0, Math.round((Date.now() - t) / 1000));
+          return {
+            observed: ageSeconds <= 24 * 60 * 60,
+            ageSeconds,
+            path: rel(root, obsPath),
+          };
+        }
+      }
+    } catch {}
+  }
+  return { observed: false, ageSeconds: null, path: rel(root, obsPath) };
+}
+
 function codexEntryBannerCheck(root) {
   const codexPath = path.join(root, '.codex/hooks.json');
   const scriptPath = path.join(root, 'scripts/hooks/harness-entry-banner.js');
   const evidencePath = path.join(root, '.harness/entry-banner.json');
   const codexHooks = readJson(codexPath);
   const evidence = readJson(evidencePath);
+  const pretool = recentPretoolObservation(root);
   const userPromptSubmitWired = codexHasEntryBannerWiring(codexHooks);
   const entryBannerScriptExists = exists(scriptPath);
   let entryBannerRecent = false;
@@ -1567,15 +1593,20 @@ function codexEntryBannerCheck(root) {
   if (!codexHooks) missing.push('.codex/hooks.json');
   if (!userPromptSubmitWired) missing.push('UserPromptSubmit -> scripts/hooks/harness-entry-banner.js');
   if (!entryBannerScriptExists) missing.push('scripts/hooks/harness-entry-banner.js');
-  if (!entryBannerRecent) missing.push('.harness/entry-banner.json recent emitted=true evidence');
+  if (!entryBannerRecent && !pretool.observed) missing.push('.harness/entry-banner.json recent emitted=true evidence or recent PreToolUse observation');
 
   if (!codexHooks) status = 'WARN';
   else if (!userPromptSubmitWired || !entryBannerScriptExists) status = 'FAIL';
-  else if (!entryBannerRecent) status = 'WARN';
+  else if (!entryBannerRecent && !pretool.observed) status = 'WARN';
 
-  const message = status === 'PASS'
-    ? 'Codex UserPromptSubmit banner wiring observed recently'
-    : `Codex entry banner check incomplete: ${missing.join(', ')}`;
+  let message;
+  if (status === 'PASS' && entryBannerRecent) {
+    message = 'Codex UserPromptSubmit banner wiring observed recently';
+  } else if (status === 'PASS' && pretool.observed) {
+    message = 'Codex project-hook runtime observed via recent PreToolUse evidence (UserPromptSubmit banner evidence optional)';
+  } else {
+    message = `Codex entry banner check incomplete: ${missing.join(', ')}`;
+  }
   return {
     status,
     message,
@@ -1583,9 +1614,50 @@ function codexEntryBannerCheck(root) {
     entry_banner_script_exists: entryBannerScriptExists,
     entry_banner_recent: entryBannerRecent,
     entry_banner_age_seconds: entryBannerAgeSeconds,
+    pretool_recent: pretool.observed,
+    pretool_age_seconds: pretool.ageSeconds,
+    pretool_path: pretool.path,
     codex_hooks_path: rel(root, codexPath),
     entry_banner_path: rel(root, evidencePath),
     missing,
+  };
+}
+
+function codexProjectTrustCheck(root) {
+  const configPath = path.join(os.homedir(), '.codex', 'config.toml');
+  const text = readText(configPath);
+  if (!text) {
+    return {
+      status: 'WARN',
+      message: `Codex config missing: ${configPath}`,
+      config_path: configPath,
+      exact_project_trusted: false,
+    };
+  }
+
+  const lines = text.split(/\r?\n/);
+  const header = `[projects."${root}"]`;
+  let inTargetBlock = false;
+  let trusted = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      inTargetBlock = trimmed === header;
+      continue;
+    }
+    if (inTargetBlock && /trust_level\s*=\s*["']trusted["']/.test(trimmed)) {
+      trusted = true;
+      break;
+    }
+  }
+
+  return {
+    status: trusted ? 'PASS' : 'WARN',
+    message: trusted
+      ? `Codex exact project trust configured for ${root}`
+      : `Codex exact project trust missing for ${root}; interactive project-local hooks may stay disabled until ~/.codex/config.toml trusts this exact root`,
+    config_path: configPath,
+    exact_project_trusted: trusted,
   };
 }
 
@@ -1611,9 +1683,18 @@ function doctorReport(root) {
     entry_banner_script_exists: codexEntry.entry_banner_script_exists,
     entry_banner_recent: codexEntry.entry_banner_recent,
     entry_banner_age_seconds: codexEntry.entry_banner_age_seconds,
+    pretool_recent: codexEntry.pretool_recent,
+    pretool_age_seconds: codexEntry.pretool_age_seconds,
+    pretool_path: codexEntry.pretool_path,
     codex_hooks_path: codexEntry.codex_hooks_path,
     entry_banner_path: codexEntry.entry_banner_path,
     missing: codexEntry.missing,
+  });
+
+  const codexTrust = codexProjectTrustCheck(root);
+  add('codex-project-trust', codexTrust.status, codexTrust.message, {
+    config_path: codexTrust.config_path,
+    exact_project_trusted: codexTrust.exact_project_trusted,
   });
 
   const evidence = latestEvidence(root);
