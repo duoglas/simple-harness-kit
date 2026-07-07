@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — 强制新 session 声明 Harness 阶段 + 监听 TaskCompleted 提醒 VERIFY
- * @version 0.10.0
+ * @version 0.11.0
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -785,9 +785,9 @@ function e2eSufficiencyEvidenceBlockers(evidence) {
   return [];
 }
 
-// C-GATE-04: VERIFY gate — EXECUTE 后必须经过 VERIFY 才能回到 PLAN
-// 防止 EXECUTE → PLAN → EXECUTE 无限循环跳过验证（VH-10: talent-assessment 4h EXECUTE 无 VERIFY）
-const VERIFY_GATE_BLOCK = `[Harness Stage Guard] 切换到 PLAN 被阻止（C-GATE-04）。
+// C-GATE-17: VERIFY gate — EXECUTE 后必须经过 VERIFY 才能回到 PLAN
+// 防止 EXECUTE → PLAN → EXECUTE 无限循环跳过验证（VH-26: talent-assessment 4h EXECUTE 无 VERIFY）
+const VERIFY_GATE_BLOCK = `[Harness Stage Guard] 切换到 PLAN 被阻止（C-GATE-17）。
 
 上一轮 EXECUTE 之后没有经过 VERIFY 阶段。不能跳过验证直接开始下一轮。
 
@@ -881,7 +881,7 @@ function allowStageTransition(newData, via, input) {
   recordStageHistory(newData.stage);
   enforceVerifyGateIfNeeded(newData, input);
   enforceReviewGateIfNeeded(newData, input);
-  // C-GATE-05: 进入 VERIFY/PLAN/OFF 时重置 EXECUTE 写操作计数器
+  // C-GATE-18: 进入 VERIFY/PLAN/OFF 时重置 EXECUTE 写操作计数器
   if (['VERIFY', 'PLAN', 'OFF'].includes(newData.stage)) {
     const EXECUTE_WRITES_FILE = path.join(ROOT, '.harness/execute-write-count.json');
     try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify({ count: 0 }) + '\n'); } catch {}
@@ -1052,10 +1052,10 @@ process.stdin.on('end', () => {
           // 非 PLAN 阶段：注入阶段工作要求
           enforceExecuteSpecRecheck(data, input);
 
-          // C-GATE-06: Agent spawn 时注入 harness 约束提醒
+          // C-GATE-19: Agent spawn 时注入 harness 约束提醒
           if (toolName === 'Agent') {
             process.stderr.write(
-              `[Harness Stage Guard] Agent 子任务提醒（C-GATE-06）：\n` +
+              `[Harness Stage Guard] Agent 子任务提醒（C-GATE-19）：\n` +
               `当前处于 ${data.stage} 阶段。Subagent 应遵守以下约束：\n` +
               `  - 不添加额外功能（YAGNI）\n` +
               `  - 完成后运行测试自验\n` +
@@ -1065,7 +1065,7 @@ process.stdin.on('end', () => {
             );
           }
 
-          // C-GATE-05: EXECUTE 阶段写操作计数器——防止长时间 EXECUTE 不进 VERIFY
+          // C-GATE-18: EXECUTE 阶段写操作计数器——防止长时间 EXECUTE 不进 VERIFY
           if (data.stage === 'EXECUTE' && !READ_TOOLS.includes(toolName) && !TASK_TOOLS.includes(toolName)) {
             const EXECUTE_WRITES_FILE = path.join(ROOT, '.harness/execute-write-count.json');
             let execWrites = { count: 0 };
@@ -1077,7 +1077,7 @@ process.stdin.on('end', () => {
             const BLOCK_THRESHOLD = 50;
             if (execWrites.count >= BLOCK_THRESHOLD) {
               return denyPreToolUse(input,
-                `[Harness Stage Guard] EXECUTE 阶段已执行 ${execWrites.count} 次写操作，超过阈值 ${BLOCK_THRESHOLD}（C-GATE-05）。\n` +
+                `[Harness Stage Guard] EXECUTE 阶段已执行 ${execWrites.count} 次写操作，超过阈值 ${BLOCK_THRESHOLD}（C-GATE-18）。\n` +
                 `必须先进入 VERIFY 阶段验证当前工作质量，再继续执行。\n` +
                 `→ 写 current-stage.json 切换到 VERIFY\n` +
                 `VERIFY 完成后计数器自动重置。\n`
