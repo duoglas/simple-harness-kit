@@ -6,18 +6,15 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-07
+
+> 本版本聚合 2026-06-06 裁定的 Phase 2 内容与其后合入 master 的全部变更（真实 agent-driven 验收、B2B-71 通知门、EXECUTE 中段守门、Codex 0.142.x 适配），此前未打过 v0.11.0 tag。
+
 ### Added
 
 - **EXECUTE 中段强制力三件套（C-GATE-17/18/19，VH-26）**: `harness-stage-guard.js` 补上 6 阶段 Loop 中段缺失的守门——(1) VERIFY gate：EXECUTE 之后未经 VERIFY 不允许切回 PLAN，纯探索/调研任务可在 `reason` 字段声明豁免；(2) EXECUTE 写操作限额：30 次非只读调用告警、50 次硬阻止，进 VERIFY/PLAN/OFF 重置；(3) Agent spawn 约束注入：非 PLAN 阶段派发 subagent 时向 stderr 注入 harness 纪律提醒。根因：某 session 在 EXECUTE 连跑 4 小时 253 次工具调用 0 拦截，完全跳过 VERIFY。
-
-### Fixed
-
-- **codex-smoke tmp 工程补齐 hook 共享库**: `tests/codex-smoke.sh` 搭建临时工程时只拷 `scripts/hooks/`，漏拷 `scripts/lib/`，导致 `harness-stage-guard.js` 在 Codex runtime 报 `Cannot find module '../lib/spec-quality'`、PreToolUse hook Failed（VH-22 / C-INIT-05 同类问题在测试脚本自身复演）。现在 hooks 与 lib 一起拷贝。
-- **codex-smoke selftest 注入点适配 Codex 0.142.x**: 旧注入点（SessionStart 非法 stdout）在 Codex 0.142.x 下被宽容处理不报 Failed，selftest 永远抓不到注入的坏 hook。注入点改为 `harness-stage-guard.js`（PreToolUse 全 matcher，不依赖模型恰好用 Bash），失效模式改为「非法 stdout + 非零退出」——实测在 0.142.5 稳定报 `hook: PreToolUse Failed`。
-
-## [0.11.0] - 2026-06-06
-
-### Added
+- **真实 agent-driven 验收硬门槛（C-GATE-15，VH-23/VH-24）**: 凡宣称 “Claude/Codex 支持已通过” 或 “SHK workflow 可交付”，证据必须包含真实项目目录里的 agent runtime session（Claude Code 和 Codex 各至少一轮，走项目内 skill/hook 入口）；`shk.js`、shell 脚本、fixture、contract test 只能算辅助证据。配套新增 C-INIT-06：init 必须先复制全部 hook/lib required files，再写入会让 runtime 立即加载 hook 的 `.claude/settings.json`，防止半安装 hook 在同一 session 内自爆。
+- **等待人类确认必须通知责任人（C-GATE-16，VH-25）**: 任何进入 `waiting_on=human` / `needs_human_confirmation` 状态的 issue/comment/run，必须识别需求发布人并以 member mention 通知，写明等待的问题、可选决策、解除条件和默认处理；只写机器可读状态字段不算触达。
 
 - **Phase 2 Quality Engineering Gate**: SHK 现在不只是要求 AI “跑测试、交 evidence”，而是把 spec 变成交付流程的前置依赖。每轮 medium / high / release 任务必须先有有效 spec：需求是什么、准备怎么做、风险在哪里、要测哪些流量路径、验收证据是什么。没有 spec 不能开工，不能事后补文档冒充 spec。
 - **Spec-backed workflow for AI tools**: 新增 `shk spec status` 作为 AI Harness 后端探针，用来检查 `.harness/iteration-spec.json` 是否完整，must 需求、风险点、测试计划、流量路径和验收项是否互相映射。没有 spec 是 `NOT_READY`；spec 写了但没覆盖关键需求/风险/流量，是 `NOT_SUFFICIENT`。
@@ -32,13 +29,15 @@
 
 ### Fixed
 
+- **codex-smoke tmp 工程补齐 hook 共享库**: `tests/codex-smoke.sh` 搭建临时工程时只拷 `scripts/hooks/`，漏拷 `scripts/lib/`，导致 `harness-stage-guard.js` 在 Codex runtime 报 `Cannot find module '../lib/spec-quality'`、PreToolUse hook Failed（VH-22 / C-INIT-05 同类问题在测试脚本自身复演）。现在 hooks 与 lib 一起拷贝。
+- **codex-smoke selftest 注入点适配 Codex 0.142.x**: 旧注入点（SessionStart 非法 stdout）在 Codex 0.142.x 下被宽容处理不报 Failed，selftest 永远抓不到注入的坏 hook。注入点改为 `harness-stage-guard.js`（PreToolUse 全 matcher，不依赖模型恰好用 Bash），失效模式改为「非法 stdout + 非零退出」——实测在 0.142.5 稳定报 `hook: PreToolUse Failed`。
 - **Init now checks hook local dependencies**: 修复 Issue #10：`harness-stage-guard.js` 依赖 `scripts/lib/spec-quality.js`，新项目 init 不能只检查 hook 文件存在，还必须检查 settings 引用 hook 的本地 `require()` 依赖也存在。`tests/template-integrity.js` 新增守门，`harness-init` Step 4 也明确把本地依赖检查列入用户层完整性检查。
 - **Delivery gate now requires fresh READY evidence**: REVIEW/FEEDBACK 阶段也不能在缺少 `.harness/verify-evidence.json`、证据不是 `READY`、证据过期、E2E 充分性不是 READY、测试有效性不是 READY 或包含 `DEGRADED` 时说“完成了”。失败、降级、缺证据和不充分必须原样告诉用户，不能包装成 PASS。
 - **Release tag evidence gate**: release tag 要求 release 风险证据里 E2E、E2E 充分性和 runtime 都是 `PASS`；runtime 只要是 `DEGRADED`，tag 会被阻止并提示限制说明。
 
 ### Known Issues
 
-- **Codex runtime smoke 仍可能 DEGRADED**: 当前验证环境 Codex 0.137.0 下，最小 `codex exec` run 能完成且无 hook failure marker，但注入的 project sentinel hook 不执行，因此不能证明 `.codex/hooks.json` command 真实执行。这个状态必须原样报告，不能当作 runtime PASS，也不能用于 release READY；`CODEX_REQUIRED=1 bash tests/codex-smoke-selftest.sh` 会把未验证 sentinel 升级为 FAIL。
+- **Codex 0.142.x 对部分非法 hook stdout 宽容处理**: Codex 0.142.5 起 `codex exec` 已真实执行 project `.codex/hooks.json`（smoke 可观察到 SessionStart/PreToolUse/PostToolUse/Stop marker，runtime 证据升级为可验证 PASS），但 SessionStart——以及部分场景下 PreToolUse——的「非法 stdout + exit 0」不再报 Failed。VH-13 类纯 stdout 污染在新版 runtime 可能静默通过；selftest 已改用「非法 stdout + 非零退出」这一稳定失效模式守门，纯 stdout 污染的捕获能力在 0.142.x 上暂无法强制验证。
 - **默认 dogfood matrix 有条件 SKIP**: `tests/scripts/17-oss-dogfood-validation.sh` / `18-upstream-ci-dogfood.sh` 需要真实 OSS tarball、离线源码或允许下载；`19-browser-e2e-dogfood.sh` 需要 `playwright-chromium` 或允许安装到 `/private/tmp`。这些 SKIP 只说明依赖未满足，不证明真实 OSS / browser dogfood 已通过。
 - **PLAN Bash `sed -n` 仍存在写文件边界**: 当前 `harness-stage-guard.js` 将 `sed -n` 视为只读探索，但 `sed -n '1w pwned' input.txt` 这类 sed `w` command 仍可写文件。此项先记录为已知问题，后续应收窄 PLAN 阶段 sed 白名单或移除 sed 放行，并补回归 fixture。
 
