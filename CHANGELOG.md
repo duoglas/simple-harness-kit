@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **codex-smoke tmp 工程补齐 hook 共享库**: `tests/codex-smoke.sh` 搭建临时工程时只拷 `scripts/hooks/`，漏拷 `scripts/lib/`，导致 `harness-stage-guard.js` 在 Codex runtime 报 `Cannot find module '../lib/spec-quality'`、PreToolUse hook Failed（VH-22 / C-INIT-05 同类问题在测试脚本自身复演）。现在 hooks 与 lib 一起拷贝。
+
 ## [0.11.0] - 2026-06-06
 
 ### Added

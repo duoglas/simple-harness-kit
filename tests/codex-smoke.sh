@@ -68,7 +68,8 @@ mkdir -p \
   "$TMP_DIR/.claude" \
   "$TMP_DIR/.codex" \
   "$TMP_DIR/.harness" \
-  "$TMP_DIR/scripts/hooks"
+  "$TMP_DIR/scripts/hooks" \
+  "$TMP_DIR/scripts/lib"
 
 # 拷 settings.json 模板（Claude Code 格式，含全部事件）
 cp "$KIT_ROOT/templates/settings-json.tmpl" "$TMP_DIR/.claude/settings.json"
@@ -82,8 +83,9 @@ if [ ! -s "$TMP_DIR/.codex/hooks.json" ]; then
   exit 2
 fi
 
-# 拷所有 hook 脚本
+# 拷所有 hook 脚本 + 跨目录共享库（C-INIT-05 / VH-22：hook 的本地 require 依赖必须随行）
 cp "$KIT_ROOT/scripts/hooks/"*.js "$TMP_DIR/scripts/hooks/"
+cp "$KIT_ROOT/scripts/lib/"*.js "$TMP_DIR/scripts/lib/"
 
 # SMOKE_INJECT_BAD_HOOK=1：覆盖 harness-session-start.js 为 stdout 写非法 JSON 的版本。
 # 注：因已知限制，exec 模式不加载 project .codex/hooks.json，所以此注入仅在
