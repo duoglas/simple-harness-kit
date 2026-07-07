@@ -2,6 +2,7 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const specQuality = require('./lib/spec-quality');
@@ -12,13 +13,19 @@ const MANIFEST_PATH = path.join(KIT_ROOT, 'manifests/shk-profiles.json');
 const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
 const ALL_CHECKS = [
   'quality_gate', 'build', 'types', 'lint', 'tests', 'coverage', 'e2e',
-  'security', 'diff', 'spec', 'santa', 'runtime', 'clean_tree', 'upstream',
+  'security', 'diff', 'spec', 'santa', 'runtime', 'runtime_selftest',
+  'doctor', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood',
+  'clean_tree', 'upstream',
 ];
 const RISK_CHECKS = {
   low: ['build', 'tests', 'diff', 'security'],
   medium: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e'],
   high: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa'],
-  release: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa', 'runtime', 'clean_tree', 'upstream'],
+  release: [
+    'build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa',
+    'runtime', 'runtime_selftest', 'doctor', 'dogfood_oss', 'upstream_dogfood',
+    'browser_e2e_dogfood', 'clean_tree', 'upstream',
+  ],
 };
 
 const DEFAULT_MANIFEST = {
@@ -143,6 +150,10 @@ function detectCommands(root) {
     coverage: scripts.coverage ? 'npm run coverage' : '',
     e2e: scripts['test:e2e'] ? 'npm run test:e2e' : scripts.e2e ? 'npm run e2e' : exists(path.join(root, 'tests/scripts/13-e2e-sufficiency.sh')) ? 'bash tests/scripts/13-e2e-sufficiency.sh' : exists(path.join(root, 'tests/scripts/03-full-e2e.sh')) ? 'bash tests/scripts/03-full-e2e.sh' : exists(path.join(root, 'tests/e2e-acceptance-validate.sh')) ? 'bash tests/e2e-acceptance-validate.sh' : '',
     runtime: exists(path.join(root, 'tests/codex-smoke.sh')) ? 'bash tests/codex-smoke.sh' : '',
+    runtime_selftest: exists(path.join(root, 'tests/codex-smoke-selftest.sh')) ? 'bash tests/codex-smoke-selftest.sh' : '',
+    dogfood_oss: exists(path.join(root, 'tests/scripts/17-oss-dogfood-validation.sh')) ? 'bash tests/scripts/17-oss-dogfood-validation.sh' : '',
+    upstream_dogfood: exists(path.join(root, 'tests/scripts/18-upstream-ci-dogfood.sh')) ? 'bash tests/scripts/18-upstream-ci-dogfood.sh' : '',
+    browser_e2e_dogfood: exists(path.join(root, 'tests/scripts/19-browser-e2e-dogfood.sh')) ? 'bash tests/scripts/19-browser-e2e-dogfood.sh' : '',
   };
 }
 
@@ -411,6 +422,9 @@ function specStatusData(root, risk) {
         requirements_covered: 'FAIL',
         risks_covered: 'FAIL',
         traffic_flows_covered: 'FAIL',
+        tasks_present: 'FAIL',
+        irreversible_actions_present: 'FAIL',
+        task_quality: 'FAIL',
       },
       missing: ['.harness/iteration-spec.json'],
       spec: null,
@@ -425,17 +439,22 @@ function specStatusData(root, risk) {
   const hasTrafficFlows = c.trafficFlows.length > 0;
   const hasTestPlan = c.tests.length > 0;
   const hasAcceptance = c.acceptance.length > 0;
+  const hasTasks = c.tasks.length > 0;
+  const hasIrreversibleActions = c.irreversibleActions.length > 0;
   const missing = [];
   if (!hasRequirements) missing.push('缺 requirements');
   if (!hasDesign) missing.push('缺 design.summary 或 design.risk_points');
   if (!hasTrafficFlows) missing.push('缺 traffic_flows');
   if (!hasTestPlan) missing.push('缺 test_plan');
   if (!hasAcceptance) missing.push('缺 acceptance');
+  if (!hasTasks) missing.push('缺 tasks');
+  if (!hasIrreversibleActions) missing.push('缺 irreversible_actions');
   c.missingRequirements.forEach(id => missing.push(`must requirement 未被测试覆盖：${id}`));
   c.missingRisks.forEach(id => missing.push(`风险点未被测试覆盖：${id}`));
   c.missingTrafficFlows.forEach(id => missing.push(`流量路径未被测试计划覆盖：${id}`));
   c.invalidTests.forEach(item => missing.push(item));
   c.missingAcceptance.forEach(item => missing.push(item));
+  c.invalidTasks.forEach(item => missing.push(item));
 
   const overall = evaluation.overall;
   return {
@@ -450,11 +469,14 @@ function specStatusData(root, risk) {
       traffic_flows_present: hasTrafficFlows ? 'PASS' : 'FAIL',
       test_plan_present: hasTestPlan ? 'PASS' : 'FAIL',
       acceptance_present: hasAcceptance ? 'PASS' : 'FAIL',
+      tasks_present: hasTasks ? 'PASS' : 'FAIL',
+      irreversible_actions_present: hasIrreversibleActions ? 'PASS' : 'FAIL',
       requirements_covered: c.missingRequirements.length === 0 ? 'PASS' : 'FAIL',
       risks_covered: c.missingRisks.length === 0 ? 'PASS' : 'FAIL',
       traffic_flows_covered: c.missingTrafficFlows.length === 0 ? 'PASS' : 'FAIL',
       test_plan_semantic: c.invalidTests.length === 0 ? 'PASS' : 'FAIL',
       acceptance_evidence: c.missingAcceptance.length === 0 ? 'PASS' : 'FAIL',
+      task_quality: c.invalidTasks.length === 0 ? 'PASS' : 'FAIL',
     },
     counts: {
       requirements: c.requirements.length,
@@ -463,6 +485,8 @@ function specStatusData(root, risk) {
       traffic_flows: c.trafficFlows.length,
       tests: c.tests.length,
       acceptance: c.acceptance.length,
+      tasks: c.tasks.length,
+      irreversible_actions: c.irreversibleActions.length,
     },
     missing,
     spec,
@@ -1286,6 +1310,45 @@ function cmdLoop(args, root) {
   return 0;
 }
 
+function releaseCommandEnv(check) {
+  if (check === 'runtime' || check === 'runtime_selftest') return { CODEX_REQUIRED: '1' };
+  if (check === 'dogfood_oss') return { SHK_OSS_DOGFOOD_REQUIRED: '1' };
+  if (check === 'upstream_dogfood') return { SHK_UPSTREAM_CI_REQUIRED: '1' };
+  if (check === 'browser_e2e_dogfood') return { SHK_BROWSER_E2E_REQUIRED: '1' };
+  return {};
+}
+
+function releaseCommandTimeout(check) {
+  if (check === 'dogfood_oss') return Number(process.env.SHK_DOGFOOD_OSS_TIMEOUT_MS || 900000);
+  if (check === 'upstream_dogfood') return Number(process.env.SHK_UPSTREAM_DOGFOOD_TIMEOUT_MS || 900000);
+  if (check === 'browser_e2e_dogfood') return Number(process.env.SHK_BROWSER_E2E_DOGFOOD_TIMEOUT_MS || 900000);
+  return 120000;
+}
+
+function normalizeReleaseCommandResult(result) {
+  const out = String(result.stdout_tail || '') + '\n' + String(result.stderr_tail || '');
+  if (result.status === 'PASS') {
+    if (/\bDEGRADED\b/.test(out)) result.status = 'DEGRADED';
+    else if (/\bSKIP\b/.test(out)) result.status = 'SKIP';
+    else if (/\bWARN\b/.test(out)) result.status = 'WARN';
+  }
+  result.release_required = true;
+  return result;
+}
+
+function doctorEvidenceCheck(root) {
+  const report = doctorReport(root);
+  return {
+    status: report.overall,
+    command: 'node scripts/shk.js doctor --format json',
+    release_required: true,
+    checks: report.checks.map(c => ({ id: c.id, status: c.status, message: c.message })).slice(0, 50),
+    summary: report.overall === 'PASS'
+      ? 'doctor PASS'
+      : `doctor ${report.overall}: ${report.checks.filter(c => c.status !== 'PASS').map(c => `${c.id}=${c.status}`).join(', ')}`,
+  };
+}
+
 function makeEvidence(root, risk) {
   const started = new Date().toISOString();
   const commands = detectCommands(root);
@@ -1299,9 +1362,12 @@ function makeEvidence(root, risk) {
     else if (check === 'diff') checks.diff = diffCheck(root);
     else if (check === 'clean_tree') checks.clean_tree = cleanTreeCheck(root);
     else if (check === 'upstream') checks.upstream = upstreamCheck(root);
-    else if (['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime'].includes(check)) {
+    else if (check === 'doctor') checks.doctor = doctorEvidenceCheck(root);
+    else if (['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
       const checkTimeout = check === 'tests'
         ? Number(process.env.SHK_VERIFY_TEST_TIMEOUT_MS || 360000)
+        : ['dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)
+          ? releaseCommandTimeout(check)
         : 120000;
       if (check === 'e2e') {
         const runToken = createRunToken();
@@ -1310,12 +1376,12 @@ function makeEvidence(root, risk) {
           run_token: runToken,
         });
       } else {
-        checks[check] = runCommand(root, commands[check], checkTimeout);
+        checks[check] = runCommand(root, commands[check], checkTimeout, {
+          env: risk === 'release' ? releaseCommandEnv(check) : {},
+        });
       }
-      if (check === 'runtime') {
-        const out = String(checks[check].stdout_tail || '') + String(checks[check].stderr_tail || '');
-        checks[check].degraded = /\bDEGRADED\b/.test(out);
-        if (checks[check].status === 'PASS' && checks[check].degraded) checks[check].status = 'DEGRADED';
+      if (risk === 'release' && ['runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
+        checks[check] = normalizeReleaseCommandResult(checks[check]);
       }
     }
     else checks[check] = { status: 'SKIP', command: '', reason: `${check} requires agent/human review` };
@@ -1350,8 +1416,40 @@ function makeEvidence(root, risk) {
       summary: effectiveness.human_summary,
     };
   }
+  const limitations = [];
+  if (checks.coverage && checks.coverage.status === 'SKIP') {
+    limitations.push({
+      check: 'coverage',
+      status: 'SKIP',
+      claims_ready: false,
+      reason: checks.coverage.reason || 'not configured',
+      summary: 'Coverage is not configured; this run does not claim an 80% line/branch coverage proof.',
+    });
+  }
+  if (checks.runtime && checks.runtime.status === 'SKIP') {
+    limitations.push({
+      check: 'runtime',
+      status: 'SKIP',
+      claims_ready: false,
+      reason: checks.runtime.reason || 'not required or not configured',
+      summary: 'Runtime/Codex smoke was not required for this risk level and is not counted as runtime PASS evidence.',
+    });
+  } else if (checks.runtime && checks.runtime.status === 'DEGRADED') {
+    limitations.push({
+      check: 'runtime',
+      status: 'DEGRADED',
+      claims_ready: false,
+      reason: 'runtime smoke degraded',
+      summary: 'Runtime/Codex smoke is DEGRADED and cannot be reported as READY evidence.',
+    });
+  }
   const notSufficient = Object.values(checks).some(c => c && c.overall === 'NOT_SUFFICIENT');
-  const failed = Object.values(checks).some(c => c.status === 'FAIL' || c.status === 'DEGRADED');
+  const releaseRequired = new Set(risk === 'release' ? RISK_CHECKS.release : []);
+  const failed = Object.entries(checks).some(([name, c]) => {
+    if (!c) return false;
+    if (c.status === 'FAIL' || c.status === 'DEGRADED') return true;
+    return releaseRequired.has(name) && c.status !== 'PASS';
+  });
   return {
     schema_version: '1.0',
     task_id: process.env.SHK_TASK_ID || path.basename(root),
@@ -1360,6 +1458,7 @@ function makeEvidence(root, risk) {
     started_at: started,
     completed_at: new Date().toISOString(),
     checks,
+    limitations,
     overall: failed ? (notSufficient ? 'NOT_SUFFICIENT' : 'NOT_READY') : 'READY',
   };
 }
@@ -1377,6 +1476,14 @@ function evidenceMarkdown(e) {
   for (const [name, c] of Object.entries(e.checks || {})) {
     const detail = c.summary || c.command || c.reason || (c.findings !== undefined ? `${c.findings} findings` : c.files !== undefined ? `${c.files} files` : '');
     lines.push(`| ${name} | ${c.status} | ${String(detail).replace(/\|/g, '/')} |`);
+  }
+  if (Array.isArray(e.limitations) && e.limitations.length > 0) {
+    lines.push('');
+    lines.push('## Limitations');
+    lines.push('');
+    for (const item of e.limitations) {
+      lines.push(`- ${item.check}: ${item.summary}`);
+    }
   }
   lines.push('');
   return lines.join('\n');
@@ -1438,12 +1545,37 @@ function codexHasEntryBannerWiring(codexHooks) {
   });
 }
 
+function recentPretoolObservation(root) {
+  const obsPath = path.join(root, '.harness/pretool-observations.jsonl');
+  const text = readText(obsPath);
+  if (!text) return { observed: false, ageSeconds: null, path: rel(root, obsPath) };
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const row = JSON.parse(lines[i]);
+      if (row && row.hook_event_name === 'PreToolUse' && row.t) {
+        const t = new Date(row.t).getTime();
+        if (!Number.isNaN(t)) {
+          const ageSeconds = Math.max(0, Math.round((Date.now() - t) / 1000));
+          return {
+            observed: ageSeconds <= 24 * 60 * 60,
+            ageSeconds,
+            path: rel(root, obsPath),
+          };
+        }
+      }
+    } catch {}
+  }
+  return { observed: false, ageSeconds: null, path: rel(root, obsPath) };
+}
+
 function codexEntryBannerCheck(root) {
   const codexPath = path.join(root, '.codex/hooks.json');
   const scriptPath = path.join(root, 'scripts/hooks/harness-entry-banner.js');
   const evidencePath = path.join(root, '.harness/entry-banner.json');
   const codexHooks = readJson(codexPath);
   const evidence = readJson(evidencePath);
+  const pretool = recentPretoolObservation(root);
   const userPromptSubmitWired = codexHasEntryBannerWiring(codexHooks);
   const entryBannerScriptExists = exists(scriptPath);
   let entryBannerRecent = false;
@@ -1461,15 +1593,20 @@ function codexEntryBannerCheck(root) {
   if (!codexHooks) missing.push('.codex/hooks.json');
   if (!userPromptSubmitWired) missing.push('UserPromptSubmit -> scripts/hooks/harness-entry-banner.js');
   if (!entryBannerScriptExists) missing.push('scripts/hooks/harness-entry-banner.js');
-  if (!entryBannerRecent) missing.push('.harness/entry-banner.json recent emitted=true evidence');
+  if (!entryBannerRecent && !pretool.observed) missing.push('.harness/entry-banner.json recent emitted=true evidence or recent PreToolUse observation');
 
   if (!codexHooks) status = 'WARN';
   else if (!userPromptSubmitWired || !entryBannerScriptExists) status = 'FAIL';
-  else if (!entryBannerRecent) status = 'WARN';
+  else if (!entryBannerRecent && !pretool.observed) status = 'WARN';
 
-  const message = status === 'PASS'
-    ? 'Codex UserPromptSubmit banner wiring observed recently'
-    : `Codex entry banner check incomplete: ${missing.join(', ')}`;
+  let message;
+  if (status === 'PASS' && entryBannerRecent) {
+    message = 'Codex UserPromptSubmit banner wiring observed recently';
+  } else if (status === 'PASS' && pretool.observed) {
+    message = 'Codex project-hook runtime observed via recent PreToolUse evidence (UserPromptSubmit banner evidence optional)';
+  } else {
+    message = `Codex entry banner check incomplete: ${missing.join(', ')}`;
+  }
   return {
     status,
     message,
@@ -1477,9 +1614,50 @@ function codexEntryBannerCheck(root) {
     entry_banner_script_exists: entryBannerScriptExists,
     entry_banner_recent: entryBannerRecent,
     entry_banner_age_seconds: entryBannerAgeSeconds,
+    pretool_recent: pretool.observed,
+    pretool_age_seconds: pretool.ageSeconds,
+    pretool_path: pretool.path,
     codex_hooks_path: rel(root, codexPath),
     entry_banner_path: rel(root, evidencePath),
     missing,
+  };
+}
+
+function codexProjectTrustCheck(root) {
+  const configPath = path.join(os.homedir(), '.codex', 'config.toml');
+  const text = readText(configPath);
+  if (!text) {
+    return {
+      status: 'WARN',
+      message: `Codex config missing: ${configPath}`,
+      config_path: configPath,
+      exact_project_trusted: false,
+    };
+  }
+
+  const lines = text.split(/\r?\n/);
+  const header = `[projects."${root}"]`;
+  let inTargetBlock = false;
+  let trusted = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      inTargetBlock = trimmed === header;
+      continue;
+    }
+    if (inTargetBlock && /trust_level\s*=\s*["']trusted["']/.test(trimmed)) {
+      trusted = true;
+      break;
+    }
+  }
+
+  return {
+    status: trusted ? 'PASS' : 'WARN',
+    message: trusted
+      ? `Codex exact project trust configured for ${root}`
+      : `Codex exact project trust missing for ${root}; interactive project-local hooks may stay disabled until ~/.codex/config.toml trusts this exact root`,
+    config_path: configPath,
+    exact_project_trusted: trusted,
   };
 }
 
@@ -1505,9 +1683,18 @@ function doctorReport(root) {
     entry_banner_script_exists: codexEntry.entry_banner_script_exists,
     entry_banner_recent: codexEntry.entry_banner_recent,
     entry_banner_age_seconds: codexEntry.entry_banner_age_seconds,
+    pretool_recent: codexEntry.pretool_recent,
+    pretool_age_seconds: codexEntry.pretool_age_seconds,
+    pretool_path: codexEntry.pretool_path,
     codex_hooks_path: codexEntry.codex_hooks_path,
     entry_banner_path: codexEntry.entry_banner_path,
     missing: codexEntry.missing,
+  });
+
+  const codexTrust = codexProjectTrustCheck(root);
+  add('codex-project-trust', codexTrust.status, codexTrust.message, {
+    config_path: codexTrust.config_path,
+    exact_project_trusted: codexTrust.exact_project_trusted,
   });
 
   const evidence = latestEvidence(root);

@@ -68,6 +68,9 @@
 - `bash tests/scripts/19-browser-e2e-dogfood.sh`：PASS（需 headless browser / localhost 权限），真实 TodoMVC 页面 mutation 后失败。
 - `bash tests/scripts/run-all.sh`：17 个维度全部 PASS（本机具备 OSS tarball、npm cache、browser runtime 时包含 17/18/19；普通沙盒没有浏览器权限时 19 会 SKIP，不会假装通过）。
 - `node tests/run.js`：218 passed, 0 failed。
+- `bash tests/scripts/run-all.sh`：2026-06-08 无外部 dogfood 依赖的本地环境尾部总计为 14 PASS / 3 SKIP / 0 FAIL；17/18/19 缺依赖时必须 SKIP，且 SKIP 不能包装成 PASS。
+- `node tests/template-integrity.js`：exit 0；尾部总计 30 passed, 0 failed, 30 total。
+- `node tests/run.js`：exit 0；尾部总计 218 passed, 0 failed, 218 total。
 - `node scripts/shk.js verify --risk medium --write-evidence`：overall READY。
 - `node scripts/shk.js security scan`：0 findings。
 

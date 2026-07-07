@@ -496,6 +496,35 @@ function runTemplateIntegrityTests() {
     if (errors.length > 0) return errors.join('\n      ');
   });
 
+  check('skill: harness-init 先复制 hook/lib required_files 再写 settings (C-INIT-06)', () => {
+    const files = [HARNESS_INIT_SKILL, INIT_PROMPT_RESOURCE, INIT_PROMPT];
+    const errors = [];
+    for (const file of files) {
+      if (!fs.existsSync(file)) {
+        errors.push(`文件不存在: ${path.relative(KIT_ROOT, file)}`);
+        continue;
+      }
+      const content = fs.readFileSync(file, 'utf8');
+      const label = path.relative(KIT_ROOT, file);
+      const hasRequiredFiles = /required_files/.test(content);
+      const hasSpecQuality = /scripts\/lib\/spec-quality\.js/.test(content);
+      const hasSettingsBeforeGuard = /写\s+`?\.claude\/settings\.json`?\s+前/.test(content) ||
+        /before writing\s+`?\.claude\/settings\.json`?/i.test(content);
+      const forbidsLateLib = /禁止先写\s+`?\.claude\/settings\.json`?/.test(content) ||
+        /先复制 hook\/lib，再写 runtime 配置/.test(content) ||
+        /不得只复制旧的 6 个 hook/.test(content);
+      if (!hasRequiredFiles || !hasSpecQuality || !hasSettingsBeforeGuard || !forbidsLateLib) {
+        const missing = [];
+        if (!hasRequiredFiles) missing.push('required_files');
+        if (!hasSpecQuality) missing.push('scripts/lib/spec-quality.js');
+        if (!hasSettingsBeforeGuard) missing.push('写 .claude/settings.json 前');
+        if (!forbidsLateLib) missing.push('禁止先写 settings 后补 lib');
+        errors.push(`${label} 缺少 C-INIT-06 顺序锚点: ${missing.join(', ')}`);
+      }
+    }
+    if (errors.length > 0) return errors.join('\n      ');
+  });
+
   // ── T9: stage-guard.js 内部 READ_TOOLS / TASK_TOOLS 数组与 required-wiring.json 一致性检测 ──
   // #33 治理: 防止 stage-guard 内部数组与外部 wiring 漂移. 例如新增一个 PreToolUse:Foo
   // matcher 但忘了加到 stage-guard 的 READ_TOOLS / TASK_TOOLS 数组. 早期 #16 矩阵已记录
@@ -961,6 +990,22 @@ function runTemplateIntegrityTests() {
       const required = ['playwright-chromium', 'SHK_BROWSER_E2E_ALLOW_INSTALL', 'listen EPERM', 'completed: false', 'phase2-browser-e2e-dogfood-result.json'];
       const missing = required.filter(x => !content.includes(x));
       if (missing.length > 0) errors.push('19-browser-e2e-dogfood.sh 缺少: ' + missing.join(', '));
+    }
+    const releaseGate = path.join(KIT_ROOT, 'tests', 'pre-release-check.sh');
+    if (fs.existsSync(releaseGate)) {
+      const content = fs.readFileSync(releaseGate, 'utf8');
+      const required = [
+        'SHK_OSS_DOGFOOD_REQUIRED=1',
+        'SHK_UPSTREAM_CI_REQUIRED=1',
+        'SHK_BROWSER_E2E_REQUIRED=1',
+        'CODEX_REQUIRED=1',
+        'doctor --format json',
+        'DEGRADED_COUNT',
+        'WARN_COUNT',
+        'SKIP_SYNC_CHECK=1 is diagnostic only',
+      ];
+      const missing = required.filter(x => !content.includes(x));
+      if (missing.length > 0) errors.push('pre-release-check.sh 缺少 release-ready 证据门控: ' + missing.join(', '));
     }
     if (errors.length > 0) return errors.join(' | ');
   });

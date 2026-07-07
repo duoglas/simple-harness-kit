@@ -14,6 +14,7 @@ const VERIFY_GATE = path.join(KIT_ROOT, 'scripts/hooks/verification-gate.js');
 const STAGE_GUARD = path.join(KIT_ROOT, 'scripts/hooks/harness-stage-guard.js');
 const DELIVERY_GATE = path.join(KIT_ROOT, 'scripts/hooks/delivery-gate.js');
 const ENTRY_BANNER = path.join(KIT_ROOT, 'scripts/hooks/harness-entry-banner.js');
+const PRE_RELEASE_CHECK = path.join(KIT_ROOT, 'tests/pre-release-check.sh');
 
 function tmpProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-quality-'));
@@ -475,6 +476,93 @@ function testDoctorReportsCodexEntryBannerWiring() {
     assert.strictEqual(check.entry_banner_recent, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence() {
+  const dir = tmpProject();
+  try {
+    fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.codex/hooks.json'), JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [{
+          hooks: [{ type: 'command', command: 'node scripts/hooks/harness-entry-banner.js' }]
+        }]
+      }
+    }) + '\n');
+    fs.copyFileSync(ENTRY_BANNER, path.join(dir, 'scripts/hooks/harness-entry-banner.js'));
+    fs.writeFileSync(path.join(dir, '.harness/pretool-observations.jsonl'), JSON.stringify({
+      t: new Date().toISOString(),
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      command: 'printf smoke'
+    }) + '\n');
+
+    const res = runNode(SHK, ['doctor', '--format', 'json'], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const report = JSON.parse(res.stdout);
+    const check = report.checks.find(c => c.id === 'codex-entry-banner');
+    assert.ok(check, 'doctor should include codex-entry-banner check');
+    assert.strictEqual(check.status, 'PASS');
+    assert.strictEqual(check.entry_banner_recent, false);
+    assert.strictEqual(check.pretool_recent, true);
+    assert.ok(check.message.includes('PreToolUse evidence'), check.message);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testDoctorWarnsWhenCodexExactProjectTrustMissing() {
+  const dir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-codex-home-'));
+  try {
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.codex/config.toml'), `
+[projects."/parent/path"]
+trust_level = "trusted"
+`);
+    const res = runNode(SHK, ['doctor', '--format', 'json'], {
+      cwd: dir,
+      env: { HOME: home }
+    });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const report = JSON.parse(res.stdout);
+    const check = report.checks.find(c => c.id === 'codex-project-trust');
+    assert.ok(check, 'doctor should include codex-project-trust check');
+    assert.strictEqual(check.status, 'WARN');
+    assert.strictEqual(check.exact_project_trusted, false);
+    assert.ok(check.message.includes('exact project trust missing'), check.message);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function testDoctorPassesWhenCodexExactProjectTrustExists() {
+  const dir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-codex-home-'));
+  try {
+    const realDir = fs.realpathSync(dir);
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.codex/config.toml'), `
+[projects."${dir.replace(/\\/g, '\\\\')}"]
+trust_level = "trusted"
+[projects."${realDir.replace(/\\/g, '\\\\')}"]
+trust_level = "trusted"
+`);
+    const res = runNode(SHK, ['doctor', '--format', 'json'], {
+      cwd: dir,
+      env: { HOME: home }
+    });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const report = JSON.parse(res.stdout);
+    const check = report.checks.find(c => c.id === 'codex-project-trust');
+    assert.ok(check, 'doctor should include codex-project-trust check');
+    assert.strictEqual(check.status, 'PASS');
+    assert.strictEqual(check.exact_project_trusted, true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
   }
 }
 
@@ -1072,6 +1160,77 @@ function testVerificationGateRejectsReleaseTagWithoutE2ESufficiency() {
   }
 }
 
+function testVerifyReleaseConsumesRequiredEvidenceSet() {
+  const dir = tmpProject();
+  try {
+    fs.mkdirSync(path.join(dir, 'tests/scripts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'tests/codex-smoke.sh'), '#!/bin/bash\necho "DEGRADED: sentinel hook not observed"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/codex-smoke-selftest.sh'), '#!/bin/bash\necho "PASS: selftest"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/scripts/17-oss-dogfood-validation.sh'), '#!/bin/bash\necho "PASS: oss dogfood"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/scripts/18-upstream-ci-dogfood.sh'), '#!/bin/bash\necho "SKIP: missing npm proof"\nexit 0\n');
+    fs.writeFileSync(path.join(dir, 'tests/scripts/19-browser-e2e-dogfood.sh'), '#!/bin/bash\necho "PASS: browser dogfood"\nexit 0\n');
+    const { makeEvidence } = require(SHK);
+    const evidence = makeEvidence(dir, 'release');
+    assert.strictEqual(evidence.overall, 'NOT_READY');
+    assert.strictEqual(evidence.checks.runtime.status, 'DEGRADED');
+    assert.strictEqual(evidence.checks.runtime_selftest.status, 'PASS');
+    assert.strictEqual(evidence.checks.dogfood_oss.status, 'PASS');
+    assert.strictEqual(evidence.checks.upstream_dogfood.status, 'SKIP');
+    assert.strictEqual(evidence.checks.browser_e2e_dogfood.status, 'PASS');
+    assert.strictEqual(evidence.checks.doctor.status, 'WARN');
+    assert.strictEqual(evidence.checks.runtime.release_required, true);
+    assert.strictEqual(evidence.checks.doctor.release_required, true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function writeExecutable(file, body) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, body);
+  fs.chmodSync(file, 0o755);
+}
+
+function testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-pre-release-'));
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-pre-release-origin-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'tests/scripts'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+    fs.copyFileSync(PRE_RELEASE_CHECK, path.join(dir, 'tests/pre-release-check.sh'));
+    fs.chmodSync(path.join(dir, 'tests/pre-release-check.sh'), 0o755);
+
+    writeExecutable(path.join(dir, 'tests/run.js'), '#!/usr/bin/env node\nconsole.log("Total: 1 passed, 0 failed, 1 total");\n');
+    for (const script of [
+      '17-oss-dogfood-validation.sh',
+      '18-upstream-ci-dogfood.sh',
+      '19-browser-e2e-dogfood.sh',
+    ]) {
+      writeExecutable(path.join(dir, 'tests/scripts', script), '#!/bin/bash\necho "PASS: dogfood"\n');
+    }
+    writeExecutable(path.join(dir, 'tests/codex-smoke.sh'), '#!/bin/bash\necho "PASS: codex smoke"\n');
+    writeExecutable(path.join(dir, 'tests/codex-smoke-selftest.sh'), '#!/bin/bash\necho "PASS: codex selftest"\n');
+    writeExecutable(path.join(dir, 'scripts/shk.js'), '#!/usr/bin/env node\nconsole.log(JSON.stringify({ overall: "PASS", checks: [{ id: "ok", status: "PASS", message: "ok" }] }));\n');
+
+    spawnSync('git', ['init', '--bare', bare], { encoding: 'utf8' });
+    spawnSync('git', ['init', '-b', 'release/b2b-test', dir], { encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['commit', '-m', 'test fixture'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['remote', 'add', 'origin', bare], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['push', '-u', 'origin', 'release/b2b-test'], { cwd: dir, encoding: 'utf8' });
+
+    const res = runBash(path.join(dir, 'tests/pre-release-check.sh'), [], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stdout + res.stderr);
+    assert.ok(res.stdout.includes('Pre-Release Check: READY'), res.stdout);
+    assert.ok(res.stdout.includes('upstream sync'), res.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(bare, { recursive: true, force: true });
+  }
+}
+
 function writeIterationSpec(dir, overrides = {}) {
   const spec = {
     schema_version: '1.0',
@@ -1110,6 +1269,19 @@ function writeIterationSpec(dir, overrides = {}) {
     ],
     acceptance: [
       { id: 'AC-1', text: '健康检查正向和错误内容阻断都有自动化证据', covers: ['REQ-1'], tests: ['TEST-1'], must_have_evidence: true }
+    ],
+    tasks: [
+      {
+        id: 'W1',
+        stage: 'EXECUTE',
+        title: '实现健康检查',
+        covers: ['REQ-1'],
+        risk: 'low',
+        done: '自动化测试证明 /health 正向和错误内容阻断'
+      }
+    ],
+    irreversible_actions: [
+      { action: '发布或部署服务变更', needs_human: true, planned: '本轮不执行' }
     ],
     ...overrides,
   };
@@ -1249,6 +1421,47 @@ function testSpecStatusChecksAcceptanceEvidencePerItem() {
     const report = JSON.parse(res.stdout);
     assert.strictEqual(report.overall, 'NOT_SUFFICIENT');
     assert.ok(report.missing.some(m => m.includes('AC-2')), JSON.stringify(report.missing));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testSpecStatusRejectsMissingTasksAndIrreversibleActions() {
+  const dir = tmpProject();
+  try {
+    writeIterationSpec(dir, {
+      tasks: [],
+      irreversible_actions: []
+    });
+    const res = runNode(SHK, ['spec', 'status', '--risk', 'medium', '--format', 'json'], { cwd: dir });
+    assert.strictEqual(res.status, 1, res.stdout || res.stderr);
+    const report = JSON.parse(res.stdout);
+    assert.strictEqual(report.overall, 'NOT_READY');
+    assert.strictEqual(report.dimensions.tasks_present, 'FAIL');
+    assert.strictEqual(report.dimensions.irreversible_actions_present, 'FAIL');
+    assert.ok(report.missing.some(m => m.includes('tasks')), JSON.stringify(report.missing));
+    assert.ok(report.missing.some(m => m.includes('irreversible_actions')), JSON.stringify(report.missing));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testSpecStatusRejectsTaskWithoutObjectiveDoneRiskAndCover() {
+  const dir = tmpProject();
+  try {
+    writeIterationSpec(dir, {
+      tasks: [
+        { id: 'W1', stage: 'EXECUTE', title: '处理所有问题', covers: [], risk: 'mixed', done: '完成' }
+      ]
+    });
+    const res = runNode(SHK, ['spec', 'status', '--risk', 'medium', '--format', 'json'], { cwd: dir });
+    assert.strictEqual(res.status, 1, res.stdout || res.stderr);
+    const report = JSON.parse(res.stdout);
+    assert.strictEqual(report.overall, 'NOT_SUFFICIENT');
+    assert.strictEqual(report.dimensions.task_quality, 'FAIL');
+    assert.ok(report.missing.some(m => m.includes('covers')), JSON.stringify(report.missing));
+    assert.ok(report.missing.some(m => m.includes('done')), JSON.stringify(report.missing));
+    assert.ok(report.missing.some(m => m.includes('risk')), JSON.stringify(report.missing));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1504,11 +1717,35 @@ function testVerifyAggregatesSpecStatusAndTestEffectiveness() {
   }
 }
 
+function testVerifyReportsCoverageAndRuntimeSkipsAsLimitations() {
+  const dir = tmpProject();
+  try {
+    writeEffectiveE2EProject(dir);
+    writeIterationSpec(dir);
+    const res = runNode(SHK, ['verify', '--risk', 'medium', '--write-evidence'], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stdout || res.stderr);
+    const evidence = JSON.parse(fs.readFileSync(path.join(dir, '.harness/verify-evidence.json'), 'utf8'));
+    assert.strictEqual(evidence.overall, 'READY');
+    assert.strictEqual(evidence.checks.coverage.status, 'SKIP');
+    assert.strictEqual(evidence.checks.runtime.status, 'SKIP');
+    assert.ok(Array.isArray(evidence.limitations), 'verify evidence should include limitations');
+    assert.ok(evidence.limitations.some(item => item.check === 'coverage' && item.claims_ready === false), JSON.stringify(evidence.limitations));
+    assert.ok(evidence.limitations.some(item => item.check === 'runtime' && item.claims_ready === false), JSON.stringify(evidence.limitations));
+    const md = fs.readFileSync(path.join(dir, '.harness/verify-evidence.md'), 'utf8');
+    assert.ok(md.includes('Limitations'), md);
+    assert.ok(md.includes('coverage'), md);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 const tests = [
   testSpecStatusRejectsMissingIterationSpecForMediumRisk,
   testSpecStatusRejectsUncoveredMustRequirement,
   testSpecStatusRejectsHollowTestPlanWithoutScenarioAssertionsAndNegativePath,
   testSpecStatusChecksAcceptanceEvidencePerItem,
+  testSpecStatusRejectsMissingTasksAndIrreversibleActions,
+  testSpecStatusRejectsTaskWithoutObjectiveDoneRiskAndCover,
   testTestEffectivenessRejectsUncoveredTrafficFlow,
   testMutationEvidenceRejectsStatusPassWithZeroMutants,
   testMutationEvidenceRejectsSourceTextFallback,
@@ -1518,6 +1755,7 @@ const tests = [
   testStageGuardRechecksSpecDuringExecuteBeforeCodeWrite,
   testTestEffectivenessReadyWithSpecTrafficAssertionsAndMutation,
   testVerifyAggregatesSpecStatusAndTestEffectiveness,
+  testVerifyReportsCoverageAndRuntimeSkipsAsLimitations,
   testQualityStatusReleaseRequiresE2EInAIWorkflow,
   testQualityStatusMediumRequiresE2EForDelivery,
   testE2EPlanDetectsPackageScriptForAIWorkflow,
@@ -1542,6 +1780,8 @@ const tests = [
   testVerificationGateRejectsReleaseTagWithoutE2ERuntimePass,
   testVerificationGateRejectsNotSufficientEvidence,
   testVerificationGateRejectsReleaseTagWithoutE2ESufficiency,
+  testVerifyReleaseConsumesRequiredEvidenceSet,
+  testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream,
   testVerifyWritesEvidence,
   testVerificationGateRejectsFailEvidence,
   testVerificationGateAcceptsReadyEvidence,
@@ -1558,6 +1798,9 @@ const tests = [
   testUpdateHooksOnlySkipsPersonalSkills,
   testUpdateHooksReportsCodexGenerationFailure,
   testDoctorReportsCodexEntryBannerWiring,
+  testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence,
+  testDoctorWarnsWhenCodexExactProjectTrustMissing,
+  testDoctorPassesWhenCodexExactProjectTrustExists,
 ];
 
 let pass = 0;

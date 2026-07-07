@@ -32,15 +32,18 @@ That means fake E2E, smoke-only flows, missing assertions, uncovered traffic, or
 
 ## Test evidence
 
-Latest evidence from this branch:
+Latest local evidence, refreshed 2026-06-08:
 
 ```text
-node tests/run.js: 218 passed, 0 failed
-run-all matrix: 17 PASS / 0 SKIP / 0 FAIL
+node tests/template-integrity.js: exit 0; tail: 30 passed, 0 failed, 30 total
+node tests/run.js: exit 0; tail: 总计: 218 passed, 0 failed, 218 total
+run-all matrix: 17 PASS / 0 SKIP / 0 FAIL when 17/18/19 dogfood dependencies are available; 14 PASS / 3 SKIP / 0 FAIL in the no-external-dependency local environment
 Phase 2 dogfood: fake/smoke-only blocked, target-app mutation caught, spec-driven acceptance caught broken behavior
 security scan: PASS
-Codex runtime smoke: DEGRADED / SKIP, not runtime PASS
+Codex runtime smoke: DEGRADED / SKIP, not release-ready runtime PASS
 ```
+
+In this release-readiness evidence run, scripts 17/18/19 are SKIP because their external dependencies are absent. On machines without real OSS sources, npm/upstream CI access, or `playwright-chromium`, those checks must remain SKIP and must not be counted as proof.
 
 ## Known limits
 

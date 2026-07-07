@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SHK Case Study</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;600;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #fafaf9;
+    --fg: #1c1917;
+    --muted: #78716c;
+    --border: #e7e5e4;
+    --accent: #2563eb;
+    --red: #dc2626;
+    --green: #16a34a;
+    --amber: #d97706;
+    --purple: #7c3aed;
+    --slide-w: 1280px;
+    --slide-h: 720px;
+  }
+
+  body {
+    font-family: "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+    background: #e7e5e4;
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .slide {
+    width: var(--slide-w);
+    height: var(--slide-h);
+    margin: 24px auto;
+    background: var(--bg);
+    border-radius: 8px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.08);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px 80px;
+  }
+
+  .slide-num {
+    position: absolute;
+    bottom: 24px;
+    right: 40px;
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 300;
+  }
+
+  h1 { font-size: 42px; font-weight: 900; line-height: 1.2; letter-spacing: -1px; }
+  h2 { font-size: 32px; font-weight: 700; line-height: 1.3; margin-bottom: 32px; }
+  h3 { font-size: 20px; font-weight: 600; margin-bottom: 12px; }
+  p { font-size: 18px; line-height: 1.6; color: var(--muted); }
+  .small { font-size: 14px; }
+
+  .tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .split {
+    display: flex;
+    gap: 48px;
+    flex: 1;
+    align-items: stretch;
+  }
+  .split > * { flex: 1; }
+
+  .vs-card {
+    border-radius: 12px;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .vs-bad {
+    background: #fef2f2;
+    border: 1.5px solid #fecaca;
+  }
+  .vs-good {
+    background: #f0fdf4;
+    border: 1.5px solid #bbf7d0;
+  }
+
+  .vs-card h3 {
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .vs-card ul {
+    list-style: none;
+    padding: 0;
+  }
+  .vs-card li {
+    font-size: 16px;
+    line-height: 1.7;
+    padding-left: 20px;
+    position: relative;
+    color: #44403c;
+  }
+  .vs-card li::before {
+    position: absolute;
+    left: 0;
+    font-weight: 700;
+  }
+  .vs-bad li::before { content: "x"; color: var(--red); }
+  .vs-good li::before { content: "+"; color: var(--green); }
+
+  .metric-row {
+    display: flex;
+    gap: 24px;
+    margin-top: 24px;
+  }
+  .metric {
+    flex: 1;
+    text-align: center;
+    padding: 20px 12px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid var(--border);
+  }
+  .metric .num {
+    font-size: 36px;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .metric .label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  .story {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .story-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .story-id {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--red);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .story-title {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .story-body {
+    font-size: 14px;
+    color: #57534e;
+    line-height: 1.6;
+  }
+  .story-result {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--green);
+    margin-top: 6px;
+  }
+
+  .loop-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .loop-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .loop-text { font-size: 15px; color: #44403c; }
+  .loop-text strong { color: var(--fg); }
+
+  .quote {
+    border-left: 3px solid var(--border);
+    padding: 12px 20px;
+    font-size: 16px;
+    font-style: italic;
+    color: var(--muted);
+    margin-top: 20px;
+  }
+
+  .timeline {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    margin-top: 32px;
+    position: relative;
+  }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    top: 18px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--border);
+  }
+  .tl-node {
+    flex: 1;
+    text-align: center;
+    position: relative;
+  }
+  .tl-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin: 12px auto 8px;
+    position: relative;
+    z-index: 1;
+  }
+  .tl-date { font-size: 12px; font-weight: 600; color: var(--fg); }
+  .tl-label { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+  .tl-count { font-size: 20px; font-weight: 900; margin-top: 4px; }
+
+  .accent-box {
+    background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+    border: 1.5px solid #bfdbfe;
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-top: 24px;
+  }
+
+  .footer-mark {
+    position: absolute;
+    bottom: 20px;
+    left: 80px;
+    font-size: 12px;
+    color: #d6d3d1;
+    font-weight: 300;
+  }
+
+  @media print {
+    body { background: white; }
+    .slide {
+      margin: 0;
+      border-radius: 0;
+      box-shadow: none;
+      page-break-after: always;
+      page-break-inside: avoid;
+    }
+    .slide:last-child { page-break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ SLIDE 1: Cover ============ -->
+<div class="slide" style="background: linear-gradient(160deg, #1e293b 0%, #0f172a 100%); color: #fff; justify-content: flex-end; padding-bottom: 100px;">
+  <div style="margin-bottom: 40px;">
+    <span class="tag" style="background: rgba(255,255,255,.15); color: rgba(255,255,255,.7);">Case Study</span>
+  </div>
+  <h1 style="font-size: 48px; color: #fff; line-height: 1.15;">
+    SHK: 让 AI 做的每一步<br>都可验证、可追溯、可累积
+  </h1>
+  <p style="color: rgba(255,255,255,.5); margin-top: 20px; font-size: 16px;">
+    Simple Harness Kit &mdash; 两个真实项目的实战对比
+  </p>
+  <div style="position: absolute; bottom: 60px; right: 80px; text-align: right;">
+    <div style="font-size: 14px; color: rgba(255,255,255,.4);">设备端插件 &middot; 团队能力评估</div>
+    <div style="font-size: 13px; color: rgba(255,255,255,.25); margin-top: 4px;">2026.06</div>
+  </div>
+  <span class="slide-num" style="color: rgba(255,255,255,.2);">1</span>
+</div>
+
+
+<!-- ============ SLIDE 2: The Problem ============ -->
+<div class="slide">
+  <span class="tag" style="background: #fef2f2; color: var(--red);">问题</span>
+  <h2 style="margin-top: 16px;">AI 干活很快，但你要花更多时间盯着它</h2>
+
+  <div class="split">
+    <div>
+      <p style="font-size: 15px; line-height: 1.7; color: #44403c; margin-bottom: 16px;">
+        一个真实项目（团队能力评估），没用 SHK 时的对话记录：
+      </p>
+      <div style="font-size: 14px; color: #57534e; line-height: 1.9; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px;">
+        <span style="color: var(--red); font-weight: 600;">"人员卡片太丑了，参考上一份。"</span><br>
+        <span style="color: var(--red); font-weight: 600;">"数据不足怎么一下子多了这么多，和之前不一致。"</span><br>
+        <span style="color: var(--red); font-weight: 600;">"综合判断里，按时率、缺陷率等等还是有问题。"</span><br>
+        <span style="color: var(--red); font-weight: 600;">"主管内容生成的有问题啊，人员和内容都不对。"</span><br>
+        <span style="color: var(--red); font-weight: 600;">"分类和数字都很奇怪，重新设计。"</span><br>
+        <span style="color: var(--red); font-weight: 600;">"此类问题要彻底啪嚓解决。"</span>
+      </div>
+      <p style="font-size: 13px; color: var(--muted); margin-top: 10px;">
+        &#8212; 同一个 session 中的用户反馈，跨 7 天
+      </p>
+    </div>
+    <div style="display: flex; flex-direction: column; justify-content: center; gap: 16px;">
+      <div class="metric" style="border-color: #fecaca;">
+        <div class="num" style="color: var(--red);">269</div>
+        <div class="label">条用户消息（单 session）</div>
+      </div>
+      <div class="metric" style="border-color: #fecaca;">
+        <div class="num" style="color: var(--red);">17%</div>
+        <div class="label">是在纠正 AI 的错误</div>
+      </div>
+      <div class="metric" style="border-color: #fecaca;">
+        <div class="num" style="color: var(--red);">3-4 版</div>
+        <div class="label">每份交付物的返工次数</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-num">2</span>
+</div>
+
+
+<!-- ============ SLIDE 3: What is SHK ============ -->
+<div class="slide">
+  <span class="tag" style="background: #eff6ff; color: var(--accent);">方案</span>
+  <h2 style="margin-top: 16px;">SHK 做了一件事: 用 Hook 强制流程</h2>
+  <p style="margin-bottom: 32px;">不是提示词建议，不是最佳实践文档 &mdash; 是钩子脚本在每次工具调用时自动检查。</p>
+
+  <div style="display: flex; gap: 20px;">
+    <div style="flex: 1;">
+      <div class="loop-step"><div class="loop-dot" style="background: var(--accent);">1</div><div class="loop-text"><strong>PLAN</strong> &mdash; 暂停等确认，不可逆操作列明</div></div>
+      <div class="loop-step"><div class="loop-dot" style="background: var(--amber);">2</div><div class="loop-text"><strong>EXECUTE</strong> &mdash; 独立 Agent 实现，TDD</div></div>
+      <div class="loop-step"><div class="loop-dot" style="background: var(--green);">3</div><div class="loop-text"><strong>VERIFY</strong> &mdash; 量化证据，不是"看起来行了"</div></div>
+      <div class="loop-step"><div class="loop-dot" style="background: var(--purple);">4</div><div class="loop-text"><strong>REVIEW</strong> &mdash; 独立 Agent 审查，不是作者自审</div></div>
+      <div class="loop-step"><div class="loop-dot" style="background: var(--red);">5</div><div class="loop-text"><strong>FEEDBACK</strong> &mdash; 出事 → 写约束 → 下轮自动遵守</div></div>
+    </div>
+    <div style="flex: 1; display: flex; align-items: center;">
+      <div class="accent-box" style="width: 100%;">
+        <h3 style="margin-bottom: 16px; font-size: 16px;">关键区别</h3>
+        <div style="font-size: 15px; color: #44403c; line-height: 1.8;">
+          <strong>Cursor Rules / .cursorrules</strong> &mdash; 放提示词，AI 可以忽略<br>
+          <strong>CLAUDE.md</strong> &mdash; 放指令，长 session 后会退化<br>
+          <strong>SHK Hook</strong> &mdash; 放脚本，<span style="color: var(--accent); font-weight: 700;">每次工具调用都执行</span>，跳不过
+        </div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-num">3</span>
+</div>
+
+
+<!-- ============ SLIDE 4: Case A — talent-assessment ============ -->
+<div class="slide" style="padding: 48px 64px;">
+  <span class="tag" style="background: #fef3c7; color: var(--amber);">Case A</span>
+  <h2 style="margin-top: 12px; font-size: 26px; margin-bottom: 20px;">同一个项目，单个任务的对话轮次对比</h2>
+
+  <div style="display: flex; gap: 24px;">
+    <!-- Before -->
+    <div style="flex: 1;">
+      <div style="font-size: 14px; font-weight: 700; color: var(--red); margin-bottom: 10px;">&#x2717; 没有 SHK &mdash; 典型任务轮次</div>
+      <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+        <div style="font-size: 13px; font-weight: 600;">生成团队评估报告</div>
+        <div style="font-size: 12px; color: #57534e; margin-top: 2px;"><strong style="color: var(--red);">~10 轮对话</strong>, 出了 3 版 (v617→v618→v622)</div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">"卡片太丑" "数据不一致" "评分有问题" "格式换行乱"</div>
+      </div>
+      <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+        <div style="font-size: 13px; font-weight: 600;">人员分级与晋升判定</div>
+        <div style="font-size: 12px; color: #57534e; margin-top: 2px;"><strong style="color: var(--red);">~8 轮对话</strong></div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">"太多候选不合理" "还是太多" "不稳定" "六维五维搞混了"</div>
+      </div>
+      <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+        <div style="font-size: 13px; font-weight: 600;">主管报告生成</div>
+        <div style="font-size: 12px; color: #57534e; margin-top: 2px;"><strong style="color: var(--red);">~4 轮对话</strong></div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">"人员和内容都不对" "主管应该 7 人"</div>
+      </div>
+      <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px;">
+        <div style="font-size: 13px; font-weight: 600;">验证样本追踪表</div>
+        <div style="font-size: 12px; color: #57534e; margin-top: 2px;"><strong style="color: var(--red);">~5 轮对话</strong></div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">"不清晰" "说明文字很奇怪" "还不如刚才的呢"</div>
+      </div>
+    </div>
+
+    <!-- After -->
+    <div style="flex: 1;">
+      <div style="font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 10px;">&#x2713; 有 SHK &mdash; 同类任务</div>
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+        <div style="font-size: 13px; font-weight: 600;">更新评估报告 + 人员卡片</div>
+        <div style="font-size: 12px; color: #57534e; margin-top: 2px;"><strong style="color: var(--green);">3 轮对话</strong>, 0 次纠错</div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">"你来规划" → "继续" → "ok"</div>
+      </div>
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+        <div style="font-size: 13px; font-weight: 600;">重点人员深入分析 + 系统性修正</div>
+        <div style="font-size: 12px; color: #57534e; margin-top: 2px;"><strong style="color: var(--green);">3 轮对话</strong>, 0 次纠错</div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">"分析问题本质" → "系统性调整" → "执行"</div>
+      </div>
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 16px;">
+        <div style="font-size: 13px; font-weight: 600;">VERIFY 阶段额外拦截</div>
+        <div style="font-size: 12px; color: #57534e; margin-top: 4px;">主动发现了 2 个潜伏数周的数据 bug:</div>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">&#x2022; 复用数据被脚本覆写为 0 → 判定失效<br>&#x2022; verify 门槛被绕过 → 不合格者通过</div>
+        <div style="font-size: 11px; color: var(--green); font-weight: 600; margin-top: 4px;">之前跑了整轮都没人发现这两个 bug</div>
+      </div>
+    </div>
+
+    <!-- Summary column -->
+    <div style="width: 200px; display: flex; flex-direction: column; gap: 10px; justify-content: center;">
+      <div class="metric" style="padding: 14px 8px;">
+        <div style="font-size: 13px; color: var(--red); font-weight: 700;">无 SHK</div>
+        <div style="font-size: 28px; font-weight: 900; color: var(--red);">5-10</div>
+        <div class="label">轮/任务</div>
+      </div>
+      <div class="metric" style="padding: 14px 8px;">
+        <div style="font-size: 13px; color: var(--green); font-weight: 700;">有 SHK</div>
+        <div style="font-size: 28px; font-weight: 900; color: var(--green);">2-3</div>
+        <div class="label">轮/任务</div>
+      </div>
+      <div class="metric" style="padding: 14px 8px;">
+        <div style="font-size: 13px; color: var(--red); font-weight: 700;">纠错占比</div>
+        <div style="font-size: 22px; font-weight: 900; color: var(--red);">17%</div>
+        <div style="font-size: 10px; color: var(--muted);">↓</div>
+        <div style="font-size: 22px; font-weight: 900; color: var(--green);">0%</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-num">4</span>
+</div>
+
+
+<!-- ============ SLIDE 5: Case B — android-ops ============ -->
+<div class="slide">
+  <span class="tag" style="background: #f0fdf4; color: var(--green);">Case B</span>
+  <h2 style="margin-top: 16px; font-size: 28px;">设备端插件开发: 10 天 9 次事故，零复发</h2>
+  <p class="small" style="margin-bottom: 16px; margin-top: -20px;">移动端 Hook 插件 &middot; 真机 adb 部署 &middot; 一个人 + AI &middot; 全程 SHK</p>
+
+  <div style="display: flex; gap: 24px;">
+    <div style="flex: 3;">
+      <div class="story">
+        <div class="story-head">
+          <span class="story-id">VH-01</span>
+          <span class="story-title">消息处理链路卡顿</span>
+        </div>
+        <div class="story-body">热路径上每条消息做 O(N) 全量读写, 大群每条消息延迟 2 秒</div>
+        <div class="story-result">→ C-PERF-01~04 &middot; 重构后实测日志: <strong>延迟降 1600 倍</strong></div>
+      </div>
+
+      <div class="story">
+        <div class="story-head">
+          <span class="story-id">VH-08</span>
+          <span class="story-title">行为检测规则全员静默失效</span>
+        </div>
+        <div class="story-body">功能 A 的豁免参数被错误套用到功能 B, 合成基线导致全员命中豁免</div>
+        <div class="story-result">→ C-ARCH-07 &middot; 每个功能必须用自己的判定口径, 禁止共享常量</div>
+      </div>
+
+      <div class="story" style="border-color: #fecaca;">
+        <div class="story-head">
+          <span class="story-id" style="background: #991b1b;">VH-09</span>
+          <span class="story-title" style="color: var(--red);">部署事故导致账号被平台风控</span>
+        </div>
+        <div class="story-body">崩溃循环 + 反复重启 → 触发风控。<strong>之前过了 Santa 双审 NICE。</strong></div>
+        <div class="story-result">→ C-DEVICE-01/02 &middot; 反推: review 必须覆盖部署风险, 不止代码逻辑</div>
+      </div>
+    </div>
+
+    <div style="flex: 2; display: flex; flex-direction: column; justify-content: center; gap: 12px;">
+      <div class="metric">
+        <div class="num" style="color: var(--green);">20+</div>
+        <div class="label">可执行约束</div>
+        <div style="font-size: 11px; color: var(--muted);">每条有 ID / WHY / 违反后果</div>
+      </div>
+      <div class="metric">
+        <div class="num" style="color: var(--accent);">0</div>
+        <div class="label">同类问题复发次数</div>
+      </div>
+      <div class="metric">
+        <div class="num" style="color: var(--amber);">7/9</div>
+        <div class="label">问题在 VERIFY 阶段被发现</div>
+        <div style="font-size: 11px; color: var(--muted);">而不是交付后才知道</div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-num">5</span>
+</div>
+
+
+<!-- ============ SLIDE 6: The feedback loop ============ -->
+<div class="slide">
+  <span class="tag" style="background: #faf5ff; color: var(--purple);">机制</span>
+  <h2 style="margin-top: 16px;">越用越强: 约束累积</h2>
+
+  <div class="split" style="gap: 40px;">
+    <div>
+      <p style="font-size: 16px; line-height: 1.8; color: #44403c; margin-bottom: 24px;">
+        每次出事，不是"修了就完了" &mdash;<br>
+        而是走一个 5 步流程:
+      </p>
+      <div style="font-size: 15px; line-height: 2.2; color: #44403c;">
+        <strong>F1</strong> &nbsp;原样记录问题<br>
+        <strong>F2</strong> &nbsp;判断问题属于哪个层级<br>
+        <strong>F3</strong> &nbsp;提炼成通用规则 (不是 "把 X 改成 Y")<br>
+        <strong>F4</strong> &nbsp;写入 constraints.md，分配 C-ID<br>
+        <strong>F5</strong> &nbsp;Agent 按约束 ID 修复
+      </div>
+      <p style="font-size: 15px; margin-top: 20px; color: var(--fg); font-weight: 600;">
+        下一轮 PLAN 自动读取所有约束。<br>
+        同类问题不需要人记住，系统记住了。
+      </p>
+    </div>
+
+    <div>
+      <h3 style="font-size: 15px; color: var(--muted); font-weight: 400; margin-bottom: 16px;">约束增长曲线 (10 天)</h3>
+
+      <div class="timeline">
+        <div class="tl-node">
+          <div class="tl-date">06-05</div>
+          <div class="tl-dot" style="background: #d6d3d1;"></div>
+          <div class="tl-count" style="color: var(--muted);">0</div>
+          <div class="tl-label">项目初始化</div>
+        </div>
+        <div class="tl-node">
+          <div class="tl-date">06-08</div>
+          <div class="tl-dot" style="background: var(--amber);"></div>
+          <div class="tl-count" style="color: var(--amber);">8</div>
+          <div class="tl-label">性能 + 架构<br>+ Harness 自身</div>
+        </div>
+        <div class="tl-node">
+          <div class="tl-date">06-11</div>
+          <div class="tl-dot" style="background: var(--red);"></div>
+          <div class="tl-count" style="color: var(--red);">16</div>
+          <div class="tl-label">真机验证暴露<br>装配盲区</div>
+        </div>
+        <div class="tl-node">
+          <div class="tl-date">06-15</div>
+          <div class="tl-dot" style="background: var(--green);"></div>
+          <div class="tl-count" style="color: var(--green);">20+</div>
+          <div class="tl-label">设备安全<br>+ Review 扩展</div>
+        </div>
+      </div>
+
+      <div class="accent-box" style="margin-top: 32px; padding: 20px 24px;">
+        <div style="font-size: 14px; color: #44403c; line-height: 1.7;">
+          <strong>VH-09 的教训:</strong> Santa 双审 NICE 但账号还是被风控了。<br>
+          → 不是废掉 Santa，而是<strong>扩展 review 维度</strong>: 加入异常态行为和部署风险。<br>
+          约束系统自己也在进化。
+        </div>
+      </div>
+    </div>
+  </div>
+  <span class="slide-num">6</span>
+</div>
+
+
+<!-- ============ SLIDE 7: Numbers ============ -->
+<div class="slide">
+  <span class="tag" style="background: #eff6ff; color: var(--accent);">数据</span>
+  <h2 style="margin-top: 16px;">两个项目的核心指标</h2>
+
+  <div style="display: flex; gap: 40px; margin-top: 12px;">
+    <!-- talent-assessment -->
+    <div style="flex: 1;">
+      <h3 style="color: var(--amber); font-size: 16px; margin-bottom: 16px;">团队能力评估</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0; color: var(--muted);">指标</td>
+          <td style="padding: 10px 0; font-weight: 600; color: var(--red); text-align: center;">无 SHK</td>
+          <td style="padding: 10px 0; font-weight: 600; color: var(--green); text-align: center;">有 SHK</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0;">单任务对话轮次</td>
+          <td style="padding: 10px 0; text-align: center; font-weight: 700; color: var(--red);">5-10 轮</td>
+          <td style="padding: 10px 0; text-align: center; font-weight: 700; color: var(--green);">2-3 轮</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0;">纠错对话占比</td>
+          <td style="padding: 10px 0; text-align: center; color: var(--red);">17% (47/269)</td>
+          <td style="padding: 10px 0; text-align: center; color: var(--green);">0% (0/10)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0;">交付返工版本</td>
+          <td style="padding: 10px 0; text-align: center; color: var(--red);">3-4 版</td>
+          <td style="padding: 10px 0; text-align: center; color: var(--green);">1 版即通过</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0;">潜伏 bug 发现</td>
+          <td style="padding: 10px 0; text-align: center; color: var(--red);">跨轮未发现</td>
+          <td style="padding: 10px 0; text-align: center; color: var(--green);">VERIFY 当天拦住</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- android-ops -->
+    <div style="flex: 1;">
+      <h3 style="color: var(--green); font-size: 16px; margin-bottom: 16px;">设备端插件开发</h3>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0; color: var(--muted);">指标</td>
+          <td style="padding: 10px 0; font-weight: 600; text-align: center;">数值</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0;">总 commits</td>
+          <td style="padding: 10px 0; text-align: center; font-weight: 700;">105</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0;">事故 → 约束</td>
+          <td style="padding: 10px 0; text-align: center; font-weight: 700;">9 次 → 20+ 条</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0;">同类问题复发</td>
+          <td style="padding: 10px 0; text-align: center; font-weight: 700; color: var(--green);">0 次</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border);">
+          <td style="padding: 10px 0;">VERIFY 阶段发现率</td>
+          <td style="padding: 10px 0; text-align: center; font-weight: 700;">78% (7/9)</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0;">性能改善 (有量化证据)</td>
+          <td style="padding: 10px 0; text-align: center; font-weight: 700; color: var(--green);">1600x</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <span class="slide-num">7</span>
+</div>
+
+
+<!-- ============ SLIDE 8: Closing ============ -->
+<div class="slide" style="justify-content: center; align-items: center; text-align: center;">
+  <h1 style="font-size: 36px; max-width: 800px; margin: 0 auto; line-height: 1.4;">
+    不是让 AI 更聪明<br>
+    <span style="color: var(--accent);">而是让 AI 做的每一步<br>都可验证、可追溯、可累积</span>
+  </h1>
+
+  <div class="metric-row" style="max-width: 720px; margin: 40px auto 0;">
+    <div class="metric">
+      <div style="font-size: 14px; font-weight: 600; color: var(--accent);">Hook 守门</div>
+      <div class="label">不靠 AI 自觉</div>
+    </div>
+    <div class="metric">
+      <div style="font-size: 14px; font-weight: 600; color: var(--green);">量化证据</div>
+      <div class="label">不靠"看起来行了"</div>
+    </div>
+    <div class="metric">
+      <div style="font-size: 14px; font-weight: 600; color: var(--red);">约束累积</div>
+      <div class="label">不靠口头记忆</div>
+    </div>
+    <div class="metric">
+      <div style="font-size: 14px; font-weight: 600; color: var(--purple);">对抗验证</div>
+      <div class="label">不靠作者自审</div>
+    </div>
+  </div>
+
+  <p style="margin-top: 40px; font-size: 14px; color: var(--muted);">
+    Simple Harness Kit &mdash; 开源，5 分钟初始化，兼容 Claude Code / Codex
+  </p>
+
+  <span class="slide-num">8</span>
+</div>
+
+</body>
+</html>

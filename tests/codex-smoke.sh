@@ -6,18 +6,12 @@
 #               "invalid pre-tool-use JSON output"。教训是 "Codex runtime 必须机器守门，不能靠
 #               用户手动测出来" (C-GATE-08 提案)。本脚本在 kit 本地复现并预防回归。
 #
-# 已知限制 (VH-18 R3 调查结论)：
-#   Codex 0.134.x exec 模式使用 TUI trust 时建立的 hook 缓存。任何未经 TUI trust
-#   对话框注册（hooks.state hash 缺失）的 hook entry 在 exec 模式下不会执行——
-#   即使设置 --dangerously-bypass-hook-trust 也不例外（该 flag 只跳过已注册 entry
-#   的 hash 验证，不能让未注册 entry 执行）。
-#   因此，smoke 无法通过 runtime 注入来"证明 project hook command 真实执行"。
-#   当前 C-GATE-08 在 exec 模式下只能降级为 DEGRADED：确认 codex runtime
-#   完成一次启动且没有出现 "hook (failed)" / invalid JSON 告警；project-level
-#   hook 的正确性由 tests/run.js hook-scenarios 覆盖（195 PASS）。
+# 自动化 smoke 使用 --dangerously-bypass-hook-trust 避免 TUI trust 对话。
+# 这只是运行 project hook 的必要条件；release-required 模式仍必须观察到
+# hook marker 才能 PASS。
 #
 # 行为:
-#   - codex 可用且 exit 0 → 跑冒烟，断言无 hook (failed) 告警，DEGRADED + exit 0
+#   - codex 可用且 exit 0，且观察到 project hook marker → PASS + exit 0
 #   - codex 非 0 + CODEX_REQUIRED != 1 → DEGRADED + warn (exit 0)
 #   - codex 非 0 + CODEX_REQUIRED == 1 → FAIL (exit 1)
 #   - codex 不可用 + CODEX_REQUIRED != 1 → SKIP + warn (exit 0)
@@ -133,6 +127,7 @@ set +e
   cd "$TMP_DIR" && \
   ${TIMEOUT_CMD[@]+"${TIMEOUT_CMD[@]}"} codex exec \
     --dangerously-bypass-approvals-and-sandbox \
+    --dangerously-bypass-hook-trust \
     --enable hooks \
     --skip-git-repo-check \
     --ephemeral \
@@ -199,18 +194,16 @@ if [ "$RUN_EXIT" -ne 0 ]; then
   exit 0
 fi
 
-# 观察性注释：project hooks 未执行属已知限制，不作为 FAIL 条件
-# （exec 模式需要 TUI trust 对话注册 hooks.state hash，runtime 注入无法绕过）
+# 必须观察到 project hook marker，release-required runtime evidence 才能算 PASS。
 if grep -q "hook: SessionStart Completed" "$RUN_LOG"; then
-  echo "[codex-smoke] INFO: Codex lifecycle hook marker 存在，且未发现 hook failure marker。" >&2
+  echo "[codex-smoke] PASS: Codex project hook marker 存在，且未发现 hook failure marker。"
+  exit 0
 fi
 
-# SMOKE_INJECT_BAD_HOOK=1 且 smoke 仍 PASS → exec 模式未加载 project hooks（已知限制）。
-# selftest.sh 检测此消息并输出 SKIP（而非 FAIL），表示 bad-hook 捕获机制无法在当前 Codex
-# 版本验证，但 smoke 本身的无错断言路径正常。
-if [ "${SMOKE_INJECT_BAD_HOOK:-0}" = "1" ]; then
-  echo "[codex-smoke] DEGRADED: sentinel hook 未执行（坏 hook 未被 smoke 捕获；exec 模式已知限制）" >&2
-  exit 0
+if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
+  echo "[codex-smoke] FAIL: 未观察到 Codex project hook marker；CODEX_REQUIRED=1 不能放行。" >&2
+  tail -n 80 "$RUN_LOG" >&2
+  exit 1
 fi
 
 echo "[codex-smoke] DEGRADED: project .codex/hooks.json command 未被 exec 模式验证；仅确认本次 codex run 无 hook failure marker。"

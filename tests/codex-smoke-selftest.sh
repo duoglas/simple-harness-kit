@@ -18,6 +18,7 @@
 #
 # 行为:
 #   - codex 可用 → 跑自测；捕获坏 hook 则 PASS，无法验证则 DEGRADED
+#   - codex 可用 + CODEX_REQUIRED == 1 → 未执行 sentinel / 无法验证时 FAIL
 #   - codex 不可用 + CODEX_REQUIRED != 1 → SKIP + warn
 #   - codex 不可用 + CODEX_REQUIRED == 1 → FAIL
 
@@ -46,11 +47,19 @@ set -e
 
 if [ "$SMOKE_EXIT" -eq 0 ]; then
   if grep -q "DEGRADED: sentinel hook 未执行" /tmp/codex-smoke-selftest.log; then
+    if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
+      echo "[codex-smoke-selftest] FAIL: 当前 Codex exec 未执行 project sentinel hook；bad-hook 捕获能力未被验证，CODEX_REQUIRED=1 不能放行。" >&2
+      exit 1
+    fi
     echo "[codex-smoke-selftest] DEGRADED: 当前 Codex exec 模式未执行 project sentinel hook；bad-hook 捕获能力无法在本 runtime 强制验证。" >&2
     exit 0
   fi
 
   if grep -q "DEGRADED:" /tmp/codex-smoke-selftest.log; then
+    if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
+      echo "[codex-smoke-selftest] FAIL: codex-smoke 未完成可验证 runtime 路径；CODEX_REQUIRED=1 不能把 DEGRADED 当成 release-ready evidence。" >&2
+      exit 1
+    fi
     echo "[codex-smoke-selftest] DEGRADED: codex-smoke 未完成可验证 runtime 路径；selftest 不再追加强制失败。" >&2
     exit 0
   fi

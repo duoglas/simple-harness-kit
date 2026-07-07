@@ -26,6 +26,8 @@ description: 执行交付前 5 项复盘检查，确保流程合规和质量达�
 
 - Layer 2 Verification Loop 是否执行？报告是否完整？
 - 构建成功？类型检查通过？Lint 通过？测试通过？覆盖率达标？
+- spec status 是否检查了 tasks 和 irreversible_actions？
+- gate/hook 改动是否有正例、负例和旧路径兼容用例？
 - Layer 3 Spec Review 是否执行（如果适用）？
 - Layer 4 Santa Method 是否执行（如果是高风险）？
 
@@ -80,7 +82,7 @@ DELIVERY REVIEW
 
 只要任务涉及代码变更，AI 不能等用户提醒才验证。按下面顺序做：
 
-1. 先判断风险等级：low / medium / high / release。
+1. 先判断风险等级：low / medium / high / release，并确认不可逆动作没有在缺少人确认时执行。
 E2E PASS 不等于充分；如果只是 echo ok、空脚本、只 smoke、或没覆盖本次风险，用户报告要先说“现在还不能交付”，再说明测到了什么、没测到什么、下一步补什么；机器状态放最后，例如：机器状态：NOT_SUFFICIENT。DEGRADED 不能说成 PASS。
 2. 识别测试能力：单测、lint、coverage、E2E、runtime smoke。
 3. medium / high / release 任务必须有 E2E 证据；只有 low 小改可以不强制 E2E；找不到 E2E 入口时，先生成计划或只问一个具体启动问题。

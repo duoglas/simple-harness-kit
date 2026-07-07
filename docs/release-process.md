@@ -142,26 +142,36 @@ bash tests/scripts/run-all.sh
 
 ---
 
-### Step 0.7: Pre-Release Gate（强制，2026-04-17 v0.8.7 后加入）
+### Step 0.7: Pre-Release Gate（强制，2026-04-17 v0.8.7 后加入；2026-06-08 扩展为 release-ready 证据集）
 
-**必须先做**。这一步是 release 的最终机器守门 — `tests/run.js` 全绿 + working tree 干净 + local 与 origin 同步。
+**必须先做**。这一步是 release 的最终机器守门。release-ready 只接受完整证据集全部 `PASS`：
+
+- `node tests/run.js`
+- `tests/scripts/17-oss-dogfood-validation.sh`（`SHK_OSS_DOGFOOD_REQUIRED=1`）
+- `tests/scripts/18-upstream-ci-dogfood.sh`（`SHK_UPSTREAM_CI_REQUIRED=1`）
+- `tests/scripts/19-browser-e2e-dogfood.sh`（`SHK_BROWSER_E2E_REQUIRED=1`）
+- `tests/codex-smoke.sh` 与 `tests/codex-smoke-selftest.sh`（`CODEX_REQUIRED=1`）
+- `node scripts/shk.js doctor --format json`
+- working tree 干净
+- local `master/main/release/*` 或跟踪的 upstream `master/main/release/*` 与 upstream 同步
 
 ```bash
 bash tests/pre-release-check.sh
 
 # 必须看到:
-#   ── 1. tests/run.js 全绿 ── PASS
-#   ── 2. 工作树干净 (无 uncommitted / untracked) ── PASS
-#   ── 3. local master ≡ origin/master ── PASS
-#   Pre-Release Check: 全部 PASS — 可以 tag + push + release
+#   Pre-Release Check Summary
+#   PASS=<全部 required check 数> SKIP=0 DEGRADED=0 WARN=0 FAIL=0
+#   Pre-Release Check: READY — all required release evidence PASS
 ```
 
-任一 FAIL → `exit 1`，禁止进 Step 1。
+任一 `SKIP` / `DEGRADED` / `WARN` / `FAIL` → `exit 1`，禁止进 Step 1。尤其是 dogfood 缺依赖 `SKIP`、Codex runtime `DEGRADED`、doctor `WARN` 都不能包装成 release-ready `PASS`。
+
+`shk verify --risk release` 使用同一套 release-ready 证据口径。它会在 evidence 中列出 `runtime_selftest`、`doctor`、`dogfood_oss`、`upstream_dogfood`、`browser_e2e_dogfood`，并且 release required check 只接受 `PASS`。
 
 **紧急豁免**:
 
-- `SKIP_SYNC_CHECK=1` — 允许 local 领先 origin（单机 release 流程用）。
-- `tests/run.js` 和 working tree dirty 检查**不可豁免**。
+- `SKIP_SYNC_CHECK=1` 仅允许本地诊断继续跑后续检查；它会记录为 `SKIP` 并阻塞 release-ready，不得用于真实 release。
+- 其他 required release evidence 不可豁免。若环境缺浏览器、npm、OSS tarball 或 Codex runtime，结果应保持 `SKIP` / `DEGRADED` / `WARN` / `FAIL`，直到在具备依赖的 release 环境补齐。
 
 **为什么在这一步**: v0.8.6 带着 2 个 pre-existing `tests/run.js` FAIL 发布到 60+ 使用者 — 05-mutation M1 假阴性（defensive code redundancy 让 mutation 探测失效）+ codex-smoke-selftest `RUN_EXIT�` unbound variable（UTF-8 全角括号把变量名吞掉）。Step 0 / 0.5 当时只跑 `template-integrity` 和 `run-all.sh`（当时的 7 维脚本矩阵），覆盖不到 `hook-scenarios/` / `codex-smoke.sh` 等路径。本次 VH-16 调查时才追溯出这两个 FAIL 早就存在，release gate 有显著漏洞。
 
