@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — 强制新 session 声明 Harness 阶段 + 监听 TaskCompleted 提醒 VERIFY
- * @version 0.10.0
+ * @version 0.11.0
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -785,6 +785,58 @@ function e2eSufficiencyEvidenceBlockers(evidence) {
   return [];
 }
 
+// C-GATE-17: VERIFY gate — EXECUTE 后必须经过 VERIFY 才能回到 PLAN
+// 防止 EXECUTE → PLAN → EXECUTE 无限循环跳过验证（VH-26: talent-assessment 4h EXECUTE 无 VERIFY）
+const VERIFY_GATE_BLOCK = `[Harness Stage Guard] 切换到 PLAN 被阻止（C-GATE-17）。
+
+上一轮 EXECUTE 之后没有经过 VERIFY 阶段。不能跳过验证直接开始下一轮。
+
+必须先进入 VERIFY 阶段：
+  1. 写 current-stage.json 切换到 VERIFY
+  2. 按 QA 金字塔检查当前工作
+  3. 产出验证证据
+  4. 确认质量达标后再切换到 PLAN 开始下一轮
+
+如果当前工作确实不需要 VERIFY（如纯探索/调研），在 current-stage.json 的 reason 字段说明原因。
+`;
+
+function enforceVerifyGateIfNeeded(newData, input) {
+  if (!newData || newData.stage !== 'PLAN') return;
+  let history = [];
+  try {
+    history = fs.readFileSync(STAGE_HISTORY_FILE, 'utf8')
+      .split('\n').filter(Boolean)
+      .map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(Boolean);
+  } catch { return; }
+  if (history.length === 0) return;
+
+  // 找最后一个 EXECUTE，检查它之后是否有 VERIFY
+  let lastExecuteIdx = -1;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].stage === 'EXECUTE') { lastExecuteIdx = i; break; }
+  }
+  if (lastExecuteIdx === -1) return; // 没有 EXECUTE 历史，放行
+
+  const afterExecute = history.slice(lastExecuteIdx + 1).map(h => h.stage);
+  if (afterExecute.includes('VERIFY')) return; // 已经过 VERIFY，放行
+
+  // 检查是否有豁免理由
+  try {
+    const newContent = JSON.parse(String(input?.tool_input?.content || '{}'));
+    if (newContent.reason && /探索|调研|研究|spike|探针|非开发|记录|memory|反馈/.test(newContent.reason)) {
+      process.stderr.write('[Harness Stage Guard] VERIFY gate 豁免：reason 字段包含探索/调研/非开发关键词。\n');
+      return;
+    }
+  } catch {}
+
+  if (input && input.hook_event_name === 'PreToolUse') {
+    return denyPreToolUse(input, VERIFY_GATE_BLOCK);
+  }
+  process.stderr.write(VERIFY_GATE_BLOCK);
+  process.exit(2);
+}
+
 function enforceReviewGateIfNeeded(newData, input) {
   if (!newData || newData.stage !== 'REVIEW') return;
   const gateErrors = [];
@@ -827,7 +879,13 @@ function enforceReviewGateIfNeeded(newData, input) {
 
 function allowStageTransition(newData, via, input) {
   recordStageHistory(newData.stage);
+  enforceVerifyGateIfNeeded(newData, input);
   enforceReviewGateIfNeeded(newData, input);
+  // C-GATE-18: 进入 VERIFY/PLAN/OFF 时重置 EXECUTE 写操作计数器
+  if (['VERIFY', 'PLAN', 'OFF'].includes(newData.stage)) {
+    const EXECUTE_WRITES_FILE = path.join(ROOT, '.harness/execute-write-count.json');
+    try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify({ count: 0 }) + '\n'); } catch {}
+  }
   process.stderr.write(`[Harness Stage Guard] 阶段切换：允许通过 ${via} 修改 .harness/current-stage.json\n`);
 }
 
@@ -991,8 +1049,47 @@ process.stdin.on('end', () => {
             return denyPreToolUse(input, PLAN_BLOCK_MSG);
           }
         } else {
-          // 非 PLAN 阶段：注入阶段工作要求，不阻止
+          // 非 PLAN 阶段：注入阶段工作要求
           enforceExecuteSpecRecheck(data, input);
+
+          // C-GATE-19: Agent spawn 时注入 harness 约束提醒
+          if (toolName === 'Agent') {
+            process.stderr.write(
+              `[Harness Stage Guard] Agent 子任务提醒（C-GATE-19）：\n` +
+              `当前处于 ${data.stage} 阶段。Subagent 应遵守以下约束：\n` +
+              `  - 不添加额外功能（YAGNI）\n` +
+              `  - 完成后运行测试自验\n` +
+              `  - 引用相关 Constraint ID\n` +
+              `  - 遇到不确定的问题返回 NEEDS_CONTEXT，不要猜\n` +
+              `  - 在 Agent prompt 中明确包含验收标准\n`
+            );
+          }
+
+          // C-GATE-18: EXECUTE 阶段写操作计数器——防止长时间 EXECUTE 不进 VERIFY
+          if (data.stage === 'EXECUTE' && !READ_TOOLS.includes(toolName) && !TASK_TOOLS.includes(toolName)) {
+            const EXECUTE_WRITES_FILE = path.join(ROOT, '.harness/execute-write-count.json');
+            let execWrites = { count: 0 };
+            try { execWrites = JSON.parse(fs.readFileSync(EXECUTE_WRITES_FILE, 'utf8')); } catch {}
+            execWrites.count = (execWrites.count || 0) + 1;
+            try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify(execWrites) + '\n'); } catch {}
+
+            const WARN_THRESHOLD = 30;
+            const BLOCK_THRESHOLD = 50;
+            if (execWrites.count >= BLOCK_THRESHOLD) {
+              return denyPreToolUse(input,
+                `[Harness Stage Guard] EXECUTE 阶段已执行 ${execWrites.count} 次写操作，超过阈值 ${BLOCK_THRESHOLD}（C-GATE-18）。\n` +
+                `必须先进入 VERIFY 阶段验证当前工作质量，再继续执行。\n` +
+                `→ 写 current-stage.json 切换到 VERIFY\n` +
+                `VERIFY 完成后计数器自动重置。\n`
+              );
+            } else if (execWrites.count === WARN_THRESHOLD) {
+              process.stderr.write(
+                `[Harness Stage Guard] 提醒：EXECUTE 阶段已执行 ${execWrites.count} 次写操作。\n` +
+                `建议尽快进入 VERIFY 阶段检查工作质量。到 ${BLOCK_THRESHOLD} 次时将强制阻止。\n`
+              );
+            }
+          }
+
           process.stderr.write(
             `[Harness ON] 当前阶段: ${data.stage}` + (data.task ? ` — ${data.task}` : '') + '\n'
           );

@@ -6,9 +6,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **EXECUTE 中段强制力三件套（C-GATE-17/18/19，VH-26）**: `harness-stage-guard.js` 补上 6 阶段 Loop 中段缺失的守门——(1) VERIFY gate：EXECUTE 之后未经 VERIFY 不允许切回 PLAN，纯探索/调研任务可在 `reason` 字段声明豁免；(2) EXECUTE 写操作限额：30 次非只读调用告警、50 次硬阻止，进 VERIFY/PLAN/OFF 重置；(3) Agent spawn 约束注入：非 PLAN 阶段派发 subagent 时向 stderr 注入 harness 纪律提醒。根因：某 session 在 EXECUTE 连跑 4 小时 253 次工具调用 0 拦截，完全跳过 VERIFY。
+
 ### Fixed
 
 - **codex-smoke tmp 工程补齐 hook 共享库**: `tests/codex-smoke.sh` 搭建临时工程时只拷 `scripts/hooks/`，漏拷 `scripts/lib/`，导致 `harness-stage-guard.js` 在 Codex runtime 报 `Cannot find module '../lib/spec-quality'`、PreToolUse hook Failed（VH-22 / C-INIT-05 同类问题在测试脚本自身复演）。现在 hooks 与 lib 一起拷贝。
+- **codex-smoke selftest 注入点适配 Codex 0.142.x**: 旧注入点（SessionStart 非法 stdout）在 Codex 0.142.x 下被宽容处理不报 Failed，selftest 永远抓不到注入的坏 hook。注入点改为 `harness-stage-guard.js`（PreToolUse 全 matcher，不依赖模型恰好用 Bash），失效模式改为「非法 stdout + 非零退出」——实测在 0.142.5 稳定报 `hook: PreToolUse Failed`。
 
 ## [0.11.0] - 2026-06-06
 

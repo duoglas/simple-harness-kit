@@ -1398,5 +1398,160 @@
         "不是合法 ISO8601 时间戳"
       ]
     }
+  },
+  {
+    "name": "stage-guard (C-GATE-17): EXECUTE 后无 VERIFY 直接切 PLAN → 阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": ".harness/current-stage.json",
+        "content": "{\"stage\":\"PLAN\",\"since\":\"now\",\"task\":\"next round\"}"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/stage-history.jsonl": "{\"stage\":\"PLAN\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:10:00Z\"}\n"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": [
+        "切换到 PLAN 被阻止",
+        "C-GATE-17"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-17): EXECUTE 后经过 VERIFY 再切 PLAN → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": ".harness/current-stage.json",
+        "content": "{\"stage\":\"PLAN\",\"since\":\"now\",\"task\":\"next round\"}"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/stage-history.jsonl": "{\"stage\":\"PLAN\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:10:00Z\"}\n{\"stage\":\"VERIFY\",\"t\":\"2026-04-03T00:20:00Z\"}\n"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "阶段切换"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-17): EXECUTE 后切 PLAN + reason 含调研豁免词 → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": ".harness/current-stage.json",
+        "content": "{\"stage\":\"PLAN\",\"since\":\"now\",\"task\":\"survey\",\"reason\":\"纯调研任务，无产物需要验证\"}"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/stage-history.jsonl": "{\"stage\":\"PLAN\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:10:00Z\"}\n"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "VERIFY gate 豁免"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到 50 次阈值 → 阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo write-like operation"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/execute-write-count.json": "{\"count\":49}"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": [
+        "C-GATE-18",
+        "VERIFY"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-18): EXECUTE 写操作 30 次 → 警告不阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo write-like operation"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/execute-write-count.json": "{\"count\":29}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "建议尽快进入 VERIFY"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-18): 切 VERIFY 重置 EXECUTE 写计数器",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": ".harness/current-stage.json",
+        "content": "{\"stage\":\"VERIFY\",\"since\":\"now\",\"task\":\"verify work\"}"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/execute-write-count.json": "{\"count\":42}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "files": {
+        ".harness/execute-write-count.json": {
+          "contains": "\"count\":0"
+        }
+      }
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-19): 非 PLAN 阶段 Agent spawn → 注入约束提醒",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Agent",
+      "tool_input": {
+        "prompt": "implement feature X"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "Agent 子任务提醒",
+        "C-GATE-19"
+      ]
+    }
   }
 ]

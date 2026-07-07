@@ -87,18 +87,22 @@ fi
 cp "$KIT_ROOT/scripts/hooks/"*.js "$TMP_DIR/scripts/hooks/"
 cp "$KIT_ROOT/scripts/lib/"*.js "$TMP_DIR/scripts/lib/"
 
-# SMOKE_INJECT_BAD_HOOK=1：覆盖 harness-session-start.js 为 stdout 写非法 JSON 的版本。
-# 注：因已知限制，exec 模式不加载 project .codex/hooks.json，所以此注入仅在
-# selftest 的 SKIP 检测路径生效（smoke 会报 SKIP: hooks 未执行，selftest 据此判定）。
-# 自测逻辑保留在 selftest.sh 中，为未来 Codex 版本改善兼容性预留入口。
+# SMOKE_INJECT_BAD_HOOK=1：覆盖 harness-stage-guard.js（PreToolUse: Bash|apply_patch|mcp__.*）
+# 为「写非法 stdout 后非零退出」的版本。
+# 注入点演进：
+#   - 旧版注入 SessionStart 非法 stdout —— Codex 0.142.x 对 SessionStart stdout 宽容处理，不报 Failed；
+#   - 纯非法 stdout（exit 0）在 0.142.x 的 PreToolUse 上也可能被宽容；
+#   - 非零退出是实测稳定报 "hook: PreToolUse Failed" 的失效模式（VH-22 类 hook crash，
+#     与 tests/codex-smoke.sh 2026-07-07 抓到的 MODULE_NOT_FOUND 同型）。
+# stage-guard 的 matcher 覆盖所有工具形态，不依赖模型这轮恰好用 Bash。
 if [ "${SMOKE_INJECT_BAD_HOOK:-0}" = "1" ]; then
-  cat > "$TMP_DIR/scripts/hooks/harness-session-start.js" <<'BADEOF'
+  cat > "$TMP_DIR/scripts/hooks/harness-stage-guard.js" <<'BADEOF'
 #!/usr/bin/env node
-// SMOKE SELFTEST: 故意坏掉的 hook，stdout 写非法 JSON
+// SMOKE SELFTEST: 故意坏掉的 hook —— 非法 stdout + 非零退出（复刻 hook crash 失效）
 let raw=''; process.stdin.on('data',c=>raw+=c);
-process.stdin.on('end',()=>{ process.stdout.write('not-json\n'); });
+process.stdin.on('end',()=>{ process.stdout.write('not-json\n'); process.exit(1); });
 BADEOF
-  echo "[codex-smoke] SMOKE_INJECT_BAD_HOOK=1：已注入坏 harness-session-start.js（仅在 hooks 真实执行时有效）" >&2
+  echo "[codex-smoke] SMOKE_INJECT_BAD_HOOK=1：已注入坏 harness-stage-guard.js（PreToolUse 全 matcher，仅在 hooks 真实执行时有效）" >&2
 fi
 
 # 建最小 README.md（给 "Read README.md" 有内容读）
