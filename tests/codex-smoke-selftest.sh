@@ -71,11 +71,10 @@ if [ "$SMOKE_EXIT" -eq 0 ]; then
   exit 1
 fi
 
-# 额外断言：smoke 日志里应该含预期失败标记。这里固定检查
-# SessionStart，因为 Codex 0.134 下 PreToolUse:Bash 不再是本 smoke prompt 的
-# 稳定触发点。
-if ! grep -qE "FAIL: 日志中发现 'hook: SessionStart Failed'|invalid session start JSON output|invalid session-start JSON output|hook returned invalid" /tmp/codex-smoke-selftest.log; then
-  echo "[codex-smoke-selftest] WARN: smoke 正确 exit $SMOKE_EXIT，但未报出预期的 SessionStart hook 失败匹配。" >&2
+# 额外断言：smoke 日志里应该含预期失败标记。注入点是 safety-guard.js
+# （PreToolUse:Bash），Codex 0.142.x exec 模式对 PreToolUse stdout 严格解析。
+if ! grep -qE "FAIL: 日志中发现 'hook: PreToolUse Failed'|invalid pre-tool-use JSON output|hook returned invalid" /tmp/codex-smoke-selftest.log; then
+  echo "[codex-smoke-selftest] WARN: smoke 正确 exit $SMOKE_EXIT，但未报出预期的 PreToolUse hook 失败匹配。" >&2
   echo "  可能 Codex 改了失败显示格式；请检查 smoke 的 CHECK_PATTERNS 并更新。" >&2
   echo "  ────── smoke 输出 tail ──────" >&2
   tail -n 30 /tmp/codex-smoke-selftest.log >&2
