@@ -31,6 +31,7 @@
 
 - **codex-smoke tmp 工程补齐 hook 共享库**: `tests/codex-smoke.sh` 搭建临时工程时只拷 `scripts/hooks/`，漏拷 `scripts/lib/`，导致 `harness-stage-guard.js` 在 Codex runtime 报 `Cannot find module '../lib/spec-quality'`、PreToolUse hook Failed（VH-22 / C-INIT-05 同类问题在测试脚本自身复演）。现在 hooks 与 lib 一起拷贝。
 - **codex-smoke selftest 注入点适配 Codex 0.142.x**: 旧注入点（SessionStart 非法 stdout）在 Codex 0.142.x 下被宽容处理不报 Failed，selftest 永远抓不到注入的坏 hook。注入点改为 `harness-stage-guard.js`（PreToolUse 全 matcher，不依赖模型恰好用 Bash），失效模式改为「非法 stdout + 非零退出」——实测在 0.142.5 稳定报 `hook: PreToolUse Failed`。
+- **发布门控与 doctor 的关键字误报（C-GATE-11 同类）**: `tests/pre-release-check.sh` 的状态判定从"日志裸含状态词"收紧为只认结构化状态行（`STATUS:` / `[STATUS]` / `overall=STATUS`）——selftest 横幅文字"期望 FAIL 或显式 DEGRADED..."此前会被误判成 DEGRADED；`shk doctor` 的 config-risk-scan 跳过 `description` 等纯文档字段——safety-guard 模板自己的描述"拦截危险命令（rm -rf...）"此前被误报为高危配置。补对应测试。
 - **Init now checks hook local dependencies**: 修复 Issue #10：`harness-stage-guard.js` 依赖 `scripts/lib/spec-quality.js`，新项目 init 不能只检查 hook 文件存在，还必须检查 settings 引用 hook 的本地 `require()` 依赖也存在。`tests/template-integrity.js` 新增守门，`harness-init` Step 4 也明确把本地依赖检查列入用户层完整性检查。
 - **Delivery gate now requires fresh READY evidence**: REVIEW/FEEDBACK 阶段也不能在缺少 `.harness/verify-evidence.json`、证据不是 `READY`、证据过期、E2E 充分性不是 READY、测试有效性不是 READY 或包含 `DEGRADED` 时说“完成了”。失败、降级、缺证据和不充分必须原样告诉用户，不能包装成 PASS。
 - **Release tag evidence gate**: release tag 要求 release 风险证据里 E2E、E2E 充分性和 runtime 都是 `PASS`；runtime 只要是 `DEGRADED`，tag 会被阻止并提示限制说明。

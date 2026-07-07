@@ -269,6 +269,9 @@ function runConfigRiskScan(root) {
     const data = readJson(full);
     const strings = data ? collectConfigStrings(data) : [{ value: readText(full), keyPath: '(raw)' }];
     for (const s of strings) {
+      // 只扫可执行内容，跳过纯文档字段：safety-guard 自己的 description
+      // 里就写着"拦截危险命令（rm -rf...）"，把说明文字当高危配置是误报
+      if (/(^|\.)description$/.test(s.keyPath)) continue;
       for (const p of CONFIG_RISK_PATTERNS) {
         if (p.pattern.test(s.value)) {
           findings.push({ file, key: s.keyPath, type: 'config-risk', id: p.id, message: p.message });

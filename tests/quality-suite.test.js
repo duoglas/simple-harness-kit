@@ -236,6 +236,24 @@ function testSecurityScanDetectsHighRiskConfig() {
   }
 }
 
+function testSecurityScanSkipsDescriptionFields() {
+  const dir = tmpProject();
+  try {
+    fs.mkdirSync(path.join(dir, '.codex'), { recursive: true });
+    // 危险关键词只出现在 description（文档字段），command 是干净的：
+    // safety-guard 模板自己的 description 就写着"拦截危险命令（rm -rf...）"，不能误报
+    fs.writeFileSync(path.join(dir, '.codex/hooks.json'), JSON.stringify({
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node scripts/hooks/safety-guard.js' }], description: '拦截危险命令（rm -rf, sudo, chmod 777, curl | sh 等）' }] }
+    }) + '\n');
+    const res = runNode(SHK, ['security', 'scan', '--format', 'json'], { cwd: dir });
+    assert.strictEqual(res.status, 0, res.stdout);
+    const report = JSON.parse(res.stdout);
+    assert.strictEqual(report.sections.config_risks.status, 'PASS', res.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function testInstallProfileDryRunUsesManifest() {
   const dir = tmpProject();
   try {
@@ -1788,6 +1806,7 @@ const tests = [
   testDoctorDetectsMissingPretoolObservation,
   testSecurityScanDetectsConfiguredPublicLeak,
   testSecurityScanDetectsHighRiskConfig,
+  testSecurityScanSkipsDescriptionFields,
   testInstallProfileDryRunUsesManifest,
   testStageGuardBlocksTier0Execute,
   testStageGuardBlocksExecuteWithoutIterationSpec,

@@ -53,16 +53,19 @@ record_status() {
   fi
 }
 
+# 只认结构化状态行（"STATUS:" 前缀 / "[STATUS]" 标签 / "overall=STATUS"），
+# 不裸匹配单词——脚本叙述文字里提到状态词（如 selftest 横幅"期望 FAIL 或显式
+# DEGRADED..."）不能被当成语义证据（C-GATE-11）。
 status_from_log() {
   local rc="$1"
   local log="$2"
   if [ "$rc" -ne 0 ]; then
     echo "FAIL"
-  elif grep -q '\bDEGRADED\b' "$log"; then
+  elif grep -qE '\bDEGRADED[:：]|\[DEGRADED\]|overall=DEGRADED\b' "$log"; then
     echo "DEGRADED"
-  elif grep -q '\bSKIP\b' "$log"; then
+  elif grep -qE '\bSKIP[:：]|\[SKIP\]|overall=SKIP\b' "$log"; then
     echo "SKIP"
-  elif grep -q '\bWARN\b' "$log"; then
+  elif grep -qE '\bWARN[:：]|\[WARN\]|overall=WARN\b' "$log"; then
     echo "WARN"
   else
     echo "PASS"
