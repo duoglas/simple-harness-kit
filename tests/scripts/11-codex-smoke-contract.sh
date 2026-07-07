@@ -99,7 +99,7 @@ run_case \
   "optional exec failure degraded" \
   "0" \
   "[codex-smoke] DEGRADED: codex 非 0 退出" \
-  env FAKE_CODEX_EXIT=1 FAKE_CODEX_LOG='Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)' bash "$SMOKE"
+  env CODEX_REQUIRED=0 FAKE_CODEX_EXIT=1 FAKE_CODEX_LOG='Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)' bash "$SMOKE"
 
 run_case \
   "required selftest unverified fails" \
@@ -111,7 +111,7 @@ run_case \
   "optional selftest exec failure degraded" \
   "0" \
   "[codex-smoke-selftest] DEGRADED:" \
-  env FAKE_CODEX_EXIT=1 FAKE_CODEX_LOG='Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)' bash "$SELFTEST"
+  env CODEX_REQUIRED=0 FAKE_CODEX_EXIT=1 FAKE_CODEX_LOG='Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)' bash "$SELFTEST"
 
 if [ "$FAIL" -gt 0 ]; then
   echo "codex-smoke contract FAIL: $FAIL"
