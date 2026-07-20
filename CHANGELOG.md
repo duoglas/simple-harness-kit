@@ -6,7 +6,13 @@
 
 ## [Unreleased]
 
-## [0.12.0-rc.1] - 2026-07-20（预发布 / prerelease）
+## [0.12.0-rc.2] - 2026-07-20（预发布 / prerelease，替代 rc.1）
+
+### Added
+
+- **`upgrade.sh` — curl | bash 一键升级入口**: 自举脚本，自动定位 kit（`~/.simple-harness-kit-root` marker 优先，缺省 `~/simple-harness-kit`，不存在则 clone）→ fetch + 切目标 ref（分支取远端最新 detached、tag 定点；kit 工作区脏则中止保护本地改动）→ 当前目录是 Harness 工程则 `update.sh --hooks` 同步 hooks + skills，否则仅更新 skills 并提示。支持 `--ref <tag|branch>` / `SHK_REF` 覆盖（默认 `v0.12.0-rc.2`，随 release 更新）。`upgrade.sh` 已加入 verification-gate 的 USER_ENTRY_FILES 白名单（C-GATE-07 用户入口守门）。
+
+## [0.12.0-rc.1] - 2026-07-20（预发布 / prerelease，已被 rc.2 替代）
 
 > 新一代模型适配（new-generation-agent）临时版本。核心：guard_mode 双模式，light 下"过程门禁 → 结果门禁"。
 > 已在 shk-workbench dogfood（Claude Fable 5 实测 + Codex gpt-5.6-sol 实机冒烟 PASS）；正式版前接受行为反馈调整。

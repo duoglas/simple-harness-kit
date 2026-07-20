@@ -54,6 +54,7 @@ const KIT_MARKER_FILE = path.join(ROOT, 'tests/template-integrity.js');
 const USER_ENTRY_FILES = [
   'install.sh',
   'update.sh',
+  'upgrade.sh',
   'init-prompt.md',
   'skills/harness-init/SKILL.md',
   'skills/harness-init/resources/init-prompt.md',
