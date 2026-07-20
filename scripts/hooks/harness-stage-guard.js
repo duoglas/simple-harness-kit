@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
- * @version 0.12.0 (new-generation-agent: guard_mode 双模式)
+ * @version 0.12.1 (new-generation-agent: guard_mode 双模式 + C-GATE-18 阈值可配置)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -347,6 +347,17 @@ function readCurrentStageValue() {
   } catch {
     return null;
   }
+}
+
+// C-GATE-18 阈值（v0.12.1 可配置）。默认 warn=100 / block=200；
+// config.json 显式设 0（或负数）= 关闭对应行为。非法值回退默认。
+function executeWriteThresholds() {
+  const cfg = guardMode.readHarnessConfig(ROOT);
+  const num = (v, dflt) => (typeof v === 'number' && Number.isFinite(v)) ? Math.floor(v) : dflt;
+  return {
+    warn: num(cfg.execute_writes_warn, 100),
+    block: num(cfg.execute_writes_block, 200),
+  };
 }
 
 // ── light 模式辅助 ──
@@ -1145,14 +1156,16 @@ process.stdin.on('end', () => {
               `不确定时返回 NEEDS_CONTEXT、Agent prompt 中包含验收标准。\n`
             );
           }
-          // C-GATE-18 写操作计数保留为遥测 + 周期性提醒（无 deny）
+          // C-GATE-18 写操作计数保留为遥测 + 周期性提醒（无 deny）。
+          // 提醒间隔 = execute_writes_warn（默认 100；<=0 关闭提醒）。
           if (data.stage === 'EXECUTE' && !READ_TOOLS.includes(toolName) && !TASK_TOOLS.includes(toolName)) {
+            const { warn: lightWarnInterval } = executeWriteThresholds();
             const EXECUTE_WRITES_FILE = path.join(ROOT, '.harness/execute-write-count.json');
             let execWrites = { count: 0 };
             try { execWrites = JSON.parse(fs.readFileSync(EXECUTE_WRITES_FILE, 'utf8')); } catch {}
             execWrites.count = (execWrites.count || 0) + 1;
             try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify(execWrites) + '\n'); } catch {}
-            if (execWrites.count > 0 && execWrites.count % 50 === 0) {
+            if (lightWarnInterval > 0 && execWrites.count > 0 && execWrites.count % lightWarnInterval === 0) {
               process.stderr.write(
                 `[Harness Stage Guard][light 提醒] EXECUTE 已累计 ${execWrites.count} 次写操作（不阻断）。\n` +
                 `→ 建议阶段性验证当前工作并产出证据，避免一次性交付大量未验证变更。\n`
@@ -1201,27 +1214,31 @@ process.stdin.on('end', () => {
             );
           }
 
-          // C-GATE-18: EXECUTE 阶段写操作计数器——防止长时间 EXECUTE 不进 VERIFY
+          // C-GATE-18: EXECUTE 阶段写操作计数器——防止长时间 EXECUTE 不进 VERIFY。
+          // 阈值可配置（v0.12.1，用户反馈：50 对新一代模型单轮长程运行太小）：
+          //   .harness/config.json {"execute_writes_warn": N, "execute_writes_block": M}
+          //   默认 warn=100 / block=200；block<=0 关闭硬阻止（仅告警）；warn<=0 关闭告警。
           if (data.stage === 'EXECUTE' && !READ_TOOLS.includes(toolName) && !TASK_TOOLS.includes(toolName)) {
+            const { warn: WARN_THRESHOLD, block: BLOCK_THRESHOLD } = executeWriteThresholds();
             const EXECUTE_WRITES_FILE = path.join(ROOT, '.harness/execute-write-count.json');
             let execWrites = { count: 0 };
             try { execWrites = JSON.parse(fs.readFileSync(EXECUTE_WRITES_FILE, 'utf8')); } catch {}
             execWrites.count = (execWrites.count || 0) + 1;
             try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify(execWrites) + '\n'); } catch {}
 
-            const WARN_THRESHOLD = 30;
-            const BLOCK_THRESHOLD = 50;
-            if (execWrites.count >= BLOCK_THRESHOLD) {
+            if (BLOCK_THRESHOLD > 0 && execWrites.count >= BLOCK_THRESHOLD) {
               return denyPreToolUse(input,
                 `[Harness Stage Guard] EXECUTE 阶段已执行 ${execWrites.count} 次写操作，超过阈值 ${BLOCK_THRESHOLD}（C-GATE-18）。\n` +
                 `必须先进入 VERIFY 阶段验证当前工作质量，再继续执行。\n` +
                 `→ 写 current-stage.json 切换到 VERIFY\n` +
-                `VERIFY 完成后计数器自动重置。\n`
+                `VERIFY 完成后计数器自动重置。\n` +
+                `→ 阈值可调: .harness/config.json {"execute_writes_block": N}（0 关闭）\n`
               );
-            } else if (execWrites.count === WARN_THRESHOLD) {
+            } else if (WARN_THRESHOLD > 0 && execWrites.count === WARN_THRESHOLD) {
               process.stderr.write(
                 `[Harness Stage Guard] 提醒：EXECUTE 阶段已执行 ${execWrites.count} 次写操作。\n` +
-                `建议尽快进入 VERIFY 阶段检查工作质量。到 ${BLOCK_THRESHOLD} 次时将强制阻止。\n`
+                `建议尽快进入 VERIFY 阶段检查工作质量。` +
+                (BLOCK_THRESHOLD > 0 ? `到 ${BLOCK_THRESHOLD} 次时将强制阻止。\n` : '\n')
               );
             }
           }

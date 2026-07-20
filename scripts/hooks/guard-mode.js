@@ -3,7 +3,7 @@
 
 /**
  * Guard Mode Resolver — strict/light 双模式解析 + 双轨模型检测
- * @version 0.1.0 (new-generation-agent 改造 P0-1)
+ * @version 0.2.0 (new-generation-agent: + readHarnessConfig 共享配置读取)
  *
  * 解析顺序（先命中先用）:
  *   0. 环境变量 HARNESS_GUARD_MODE=strict|light（最高优先级——测试确定性 + 用户临时覆盖）
@@ -110,14 +110,22 @@ function isNewGenModel(model) {
   return null; // 未知家族，不判定
 }
 
-function readExplicitMode(root) {
+// 读取 .harness/config.json（Harness 项目级配置）。失败返回 {}。
+// 已知键: guard_mode ("strict"|"light")、execute_writes_warn、execute_writes_block（C-GATE-18 阈值）。
+function readHarnessConfig(root) {
   try {
-    const raw = fs.readFileSync(path.join(root, '.harness/config.json'), 'utf8');
-    const cfg = JSON.parse(raw);
-    if (cfg && (cfg.guard_mode === 'strict' || cfg.guard_mode === 'light')) {
-      return cfg.guard_mode;
-    }
-  } catch {}
+    const cfg = JSON.parse(fs.readFileSync(path.join(root, '.harness/config.json'), 'utf8'));
+    return (cfg && typeof cfg === 'object') ? cfg : {};
+  } catch {
+    return {};
+  }
+}
+
+function readExplicitMode(root) {
+  const cfg = readHarnessConfig(root);
+  if (cfg.guard_mode === 'strict' || cfg.guard_mode === 'light') {
+    return cfg.guard_mode;
+  }
   return null;
 }
 
@@ -173,4 +181,4 @@ function onceNotice(resolved, input, root) {
     `  - 如需固定模式，写入 .harness/config.json: {"guard_mode":"strict"} 或 {"guard_mode":"light"}\n`;
 }
 
-module.exports = { resolveGuardMode, onceNotice, isNewGenModel, detectClaudeModel, detectCodexModel };
+module.exports = { resolveGuardMode, onceNotice, isNewGenModel, detectClaudeModel, detectCodexModel, readHarnessConfig };

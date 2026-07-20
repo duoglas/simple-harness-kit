@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-DEFAULT_REF="v0.12.0-rc.2"
+DEFAULT_REF="v0.12.0-rc.3"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 

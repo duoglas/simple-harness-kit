@@ -1510,7 +1510,7 @@
     }
   },
   {
-    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到 50 次阈值 → 阻止",
+    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到默认 200 次阈值 → 阻止",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "Bash",
@@ -1521,18 +1521,19 @@
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}",
-      ".harness/execute-write-count.json": "{\"count\":49}"
+      ".harness/execute-write-count.json": "{\"count\":199}"
     },
     "expect": {
       "exitCode": 2,
       "stderr": [
         "C-GATE-18",
-        "VERIFY"
+        "VERIFY",
+        "execute_writes_block"
       ]
     }
   },
   {
-    "name": "stage-guard (C-GATE-18): EXECUTE 写操作 30 次 → 警告不阻止",
+    "name": "stage-guard (C-GATE-18): 旧阈值 53 次不再阻止（v0.12.1 默认 200）",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "Bash",
@@ -1543,12 +1544,78 @@
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}",
-      ".harness/execute-write-count.json": "{\"count\":29}"
+      ".harness/execute-write-count.json": "{\"count\":52}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": [
+        "C-GATE-18"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到默认 100 次 → 警告不阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo write-like operation"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/execute-write-count.json": "{\"count\":99}"
     },
     "expect": {
       "exitCode": 0,
       "stderr": [
         "建议尽快进入 VERIFY"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-18): config execute_writes_block=0 关闭硬阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo write-like operation"
+      }
+    },
+    "setup": {
+      ".harness/config.json": "{\"execute_writes_block\":0}",
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/execute-write-count.json": "{\"count\":500}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": [
+        "C-GATE-18"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-18): config 自定义 execute_writes_block=60 生效",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo write-like operation"
+      }
+    },
+    "setup": {
+      ".harness/config.json": "{\"execute_writes_block\":60}",
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/execute-write-count.json": "{\"count\":59}"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": [
+        "C-GATE-18",
+        "超过阈值 60"
       ]
     }
   },

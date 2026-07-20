@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [0.12.0-rc.3] - 2026-07-20（预发布 / prerelease）
+
+### Changed
+
+- **C-GATE-18 EXECUTE 写操作阈值 50 → 200，且可配置/可关闭（VH-28，用户反馈）**: 用户在真实工程 53 次写操作被拦，反馈阈值太小——新一代模型单轮长程自治运行中 50+ 次写操作是正常工作形态，不是失控信号。stage-guard 0.12.0 → 0.12.1：默认告警 100 / 硬阻止 200（strict；light 仅按告警间隔周期提醒不阻断）；`.harness/config.json` 的 `execute_writes_warn` / `execute_writes_block` 可自定义，设 0 关闭对应行为；阻止消息附带调整方法。`guard-mode.js` 0.2.0 新增 `readHarnessConfig` 共享配置读取。新增 5 个场景测试（含"53 次不再阻止"回归与 config 覆盖/关闭用例）。
+
 ## [0.12.0-rc.2] - 2026-07-20（预发布 / prerelease，替代 rc.1）
 
 ### Added
