@@ -3,7 +3,7 @@
 
 /**
  * Harness Entry Banner — Codex-visible Harness entry fallback
- * @version 0.10.0
+ * @version 0.11.0 (new-generation-agent: 去强制复读)
  * 触发: UserPromptSubmit
  *
  * SessionStart 负责初始化 stage/tool-count，但 Codex Desktop 不保证显示
@@ -54,16 +54,13 @@ const banner = `═════════════════════�
 临时关闭: /harness-off
 ════════════════════════════════════════════════════════`;
 
-const additionalContext = `[Harness Entry Banner — Codex UserPromptSubmit]
-你必须在下一条回复开头原样输出以下 banner（不要加 emoji，不要改框线）：
-
-${banner}
-
-然后输出阶段声明：
-
-  进入 PLAN 阶段 — [用一句话描述当前任务]
-
-在用户确认计划前，不要执行实现；若需要切换阶段，优先写入 .harness/current-stage.json。
+// v0.11.0 (new-generation-agent): 不再要求模型原样复读 banner（仪式化输出取消）。
+// Codex 看不到 SessionStart stderr，所以这里保留一句可自然转述的入口提示。
+const additionalContext = `[Harness Entry — Codex UserPromptSubmit]
+本项目已启用 Harness Engineering（PLAN → SETUP → EXECUTE → VERIFY → REVIEW → FEEDBACK，临时关闭: /harness-off）。
+如这是新任务，可向用户简短说明 Harness 已启用（无需输出框线 banner），然后按 harness-entry 规则执行：
+规格完整性检查 → PLAN 拆解 → 产出清单后暂停等用户确认。
+阶段切换写入 .harness/current-stage.json（strict 模式必需；light 模式作为遥测，建议保持）。
 `;
 
 try {

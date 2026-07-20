@@ -6,6 +6,26 @@
 
 ## [Unreleased]
 
+## [0.12.0-rc.1] - 2026-07-20（预发布 / prerelease）
+
+> 新一代模型适配（new-generation-agent）临时版本。核心：guard_mode 双模式，light 下"过程门禁 → 结果门禁"。
+> 已在 shk-workbench dogfood（Claude Fable 5 实测 + Codex gpt-5.6-sol 实机冒烟 PASS）；正式版前接受行为反馈调整。
+> 本段同时包含此前 Unreleased 中的 VH-27 系列 Fixed（随本 rc 一并发布）。
+> 已知限制：`templates/rules/model-profile.md.tmpl` 为可选模板（未进 init 最小配置），新项目需手动复制启用；正式版补全接线。
+
+### Added
+
+- **guard_mode 双模式（strict/light）— 新一代模型适配（new-generation-agent）**: 新增 `scripts/hooks/guard-mode.js`，按模型代际自动选择守门模式。解析顺序：`HARNESS_GUARD_MODE` 环境变量 > `.harness/config.json` 的 `guard_mode` > 模型自动检测（Claude Code 读 hook transcript 尾部 model 字段；Codex 读 `~/.codex/config.toml` model 键）> 默认 strict。新一代判定（→ light）：Fable/Mythos 全系、Opus ≥4.7、Sonnet ≥5、GPT ≥5.6（含 `gpt-5.6-sol` 等后缀变体）、o5+；检测不到不切换。自动切 light 时按 session 输出一次提示。设计动机：新一代模型字面遵循指令且自带规划/自验，旧的过程门禁与之冲突反而降低产出质量（用户实测），故把"过程门禁"降级为"结果门禁"——light 下 deny 白名单只剩 safety-guard、branch-policy-guard、verification-gate 证据检查、delivery-gate 无证据交付四类。
+- **`templates/rules/model-profile.md.tmpl`**: 新增双轨模型行为指引模板（共享层 / Claude 轨 / GPT 轨）。两家矫正方向相反：Claude 4.7+ 对工具/子代理偏保守（需"何时用"触发条件），GPT 5.6+ 默认过度探索（需"何时停"预算与收敛条件），不可共用一份矫正片段。
+
+### Changed
+
+- **`harness-stage-guard.js` 0.11.0 → 0.12.0**: light 模式下本 hook deny 归零——first-call guard、PLAN 只读门禁、EXECUTE spec 门与中段 recheck、C-GATE-17（EXECUTE→PLAN 需 VERIFY）、C-GATE-18（写操作计数阻断）全部移除或降级为提示/警告；缺失/损坏/无效 stage 文件降级为一次性提示（阶段声明成为可选遥测）；阶段 directive 只在阶段切换时注入一次；C-GATE-19 Agent spawn 提醒与遥测（pretool-observations / stage-history）保留。strict 模式行为与 0.11.0 逐字节一致。
+- **`verification-gate.js` 0.10.0 → 0.11.0**: 检查项按 [过程]/[证据] 分类。light 下 commit/push 阶段检查（①③）降级为提示；证据存在性、时效性、结构化 READY、e2e sufficiency、release blockers、C-GATE-07 三模式证据（②④⑤）两种模式一致保留 deny。light 下 stage 文件可选：无有效 since 时跳过时效锚点，证据存在性/READY 仍强制。
+- **`delivery-gate.js` 0.8.0 → 0.9.0**: light 模式阶段不作为阻断依据（仅 OFF 跳过）；宣称交付 → 证据检查全套照跑（结构化 READY / DEGRADED / e2e 充分性 / 时效），通过即放行，跳过 EXECUTE/VERIFY 阶段特定阻断。strict 行为不变。
+- **`harness-session-start.js` 0.9.1 → 0.10.0 / `harness-entry-banner.js` 0.10.0 → 0.11.0**: banner 去仪式化——banner 由 hook 展示，AI Directive 不再要求模型原样复读；文案模式中性（不再宣称"会被 exit 2 阻止"，阻断行为随 guard_mode 而变）。
+- **`templates/rules/{harness-entry,role-constraints,qa-standards}.md.tmpl` 重写**: 入口改为"规格完整即开始 + 一次性问全"（PLAN 暂停保留）；"Director 禁止写代码"改为委派准则（可并行派 Agent、单文件直接做）+ EXECUTE 内自治约定（次要选择不中途询问）；QA 从默认五层全开改为风险分级（默认 Layer 1+2，高危升级），Layer 2 只列真实存在的可执行命令（不存在标 N/A 并移出 Gate），TDD 铁律条件化（运行时产品代码测试先行，docs/配置/模板豁免），Reviewer rubric 换 coverage-first（报告全部发现标注置信度，下游过滤——对策：新一代模型字面执行保守过滤指令导致 recall 下降）。
+
 ### Fixed
 
 - **`shk verify --risk release` 恒 NOT_READY 自锁（C-GATE-09，VH-27）**: `makeEvidence` 把 release 必需的 `spec` / `santa` 恒置为 SKIP 占位符，而 release 判定要求全部必需项 PASS，导致自动化检查全 PASS 也永远 NOT_READY，并经 doctor 的 verify-evidence 检查级联成自举死锁。现在 `spec` 消费 `checks.spec_status` 的真实结果；`santa` 这类只能 agent/human review 的占位 SKIP 不再阻断 release，但必须进入 `limitations`（`claims_ready:false`）留痕，不能伪装成 PASS 证据；真实 FAIL / DEGRADED 以及必需项真实跑出的 SKIP / WARN 仍然阻断（宁可拦）。判定逻辑抽为 `computeEvidenceOverall` 并补「全 PASS → READY」「santa 占位进 limitations 而非 failed」回归测试。

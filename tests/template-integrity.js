@@ -67,11 +67,12 @@ const REQUIRED_RULE_TEMPLATES = {
     'Constraint',    // 规则沉淀
   ],
   'harness-entry.md.tmpl': [
-    'HARNESS MODE ACTIVE',
     'banner',
-    '等待用户指令',  // 关键行为：不自行开始
-    'PLAN',          // 进入 PLAN 阶段
-    '6 阶段 Loop',  // 核心概念
+    '不需要也不应该复读',  // v2 关键行为：banner 由 hook 输出，AI 不复读
+    '规格完整性检查',      // v2 入口：规格完整即开始
+    '一次性问全',          // v2 关键行为：不分多轮碎问
+    'PLAN',               // 进入 PLAN 阶段
+    '暂停，等用户确认',    // PLAN 暂停保留（new-generation-agent 决策 2）
   ],
 };
 
@@ -831,7 +832,11 @@ function runTemplateIntegrityTests() {
     const content = fs.readFileSync(tmplPath, 'utf8');
 
     const REQUIRED = [
-      { needle: 'NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST', label: 'TDD 铁律' },
+      // v2 (new-generation-agent): TDD 铁律条件化——绝对化标语被新一代模型字面执行
+      // 会覆盖 docs/配置/模板等无运行时面的变更，改为"运行时产品代码测试先行 + 显式豁免"。
+      { needle: '先写失败测试', label: 'TDD 条件化指令（运行时产品代码测试先行）' },
+      { needle: '豁免', label: 'TDD 豁免类别（docs/配置/模板/一次性脚本）' },
+      { needle: '风险分级', label: 'QA 风险分级（v2 默认档反转）' },
       { needle: 'Layer 1', label: 'Layer 1 Agent Self-Verification' },
       { needle: 'Layer 2', label: 'Layer 2 Verification Loop' },
       { needle: 'Layer 3', label: 'Layer 3 Spec Compliance Review' },

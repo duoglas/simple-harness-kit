@@ -3,11 +3,14 @@
 
 /**
  * Delivery Gate Hook — AI 输出文字前的合规检查
- * @version 0.8.0
+ * @version 0.9.0 (new-generation-agent: guard_mode 双模式)
  * 触发: Stop
  *
  * 在 AI 生成回复但还未展示给用户之前触发。
- * 检查 AI 是否在未完成 VERIFY/REVIEW 的情况下就宣称"完成"。
+ * strict: 检查 AI 是否在未完成 VERIFY/REVIEW 的情况下就宣称"完成"（阶段 + 证据）。
+ * light:  阶段不作为阻断依据（仅 OFF 跳过检查）。宣称交付 → 证据检查全套照跑
+ *         （结构化 READY / DEGRADED / e2e 充分性 / 时效），通过即放行——
+ *         跳过 EXECUTE/VERIFY 阶段特定阻断。这是"无证据交付"证据类 gate。
  *
  * exit 0 — 放行，用户看到回复
  * exit 2 — 阻止，AI 收到 reason 后必须修正
@@ -18,6 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const findRoot = require('./find-root');
+const guardMode = require('./guard-mode');
 const ROOT = findRoot();
 
 const STAGE_FILE = path.join(ROOT, '.harness/current-stage.json');
@@ -74,8 +78,12 @@ process.stdin.on('end', () => {
       process.exit(0);
     }
 
-    // 跳过检查的阶段
-    if (SKIP_CHECK_STAGES.includes(stage)) {
+    const LIGHT = guardMode.resolveGuardMode(input, ROOT).mode === 'light';
+
+    // 跳过检查的阶段。
+    // strict: PLAN/OFF 跳过（PLAN 输出计划是正常行为）。
+    // light: 仅 OFF 跳过——light 下 stage 常驻 PLAN（可选遥测），若跳过 PLAN 则证据门禁永不生效。
+    if (LIGHT ? stage === 'OFF' : SKIP_CHECK_STAGES.includes(stage)) {
       process.exit(0);
     }
 
@@ -125,6 +133,11 @@ process.stdin.on('end', () => {
         '→ 请重新跑验证，产出晚于当前阶段开始时间的 READY evidence。\n'
       );
       process.exit(2);
+    }
+
+    // light: 证据检查全部通过即放行——阶段特定阻断（EXECUTE/VERIFY）是过程类，跳过
+    if (LIGHT) {
+      process.exit(0);
     }
 
     // 允许交付的阶段

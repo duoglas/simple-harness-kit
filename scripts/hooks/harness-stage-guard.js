@@ -2,14 +2,24 @@
 'use strict';
 
 /**
- * Harness Stage Guard — 强制新 session 声明 Harness 阶段 + 监听 TaskCompleted 提醒 VERIFY
- * @version 0.11.0
+ * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
+ * @version 0.12.0 (new-generation-agent: guard_mode 双模式)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
  *   - TaskCompleted lifecycle event (v0.6.3 迁移自原 PreToolUse:TaskUpdate + status==completed 检测)
  *
- * 机制:
+ * ── guard_mode 双模式（./guard-mode.js 解析；HARNESS_GUARD_MODE env > .harness/config.json > 模型检测 > strict）──
+ * strict（旧模型/显式配置/默认）: 保持 0.11.0 行为，机制如下。
+ * light（新一代模型自动检测: Fable/Mythos、Opus>=4.7、Sonnet>=5、GPT>=5.6、o5+）:
+ *   - 本 hook deny 归零：不再阻断任何工具调用
+ *   - 阶段声明变为可选遥测（缺失/损坏/无效 → 提示，不阻断）
+ *   - first-call guard / PLAN 只读门禁 / EXECUTE spec 门与中段 recheck / C-GATE-17 / C-GATE-18 阻断 → 移除或降级提示
+ *   - REVIEW/VERIFY 流转门 → 降级为强警告（硬拦截由 verification-gate 证据检查 + delivery-gate 承担）
+ *   - 阶段 directive 只在阶段切换时注入一次（减少上下文噪音）
+ *   - 遥测（pretool-observations / stage-history）与 OFF 开关保持不变
+ *
+ * strict 机制:
  * 1. 检查 .harness/current-stage.json 是否存在
  * 2. 不存在 → exit 2 阻止，要求声明阶段（Write .harness/current-stage.json 是唯一豁免）
  * 3. 解析/读取异常 → exit 2 阻止（损坏的 stage 文件应该被修复而不是绕过）
@@ -38,6 +48,7 @@ const path = require('path');
 const { isLegitimateHarnessRoot } = require('./find-root');
 const findRoot = require('./find-root');
 const specQuality = require('../lib/spec-quality');
+const guardMode = require('./guard-mode');
 const ROOT_RAW = findRoot();
 // macOS /tmp → /private/tmp symlink 导致 path.resolve 和 Claude Code 的绝对路径不一致。
 // 用 realpathSync 跟随 symlink 统一为真实路径, 确保 PLAN 阶段 Write .harness/* 路径比较正确。
@@ -94,6 +105,10 @@ function safeFileExists(filePath) {
 }
 
 const STAGES = ['PLAN', 'SETUP', 'EXECUTE', 'VERIFY', 'REVIEW', 'FEEDBACK'];
+// guard_mode: 'strict' | 'light'。在 stdin 解析后由 resolveGuardMode 赋值。
+// light 模式下本 hook 的 deny 归零，所有过程类阻断降级为 stderr 提示。
+let LIGHT = false;
+const LAST_DIRECTIVE_FILE = path.join(ROOT, '.harness/last-directive.json');
 const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
 const PLAN_FILE = path.join(ROOT, '.harness/current-plan.md');
 const ITERATION_SPEC_FILE = path.join(ROOT, '.harness/iteration-spec.json');
@@ -331,6 +346,47 @@ function readCurrentStageValue() {
     return JSON.parse(rawStage).stage || null;
   } catch {
     return null;
+  }
+}
+
+// ── light 模式辅助 ──
+// 同 key 的提示每 session 只输出一次（状态存 last-directive.json）。
+function readDirectiveState() {
+  try { return JSON.parse(fs.readFileSync(LAST_DIRECTIVE_FILE, 'utf8')) || {}; } catch { return {}; }
+}
+function writeDirectiveState(state) {
+  try { fs.writeFileSync(LAST_DIRECTIVE_FILE, JSON.stringify(state) + '\n'); } catch {}
+}
+function hintOnce(key, message) {
+  const state = readDirectiveState();
+  if (state.hints && state.hints[key]) return;
+  state.hints = state.hints || {};
+  state.hints[key] = new Date().toISOString();
+  writeDirectiveState(state);
+  process.stderr.write(message);
+}
+// light 模式专用 PLAN directive：PLAN 暂停约定保留，但 light 不做工具阻断，
+// 文案不得声称"禁止/已阻止"（避免文案与行为矛盾）。
+const PLAN_DIRECTIVE_LIGHT = `[PLAN 阶段 — light]
+当前在 PLAN 阶段（约定，非机器强制）：
+1. 澄清需求和验收标准；任务拆解（每个任务可独立验证）并定义 done 条件
+2. 产出任务清单后暂停，等用户确认再进入 EXECUTE
+3. PLAN 期间尽量只做只读探索；如需小的准备性写入，自行判断并在清单中注明
+`;
+// light 模式：阶段 directive 只在阶段切换时注入一次，减少每次调用的上下文噪音。
+function injectDirectiveOnChange(stage, task) {
+  const state = readDirectiveState();
+  if (state.lastStage === stage) return;
+  state.lastStage = stage;
+  state.hints = state.hints || {};
+  writeDirectiveState(state);
+  process.stderr.write(
+    `[Harness ON][light] 进入阶段: ${stage}` + (task ? ` — ${task}` : '') + '\n'
+  );
+  const directive = stage === 'PLAN' ? PLAN_DIRECTIVE_LIGHT : STAGE_DIRECTIVES[stage];
+  if (directive) {
+    process.stderr.write(directive);
+    process.stderr.write(LOG_REMINDER);
   }
 }
 
@@ -607,6 +663,15 @@ function evaluateIterationSpecForExecuteCached() {
 
 function enforceExecuteSpecGateIfNeeded(newData) {
   if (!newData || newData.stage !== 'EXECUTE') return;
+  if (LIGHT) {
+    // light: spec 门降级为一次性提示（iteration-spec 是 strict 流程的产物，light 下可选）
+    const report = evaluateIterationSpecForExecuteCached();
+    if (report.overall !== 'READY') {
+      hintOnce('execute-spec-gate',
+        `[Harness Stage Guard][light 提示] iteration-spec ${report.overall}（不阻断）。如需 spec 门控请切 strict 模式。\n`);
+    }
+    return;
+  }
   const report = evaluateIterationSpecForExecuteCached();
   if (report.overall === 'READY') return;
 
@@ -663,6 +728,7 @@ function shouldRecheckSpecDuringExecute(data, input) {
 }
 
 function enforceExecuteSpecRecheck(data, input) {
+  if (LIGHT) return; // light: 中段 spec recheck 属过程类节流，整体移除
   if (!shouldRecheckSpecDuringExecute(data, input)) return;
   const report = evaluateIterationSpecForExecuteCached();
   if (report.overall === 'READY') return;
@@ -690,39 +756,45 @@ function enforceExecuteSpecRecheck(data, input) {
   return denyPreToolUse(input, lines.join('\n') + '\n');
 }
 
-// 从 Write tool_input 中解析 newData 并校验 stage + since；错误时直接写 stderr + exit 2
+// 校验错误的统一出口：strict → exit 2 阻断；light → 提示 + 放行（阶段文件是可选遥测）。
+function stageValidationFail(message) {
+  if (LIGHT) {
+    process.stderr.write(message.replace(/拒绝写入/g, '仅提示（light 模式不阻断）') + '\n');
+    return null;
+  }
+  process.stderr.write(message + '\n');
+  process.exit(2);
+}
+
+// 从 Write tool_input 中解析 newData 并校验 stage + since；strict 错误时 exit 2，light 返回 null
 function validateStageData(newData) {
   // 校验 stage 值合法性（Issue #2: 防止写入 "COMPLETE" 等无效值）
   if (!newData || !newData.stage || !VALID_STAGES_FOR_WRITE.includes(newData.stage)) {
     const val = newData?.stage || '(空)';
-    process.stderr.write(
+    return stageValidationFail(
       `[Harness Stage Guard] 无效的 stage 值: ${val}，拒绝写入。\n` +
-      `有效值: ${VALID_STAGES_FOR_WRITE.join(', ')}\n`
+      `有效值: ${VALID_STAGES_FOR_WRITE.join(', ')}`
     );
-    process.exit(2);
   }
   const err = validateSince(newData);
   if (err) {
-    process.stderr.write(err + '\n');
-    process.exit(2);
+    return stageValidationFail(err);
   }
   const infraErr = infraTierTransitionError(newData);
   if (infraErr) {
-    process.stderr.write(infraErr + '\n');
-    process.exit(2);
+    return stageValidationFail(infraErr);
   }
   enforceExecuteSpecGateIfNeeded(newData);
   return newData;
 }
 
-// 从 Write tool_input 中解析 newData 并校验 stage + since；错误时直接写 stderr + exit 2
+// 从 Write tool_input 中解析 newData 并校验 stage + since；strict 错误时 exit 2，light 返回 null
 function validateStageWrite(input) {
   let newData = null;
   try {
     newData = JSON.parse(String(input.tool_input?.content || ''));
   } catch {
-    process.stderr.write('[Harness Stage Guard] current-stage.json 内容不是合法 JSON，拒绝写入。\n');
-    process.exit(2);
+    return stageValidationFail('[Harness Stage Guard] current-stage.json 内容不是合法 JSON，拒绝写入。');
   }
   return validateStageData(newData);
 }
@@ -741,8 +813,7 @@ function extractStageDataFromPatch(input) {
       if (parsed && typeof parsed === 'object' && parsed.stage) return parsed;
     } catch {}
   }
-  process.stderr.write('[Harness Stage Guard] apply_patch current-stage.json 未包含可解析的目标 JSON，拒绝写入。\n');
-  process.exit(2);
+  return stageValidationFail('[Harness Stage Guard] apply_patch current-stage.json 未包含可解析的目标 JSON，拒绝写入。');
 }
 
 function recordStageHistory(stage) {
@@ -830,6 +901,15 @@ function enforceVerifyGateIfNeeded(newData, input) {
     return;
   }
 
+  if (LIGHT) {
+    // light: C-GATE-17 降级为强警告——EXECUTE 后未 VERIFY 就回 PLAN 仍值得提醒，
+    // 但硬拦截交给 verification-gate 证据检查 + delivery-gate。
+    process.stderr.write(
+      '[Harness Stage Guard][light 警告] 上一轮 EXECUTE 之后未经过 VERIFY 就切回 PLAN（不阻断）。\n' +
+      '→ 建议先验证当前工作并产出证据；commit/交付仍会被证据门禁拦截。\n'
+    );
+    return;
+  }
   if (input && input.hook_event_name === 'PreToolUse') {
     return denyPreToolUse(input, VERIFY_GATE_BLOCK);
   }
@@ -869,6 +949,14 @@ function enforceReviewGateIfNeeded(newData, input) {
 
   if (gateErrors.length > 0) {
     const message = REVIEW_GATE_BLOCK + '\n具体问题:\n' + gateErrors.map(e => '  - ' + e).join('\n') + '\n';
+    if (LIGHT) {
+      // light: 降级为强警告。硬拦截由 verification-gate 证据检查 + delivery-gate 承担。
+      process.stderr.write(
+        '[Harness Stage Guard][light 警告] REVIEW Gate 未满足（不阻断，但 verification-gate/delivery-gate 仍会按证据拦截交付）:\n' +
+        gateErrors.map(e => '  - ' + e).join('\n') + '\n'
+      );
+      return;
+    }
     if (input && input.hook_event_name === 'PreToolUse') {
       return denyPreToolUse(input, message);
     }
@@ -878,6 +966,7 @@ function enforceReviewGateIfNeeded(newData, input) {
 }
 
 function allowStageTransition(newData, via, input) {
+  if (!newData) return; // light 模式下校验失败已提示，照常放行但不记录
   recordStageHistory(newData.stage);
   enforceVerifyGateIfNeeded(newData, input);
   enforceReviewGateIfNeeded(newData, input);
@@ -900,6 +989,13 @@ process.stdin.on('end', () => {
 
   try {
     const input = JSON.parse(raw);
+
+    // ── guard_mode 解析（strict/light 双模式）──
+    const resolved = guardMode.resolveGuardMode(input, ROOT);
+    LIGHT = resolved.mode === 'light';
+    const notice = guardMode.onceNotice(resolved, input, ROOT);
+    if (notice) process.stderr.write(notice);
+
     if (input.hook_event_name === 'PreToolUse') {
       try {
         fs.mkdirSync(path.dirname(PRETOOL_OBS_FILE), { recursive: true });
@@ -913,8 +1009,10 @@ process.stdin.on('end', () => {
     }
 
     // ── PermissionRequest 特殊处理（Codex） ──
-    // PLAN 阶段不能通过权限升级绕过 guard；使用 Codex 官方 decision.behavior shape。
+    // strict: PLAN 阶段不能通过权限升级绕过 guard；使用 Codex 官方 decision.behavior shape。
+    // light: 过程类阻断，放行（不输出 decision，走 Codex 默认权限流程）。
     if (input.hook_event_name === 'PermissionRequest') {
+      if (LIGHT) return;
       const currentStage = readCurrentStageValue();
       if (!currentStage || currentStage === 'PLAN') {
         return denyPermissionRequest(
@@ -956,14 +1054,18 @@ process.stdin.on('end', () => {
       // 走 Bootstrap 口要求重新 Write (作为普通文件).
       const writePath = String(input.tool_input?.file_path || '');
       if (input.tool_name === 'Write' && (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })() === path.resolve(STAGE_FILE)) {
-        const parsed = validateStageWrite(input);  // 缺失/非法/偏差过大 → exit 2
+        const parsed = validateStageWrite(input);  // strict: 缺失/非法/偏差过大 → exit 2；light: null
         process.stderr.write('[Harness Stage Guard] 正在创建阶段声明，放行。\n');
         // 记录阶段历史
-        recordStageHistory(parsed.stage);
+        if (parsed) recordStageHistory(parsed.stage);
       } else if (isPatchTool(input.tool_name) && patchTouchesOnlyHarnessStage(input)) {
         const parsed = validateStageData(extractStageDataFromPatch(input));
-        recordStageHistory(parsed.stage);
+        if (parsed) recordStageHistory(parsed.stage);
         process.stderr.write('[Harness Stage Guard] 正在通过 apply_patch 创建阶段声明，放行。\n');
+      } else if (LIGHT) {
+        // light: 阶段声明是可选遥测，缺失只提示一次
+        hintOnce('missing-stage',
+          '[Harness Stage Guard][light] 未声明阶段（可选）。如需阶段遥测可写 .harness/current-stage.json。\n');
       } else {
         process.stderr.write(REMINDER);
         shouldBlock = true;
@@ -971,7 +1073,13 @@ process.stdin.on('end', () => {
     } else {
       const stageRaw = safeReadFileSync(STAGE_FILE);
       if (stageRaw === null) {
-        // 读失败 (e.g. symlink) → 走 reminder 路径强制重新声明
+        if (LIGHT) {
+          // light: 读失败只提示（阶段文件是可选遥测）
+          hintOnce('stage-read-fail',
+            '[Harness Stage Guard][light] 阶段文件读取失败（symlink 或权限问题），已忽略。如需阶段遥测请重建为普通文件。\n');
+          return;
+        }
+        // strict: 走 reminder 路径强制重新声明
         process.stderr.write(REMINDER);
         shouldBlock = true;
         process.exit(2);
@@ -988,8 +1096,11 @@ process.stdin.on('end', () => {
           process.stderr.write('[Harness Stage Guard] 阶段无效，允许重写阶段声明。\n');
         } else if (isPatchTool(input.tool_name) && patchTouchesOnlyHarnessStage(input)) {
           const parsed = validateStageData(extractStageDataFromPatch(input));
-          recordStageHistory(parsed.stage);
+          if (parsed) recordStageHistory(parsed.stage);
           process.stderr.write('[Harness Stage Guard] 阶段无效，允许通过 apply_patch 重写阶段声明。\n');
+        } else if (LIGHT) {
+          hintOnce('invalid-stage',
+            `[Harness Stage Guard][light] 阶段值无效: ${data.stage}（不阻断）。有效值: ${STAGES.join(', ')}, OFF。\n`);
         } else {
           process.stderr.write(
             `[Harness Stage Guard] 无效的阶段值: ${data.stage}。有效值: ${STAGES.join(', ')}, OFF\n` +
@@ -1017,13 +1128,38 @@ process.stdin.on('end', () => {
           return;
         }
 
-        // 首次工具调用检查：强制 AI 先输出阶段声明
+        // 首次工具调用检查：强制 AI 先输出阶段声明（light 模式移除——过程仪式）
         let toolCount = { count: 999 }; // 默认跳过（文件不存在时不阻止）
         try { toolCount = JSON.parse(fs.readFileSync(TOOL_COUNT_FILE, 'utf8')); } catch {}
-        if (toolCount.count === 0 && !TASK_TOOLS.includes(toolName)) {
+        if (!LIGHT && toolCount.count === 0 && !TASK_TOOLS.includes(toolName)) {
           // 递增计数器，下次不再阻止
           try { fs.writeFileSync(TOOL_COUNT_FILE, JSON.stringify({ count: 1 }) + '\n'); } catch {}
           return denyPreToolUse(input, FIRST_CALL_BLOCK);
+        } else if (LIGHT) {
+          // ── light: 无阶段区别对待，PLAN 只读门禁移除；directive 仅阶段切换注入 ──
+          // C-GATE-19 Agent spawn 提醒保留（非阻断，对子代理质量有价值）
+          if (toolName === 'Agent') {
+            process.stderr.write(
+              `[Harness Stage Guard] Agent 子任务提醒（C-GATE-19）：\n` +
+              `Subagent 应遵守：不添加额外功能（YAGNI）、完成后测试自验、引用 Constraint ID、\n` +
+              `不确定时返回 NEEDS_CONTEXT、Agent prompt 中包含验收标准。\n`
+            );
+          }
+          // C-GATE-18 写操作计数保留为遥测 + 周期性提醒（无 deny）
+          if (data.stage === 'EXECUTE' && !READ_TOOLS.includes(toolName) && !TASK_TOOLS.includes(toolName)) {
+            const EXECUTE_WRITES_FILE = path.join(ROOT, '.harness/execute-write-count.json');
+            let execWrites = { count: 0 };
+            try { execWrites = JSON.parse(fs.readFileSync(EXECUTE_WRITES_FILE, 'utf8')); } catch {}
+            execWrites.count = (execWrites.count || 0) + 1;
+            try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify(execWrites) + '\n'); } catch {}
+            if (execWrites.count > 0 && execWrites.count % 50 === 0) {
+              process.stderr.write(
+                `[Harness Stage Guard][light 提醒] EXECUTE 已累计 ${execWrites.count} 次写操作（不阻断）。\n` +
+                `→ 建议阶段性验证当前工作并产出证据，避免一次性交付大量未验证变更。\n`
+              );
+            }
+          }
+          injectDirectiveOnChange(data.stage, data.task);
         } else if (data.stage === 'PLAN') {
         // PLAN 阶段：硬约束——只允许读工具 + 任务管理工具 + Write 计划文件/阶段文件
           const isReadTool = READ_TOOLS.includes(toolName);
@@ -1116,10 +1252,11 @@ process.stdin.on('end', () => {
     }
   } catch (e) {
     process.stderr.write(`[Harness Stage Guard] 无法读取 ${STAGE_FILE}: ${e.message}\n`);
-    shouldBlock = true; // 异常时阻止，不能失败即放行
+    // strict: 异常时阻止，不能失败即放行；light: 阶段文件是可选遥测，异常只提示
+    shouldBlock = !LIGHT;
   }
 
-  if (shouldBlock) {
+  if (shouldBlock && !LIGHT) {
     process.exit(2);
   }
   // stdout 保持为空（Codex runtime 兼容，见 VH-13）

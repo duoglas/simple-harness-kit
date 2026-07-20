@@ -1,0 +1,199 @@
+[
+  {
+    "name": "guard-mode: light + 无 stage + Bash → 放行仅提示（strict 下阻断）",
+    "hook": "harness-stage-guard.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/.keep": ""
+    },
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "echo hi" },
+      "session_id": "gm-light-1"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["[light]"],
+      "stderrNot": ["未声明当前 Harness 阶段"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: light + PLAN + Edit 任意文件 → 放行（strict 下 deny）",
+    "hook": "harness-stage-guard.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}",
+      ".harness/tool-count.json": "{\"count\":5}"
+    },
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Edit",
+      "tool_input": { "file_path": "/tmp/x.js" },
+      "session_id": "gm-light-2"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["PLAN 阶段禁止此操作"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: light + first-call（count=0）→ 不阻断（strict 下 first-call deny）",
+    "hook": "harness-stage-guard.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}",
+      ".harness/tool-count.json": "{\"count\":0}"
+    },
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "echo hi" },
+      "session_id": "gm-light-3"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["第一次工具调用"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: light + 切换 REVIEW 无证据 → 警告放行（strict 下 deny）",
+    "hook": "harness-stage-guard.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}",
+      ".harness/tool-count.json": "{\"count\":5}"
+    },
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": ".harness/current-stage.json",
+        "content": "{\"stage\":\"REVIEW\",\"since\":\"auto\",\"task\":\"t\"}"
+      },
+      "session_id": "gm-light-4"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["light 警告", "REVIEW Gate 未满足"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: light + Codex PermissionRequest(PLAN) → 放行（strict 下 block decision）",
+    "hook": "harness-stage-guard.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}"
+    },
+    "stdin": {
+      "hook_event_name": "PermissionRequest",
+      "session_id": "gm-light-5"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdout": "empty",
+      "stdoutNot": ["block"]
+    }
+  },
+  {
+    "name": "guard-mode: config.json 显式 light（env 置空）+ PLAN + Edit → 放行",
+    "hook": "harness-stage-guard.js",
+    "env": { "HARNESS_GUARD_MODE": "" },
+    "setup": {
+      ".harness/config.json": "{\"guard_mode\":\"light\"}",
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}",
+      ".harness/tool-count.json": "{\"count\":5}"
+    },
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Edit",
+      "tool_input": { "file_path": "/tmp/x.js" },
+      "session_id": "gm-light-6"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["PLAN 阶段禁止此操作"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: verification-gate light + EXECUTE + READY 证据 + commit → 提示放行（strict 下 deny）",
+    "hook": "verification-gate.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}",
+      ".harness/verify-evidence.json": "{\"schema_version\":1,\"risk\":\"low\",\"overall\":\"READY\",\"checks\":{\"test\":{\"status\":\"PASS\"}}}"
+    },
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m x" },
+      "session_id": "gm-light-7"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": ["light 提示"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: verification-gate light + 无证据 + commit → 仍阻断（证据类保留）",
+    "hook": "verification-gate.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}"
+    },
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m x" },
+      "session_id": "gm-light-8"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["未找到验证报告"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: delivery-gate light + PLAN + 宣称完成 + 无证据 → 阻断（light 不跳过 PLAN）",
+    "hook": "delivery-gate.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}"
+    },
+    "stdin": {
+      "hook_event_name": "Stop",
+      "last_assistant_message": "任务完成，已交付",
+      "session_id": "gm-light-9"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["缺少结构化 READY 验证证据"],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "guard-mode: delivery-gate light + EXECUTE + 宣称完成 + READY 证据 → 放行（strict 下 EXECUTE 阻断）",
+    "hook": "delivery-gate.js",
+    "env": { "HARNESS_GUARD_MODE": "light" },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"2026-01-01T00:00:00.000Z\",\"task\":\"t\"}",
+      ".harness/verify-evidence.json": "{\"schema_version\":1,\"risk\":\"low\",\"overall\":\"READY\",\"checks\":{\"test\":{\"status\":\"PASS\"}}}"
+    },
+    "stdin": {
+      "hook_event_name": "Stop",
+      "last_assistant_message": "任务完成，已交付",
+      "session_id": "gm-light-10"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": ["EXECUTE 阶段"],
+      "stdout": "empty"
+    }
+  }
+]

@@ -12,7 +12,7 @@
 
 set -uo pipefail
 
-EXPECTED_ASSERTIONS=9
+EXPECTED_ASSERTIONS=10
 ASSERTIONS_RUN=0
 ASSERTIONS_FAIL=0
 
@@ -55,7 +55,9 @@ sed \
 QA_FILE="$TMP_PROJ/.claude/rules/qa-standards.md"
 
 assert "qa-standards.md 生成且非空" "[ -s '$QA_FILE' ]"
-assert "含 TDD 铁律" "grep -q 'NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST' '$QA_FILE'"
+# v2 (new-generation-agent): TDD 铁律条件化——检查条件化指令 + 豁免类别，不再检查绝对化标语
+assert "含 TDD 条件化指令" "grep -q '先写失败测试' '$QA_FILE'"
+assert "含 TDD 豁免类别" "grep -q '豁免' '$QA_FILE'"
 assert "含 Layer 1 (Agent Self-Verification)" "grep -q 'Layer 1' '$QA_FILE'"
 assert "含 Layer 2 (Verification Loop)" "grep -q 'Layer 2' '$QA_FILE'"
 assert "含 Layer 3 (Spec Compliance)" "grep -q 'Layer 3' '$QA_FILE'"

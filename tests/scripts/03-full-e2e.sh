@@ -14,6 +14,9 @@
 
 set -uo pipefail
 
+# 测试确定性（new-generation-agent）：强制 strict，避免宿主机新一代模型检测切成 light。
+export HARNESS_GUARD_MODE="${HARNESS_GUARD_MODE:-strict}"
+
 EXPECTED_ASSERTIONS=8
 ASSERTIONS_RUN=0
 ASSERTIONS_FAIL=0

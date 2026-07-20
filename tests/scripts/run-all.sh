@@ -13,6 +13,11 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# 测试确定性（new-generation-agent）：脚本矩阵直接 spawn hook，绕过 run.js 的
+# env 注入；宿主机若配置新一代模型（transcript / ~/.codex/config.toml）会把
+# strict 断言切成 light。这里强制 strict 默认；light 用例显式覆盖。
+export HARNESS_GUARD_MODE="${HARNESS_GUARD_MODE:-strict}"
+
 echo ""
 echo "════════════════════════════════════════════════════"
 echo "  Scripted Test Matrix (tests/scripts/run-all.sh)"

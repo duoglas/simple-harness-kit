@@ -1,156 +1,119 @@
 # QA 标准
 
-## 5 层 QA 金字塔
+> v2（new-generation-agent）：QA 从"默认五层全开"改为**风险分级**；Gate 只包含真实存在的可执行命令；TDD 条件化。
+> `{{占位符}}` 在 init 时由 AI 按项目实际情况替换。
+
+## 风险分级（先定档，再选层）
+
+| 档位 | 触发条件 | 必做层级 |
+|------|---------|---------|
+| **默认** | 一般变更 | Layer 1 + Layer 2（真实存在的项） |
+| **升级** | 生产部署 / 跨模块大变更 / 安全敏感面 / 复杂逻辑 / {{项目特定高风险面}} | + Layer 3（独立 Review） |
+| **最高** | 上述之外还满足：出错代价高且难回滚 | + Layer 4（Santa 对抗验证） |
+
+**升级时在 session log 记录升级理由**（默认档不需要记录任何"降级决策"——默认档就是默认）。
+
+## Layer 1: Agent Self-Verification（自验）
+
+**谁执行：** 实现任务的 Agent 自己，每个任务完成后立即执行。
+
+- **有运行时行为的产品代码**：TDD 红绿重构——先写失败测试（RED）→ 最少代码通过（GREEN）→ 重构（REFACTOR）
+- **豁免**：docs、配置、模板、一次性脚本。豁免时在 session log 注明
+- 对 medium / high / release 任务，至少保留一个负向或边界用例
+- 改已有接口、数据格式或 gate 时，保留旧路径或混合新旧输入的兼容用例
+- 实现完成后运行全部相关测试；检查改动是否引入新 warning/error
+
+**Gate 条件：** 相关测试通过 + 无新 warning
+
+## Layer 2: Verification Loop（自动化工具检查）
+
+**谁执行：** 自动化工具（不依赖 LLM 判断）。
+
+**只列真实存在、当场可执行的命令。init 时探测项目实际有什么；不存在的项标 N/A 并从 Gate 条件中移除**——不得留下"要求 PASS 但命令不存在"的自相矛盾。
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ Layer 5: Human Final Review（人工最终审查）           │
-│   只看报告 + 关键决策，5 项交付前复盘                │
-├─────────────────────────────────────────────────────┤
-│ Layer 4: Santa Method（AI 对抗验证）                 │
-│   两个独立 Reviewer Agent 同时检查                    │
-├─────────────────────────────────────────────────────┤
-│ Layer 3: Spec Compliance Review（AI 规格审查）        │
-│   独立 Agent 对照需求规格逐项检查                     │
-├─────────────────────────────────────────────────────┤
-│ Layer 2: Verification Loop（自动化工具检查）           │
-│   Build → Type Check → Lint → Test → Security → Diff │
-├─────────────────────────────────────────────────────┤
-│ Layer 1: Agent Self-Verification（Agent 自验）        │
-│   TDD 红绿重构 + 实现后立即自验                       │
-└─────────────────────────────────────────────────────┘
-```
-
-## Layer 1: Agent Self-Verification
-
-**谁执行：** 实现任务的 Agent 自己
-**何时执行：** 每个任务完成后立即执行
-
-1. TDD 红绿重构循环：
-   - 先写失败测试（RED）
-   - 写最少代码通过测试（GREEN）
-   - 重构（REFACTOR）
-2. 实现完成后运行全部相关测试
-3. 对 medium / high / release 任务，至少保留一个负向或边界用例
-4. 改已有接口、数据格式或 gate 时，保留旧路径或混合新旧输入的兼容用例
-5. 检查自己的改动是否引入新的 warning/error
-
-**Gate 条件：** 测试通过 + 无新 warning
-
-**铁律：** NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-
-## Layer 2: Verification Loop
-
-**谁执行：** 自动化工具（不依赖 LLM 判断）
-**何时执行：** Agent 自验通过后，进入下一层前
-
-```
-Phase 1: Build        {{构建命令}}
-Phase 2: Type Check   {{类型检查命令}}
-Phase 3: Lint         {{lint 命令}}
-Phase 4: Test         {{测试命令}} --coverage
-Phase 5: Security     基础秘钥扫描 + {{安全工具}}
+Phase 1: Build        {{构建命令 | N/A(未配置)}}
+Phase 2: Type Check   {{类型检查命令 | N/A(未配置)}}
+Phase 3: Lint         {{lint 命令 | N/A(未配置)}}
+Phase 4: Test         {{测试命令 | N/A(未配置)}}
+Phase 5: Security     基础秘钥扫描 + {{安全工具 | N/A(未配置)}}
 Phase 6: Diff         git diff --stat
 ```
 
-**Gate 条件：** 6 项全部 PASS
+**Gate 条件：** 所有非 N/A 且与本次变更相关的项 PASS。N/A 项不计入 Gate。
 
 **输出格式：**
 
 ```
 VERIFICATION REPORT
 ===================
-Build:     [PASS/FAIL]
-Types:     [PASS/FAIL] (N errors)
-Lint:      [PASS/FAIL] (N warnings)
-Tests:     [PASS/FAIL] (X/Y passed, Z% coverage)
+Build:     [PASS/FAIL/N-A]
+Types:     [PASS/FAIL/N-A] (N errors)
+Lint:      [PASS/FAIL/N-A] (N warnings)
+Tests:     [PASS/FAIL/N-A] (X/Y passed, Z% coverage)
 Security:  [PASS/FAIL] (N issues)
 Diff:      [N files changed, +X/-Y lines]
 
 Overall:   [READY/NOT READY]
 ```
 
-## Layer 3: Spec Compliance Review
+产出写入 `.harness/verify-evidence.md` 或 `.harness/verify-evidence.json`（verification-gate / delivery-gate 据此放行）。
 
-**谁执行：** 独立的 Reviewer Agent（不是写代码的那个 Agent）
-**何时执行：** Verification Loop 全部 PASS 后
+## Layer 3: Spec Compliance Review（升级档）
 
-1. Reviewer 收到：需求规格 + Agent 的代码变更
+**谁执行：** 独立的 Reviewer Agent（不是写代码的那个实例）。
+
+1. Reviewer 收到：需求规格 + 代码变更
 2. 逐项对照规格检查
-3. 输出结构化报告
+3. **Coverage-first 输出**：报告所有发现（含低置信度），标注 confidence + severity，禁止发现阶段自我过滤——过滤是下游（人或第二轮）的事
 4. 检查是否有项目专属默认约束污染通用规则或模板
 
-**关键设计：Reviewer ≠ Author**
+**关键设计：Reviewer ≠ Author**（不同 Agent 实例、独立上下文，消除 author-bias）
 
-写代码的 Agent 和做 review 的 Agent 必须是不同的 Agent 实例（独立上下文）。这消除了 author-bias。
+**Gate 条件：** 所有规格项 PASS（filtered findings 处理完毕）
 
-**Gate 条件：** 所有规格项 PASS
+## Layer 4: Santa Method（最高档：对抗验证）
 
-## Layer 4: Santa Method（对抗验证）
-
-**谁执行：** 两个独立的 Reviewer Agent（互相不知道对方的存在）
-**何时执行：** 高风险产出物、生产部署前、复杂逻辑变更
+**谁执行：** 两个独立 Reviewer Agent（互相不知道对方存在，相同 rubric）。
 
 ```
-Phase 1: Make a List
-  Generator Agent 完成实现
-
-Phase 2: Check It Twice
-  Reviewer A 和 Reviewer B 独立审查
-
-Phase 3: Naughty or Nice
-  A passes AND B passes → NICE → 进入 Layer 5
-  否则 → NAUGHTY → 进入 Fix Cycle
-
-Phase 4: Fix Until Nice
-  收集所有 issue → Fix Agent 修复 → 重新双 Review
-  最多 3 轮。超过 3 轮 → 升级给人工处理
+Phase 1: Make a List      Generator Agent 完成实现
+Phase 2: Check It Twice   Reviewer A / B 独立审查（coverage-first，同 Layer 3 要求）
+Phase 3: Naughty or Nice  A PASS 且 B PASS → NICE；否则 NAUGHTY → Fix Cycle
+Phase 4: Fix Until Nice   Fix Agent 修复 → 全新 Reviewer 重审，最多 3 轮，超过升级人工
 ```
 
-**关键不变量：**
-- 上下文隔离：两个 Reviewer 互不可见
-- 相同 rubric：评审标准一致
-- 都必须通过：一个发现问题就算 NAUGHTY
-- Fresh Agent per round：每轮修复后必须用全新 Reviewer Agent 重审
-
-**何时跳过 Layer 4：**
-- 低风险改动（文档、配置、格式化）
-- 已有充分的自动化测试覆盖
-- 跳过时需要记录降级决策
+**关键不变量：** 上下文隔离 / 相同 rubric / 都必须通过 / Fresh Agent per round。
 
 ## Layer 5: Human Final Review
 
-**谁执行：** 人
-**何时执行：** Layer 4 通过后（或 Layer 3 通过后如果跳过了 Layer 4）
+**谁执行：** 人，交付前。
 
-交付前 5 项复盘清单：
-
-1. **流程合规**：是否按 6 阶段 Loop 执行？是否有跳过的阶段？
-2. **QA 达标**：各层 QA 报告是否完整？量化指标是否达标？
-3. **需求完整**：用户/产品的所有需求点是否全部处理？
-4. **规则升级**：过程中发现的新问题是否已写入 constraints.md？
-5. **改进机会**：哪些步骤下次可以优化？
+1. **QA 达标**：本次风险档位对应的层级是否完成？证据是否量化？
+2. **需求完整**：所有需求点是否处理？
+3. **规则升级**：新问题是否写入 constraints.md？
+4. **改进机会**：哪些步骤下次可优化？
 
 ## 量化指标体系
 
 | 指标 | 含义 | 目标 |
 |------|------|------|
 | pass@1 | 一次就通过的比例 | >70% |
-| pass@3 | 三次内通过的比例 | >90% |
 | First-pass rate | Santa 第一轮通过率 | >70% |
 | Mean iterations | 平均修复轮数 | <1.5 |
 | Escape rate | 上线后发现问题 | 0 |
 | Coverage | 测试覆盖率 | ≥ {{80}}% |
+| Hook deny/轮 | light 模式下 hook 阻断次数 | ≈0（仅证据/安全类） |
 
 ## 核心指标（项目定制）
 
 | 指标 | 阈值 | 度量方法 |
 |------|------|---------|
-| 测试覆盖率 | ≥ {{80}}% | `{{测试覆盖率命令}}` |
-| 构建成功 | exit code 0 | `{{构建命令}}` |
-| Lint 错误 | 0 | `{{lint 命令}}` |
-| 类型错误 | 0 | `{{类型检查命令}}` |
+| 测试覆盖率 | ≥ {{80}}% | `{{测试覆盖率命令 | N/A(未配置)}}` |
+| 构建成功 | exit code 0 | `{{构建命令 | N/A(未配置)}}` |
+| Lint 错误 | 0 | `{{lint 命令 | N/A(未配置)}}` |
+| 类型错误 | 0 | `{{类型检查命令 | N/A(未配置)}}` |
 | 安全扫描 | 0 critical | `grep -rn "sk-\|api_key\|password" {{源码目录}}/` |
 
 > 上面的 `{{占位符}}` 在 init 时由 AI 按项目实际情况替换。
-> 如果项目暂未配置某工具（如 lint 或 coverage），标注"待配置"或写入 limitations；不得把 SKIP/DEGRADED 写成 PASS，也不得声称覆盖率 80% 已被证明。
+> 如果项目暂未配置某工具（如 lint 或 coverage），标 N/A 并从 Gate 移除，或写入 limitations；不得把 SKIP/DEGRADED 写成 PASS，也不得声称覆盖率 {{80}}% 已被证明。
