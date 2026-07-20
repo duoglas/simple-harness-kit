@@ -821,14 +821,14 @@ function enforceVerifyGateIfNeeded(newData, input) {
   const afterExecute = history.slice(lastExecuteIdx + 1).map(h => h.stage);
   if (afterExecute.includes('VERIFY')) return; // 已经过 VERIFY，放行
 
-  // 检查是否有豁免理由
-  try {
-    const newContent = JSON.parse(String(input?.tool_input?.content || '{}'));
-    if (newContent.reason && /探索|调研|研究|spike|探针|非开发|记录|memory|反馈/.test(newContent.reason)) {
-      process.stderr.write('[Harness Stage Guard] VERIFY gate 豁免：reason 字段包含探索/调研/非开发关键词。\n');
-      return;
-    }
-  } catch {}
+  // 检查是否有豁免理由。统一消费上层已解析校验过的 newData
+  // （Write 走 validateStageWrite、apply_patch 走 extractStageDataFromPatch），
+  // 不能重新解析 tool_input.content——apply_patch 输入没有该字段，会让豁免永远失效
+  const reason = String(newData.reason || '');
+  if (reason && /探索|调研|研究|spike|探针|非开发|记录|memory|反馈/.test(reason)) {
+    process.stderr.write('[Harness Stage Guard] VERIFY gate 豁免：reason 字段包含探索/调研/非开发关键词。\n');
+    return;
+  }
 
   if (input && input.hook_event_name === 'PreToolUse') {
     return denyPreToolUse(input, VERIFY_GATE_BLOCK);
