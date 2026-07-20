@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`shk verify --risk release` 恒 NOT_READY 自锁（C-GATE-09，VH-27）**: `makeEvidence` 把 release 必需的 `spec` / `santa` 恒置为 SKIP 占位符，而 release 判定要求全部必需项 PASS，导致自动化检查全 PASS 也永远 NOT_READY，并经 doctor 的 verify-evidence 检查级联成自举死锁。现在 `spec` 消费 `checks.spec_status` 的真实结果；`santa` 这类只能 agent/human review 的占位 SKIP 不再阻断 release，但必须进入 `limitations`（`claims_ready:false`）留痕，不能伪装成 PASS 证据；真实 FAIL / DEGRADED 以及必需项真实跑出的 SKIP / WARN 仍然阻断（宁可拦）。判定逻辑抽为 `computeEvidenceOverall` 并补「全 PASS → READY」「santa 占位进 limitations 而非 failed」回归测试。
+- **release 命令结果裸词误降级（C-GATE-11，VH-27）**: `normalizeReleaseCommandResult` 用 `\bDEGRADED\b` / `\bSKIP\b` / `\bWARN\b` 裸词匹配日志尾部，exit 0 的成功命令只要日志含 "0 WARN"、"期望 FAIL 或显式 DEGRADED" 之类叙述文字就被降级。改为与 `tests/pre-release-check.sh` `status_from_log` 相同的结构化匹配（`STATUS[:：]` 前缀 / `[STATUS]` 标签 / `overall=STATUS`），并同步识别结构化 FAIL 标记（rc=0 但日志有 `FAIL:` 也判 FAIL）。补叙述文字不降级 + 结构化标记正确降级的回归测试。
+- **VERIFY gate 豁免读错来源（C-GATE-17，VH-27）**: `harness-stage-guard.js` 的 `enforceVerifyGateIfNeeded` 重新解析 `tool_input.content` 取豁免 reason，Codex `apply_patch` 阶段切换路径没有该字段，豁免永远失效——Write 用户能靠探索/调研类 reason 豁免，apply_patch 用户不能。改为统一消费上层已解析校验过的 `newData.reason`，Write 与 apply_patch 行为一致；补 apply_patch 携带豁免 reason 放行 / 无豁免仍阻止两个回归场景。
+- **`status_from_log` 缺 FAIL 文本分支（C-GATE-09/11，VH-27）**: `tests/pre-release-check.sh` 的 FAIL 只靠 `rc -ne 0` 判定，required 脚本打印 `FAIL: ...` 但忘了 `exit 1` 会被判 PASS（v0.8.6 同型故障）。`status_from_log` 补结构化 FAIL 分支（与其他状态相同的三种形式，rc=0 + FAIL 标记 → FAIL），并新增「任一 blocker → 整体 exit 1 + NOT_READY」的 shell 级负向测试（真实 bare repo 跑脚本）。
+
 ## [0.11.0] - 2026-07-07
 
 > 本版本聚合 2026-06-06 裁定的 Phase 2 内容与其后合入 master 的全部变更（真实 agent-driven 验收、B2B-71 通知门、EXECUTE 中段守门、Codex 0.142.x 适配），此前未打过 v0.11.0 tag。

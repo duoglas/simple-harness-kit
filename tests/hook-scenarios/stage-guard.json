@@ -1467,6 +1467,49 @@
     }
   },
   {
+    "name": "stage-guard (C-GATE-17): apply_patch EXECUTE 后无 VERIFY 切 PLAN 无豁免 → 阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "patch": "*** Begin Patch\n*** Update File: .harness/current-stage.json\n@@\n-{\"stage\":\"EXECUTE\",\"since\":\"old\",\"task\":\"test\"}\n+{\"stage\":\"PLAN\",\"since\":\"now\",\"task\":\"next round\"}\n*** End Patch\n"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/stage-history.jsonl": "{\"stage\":\"PLAN\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:10:00Z\"}\n"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": [
+        "切换到 PLAN 被阻止",
+        "C-GATE-17"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard (C-GATE-17): apply_patch 切 PLAN + reason 含调研豁免词 → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "apply_patch",
+      "tool_input": {
+        "patch": "*** Begin Patch\n*** Update File: .harness/current-stage.json\n@@\n-{\"stage\":\"EXECUTE\",\"since\":\"old\",\"task\":\"test\"}\n+{\"stage\":\"PLAN\",\"since\":\"now\",\"task\":\"survey\",\"reason\":\"纯调研任务，无产物需要验证\"}\n*** End Patch\n"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}",
+      ".harness/stage-history.jsonl": "{\"stage\":\"PLAN\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:10:00Z\"}\n"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "VERIFY gate 豁免"
+      ]
+    }
+  },
+  {
     "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到 50 次阈值 → 阻止",
     "hook": "harness-stage-guard.js",
     "stdin": {

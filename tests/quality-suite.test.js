@@ -1203,46 +1203,158 @@ function testVerifyReleaseConsumesRequiredEvidenceSet() {
   }
 }
 
+// T1 (C-GATE-09): 构造 release 必需项全部 PASS 的 checks 集合。
+// santa 只能由 agent/human review 完成，verify 自动化只能留结构化占位 SKIP。
+function releaseAllPassChecks() {
+  const checks = {};
+  for (const name of [
+    'build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e',
+    'runtime', 'runtime_selftest', 'doctor', 'dogfood_oss', 'upstream_dogfood',
+    'browser_e2e_dogfood', 'clean_tree', 'upstream',
+  ]) {
+    checks[name] = { status: 'PASS', command: 'stub' };
+  }
+  checks.santa = { status: 'SKIP', command: '', reason: 'santa requires agent/human review', agent_review_required: true };
+  return checks;
+}
+
+function testVerifyReleaseReadyWhenAutomatedChecksAllPass() {
+  const { computeEvidenceOverall } = require(SHK);
+  assert.strictEqual(typeof computeEvidenceOverall, 'function', 'shk.js must export computeEvidenceOverall');
+  // 全部可自动化检查 PASS + santa agent-review 占位 SKIP → release 必须能 READY
+  assert.strictEqual(computeEvidenceOverall(releaseAllPassChecks(), 'release'), 'READY');
+}
+
+function testVerifyReleaseStillBlocksRealNonPassRequiredEvidence() {
+  const { computeEvidenceOverall } = require(SHK);
+  // 真实 WARN / SKIP / DEGRADED 仍必须阻断 release（宁可拦，C-GATE-09）
+  const doctorWarn = releaseAllPassChecks();
+  doctorWarn.doctor = { status: 'WARN', command: 'node scripts/shk.js doctor --format json' };
+  assert.strictEqual(computeEvidenceOverall(doctorWarn, 'release'), 'NOT_READY', 'doctor WARN 必须阻断 release');
+  const coverageSkip = releaseAllPassChecks();
+  coverageSkip.coverage = { status: 'SKIP', command: '', reason: 'not configured' };
+  assert.strictEqual(computeEvidenceOverall(coverageSkip, 'release'), 'NOT_READY', '必需项真实 SKIP 必须阻断 release');
+  const runtimeDegraded = releaseAllPassChecks();
+  runtimeDegraded.runtime = { status: 'DEGRADED', command: 'bash tests/codex-smoke.sh' };
+  assert.strictEqual(computeEvidenceOverall(runtimeDegraded, 'release'), 'NOT_READY', 'DEGRADED 必须阻断 release');
+}
+
+function testVerifyReleaseSpecConsumesSpecStatusAndSantaLimitation() {
+  const dir = tmpProject();
+  try {
+    const { makeEvidence } = require(SHK);
+    const evidence = makeEvidence(dir, 'release');
+    // spec 必需项必须消费 checks.spec_status 的真实结果（此处缺 iteration spec → FAIL），
+    // 不能用恒 SKIP 占位符顶替
+    assert.strictEqual(evidence.checks.spec_status.status, 'FAIL', JSON.stringify(evidence.checks.spec_status));
+    assert.strictEqual(evidence.checks.spec.status, evidence.checks.spec_status.status, JSON.stringify(evidence.checks.spec));
+    // santa 占位保持 SKIP（不伪装成 PASS 证据），且必须进入 limitations（claims_ready:false）
+    assert.strictEqual(evidence.checks.santa.status, 'SKIP');
+    assert.ok(
+      evidence.limitations.some(item => item.check === 'santa' && item.claims_ready === false),
+      JSON.stringify(evidence.limitations)
+    );
+    assert.strictEqual(evidence.overall, 'NOT_READY');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// T2 (C-GATE-11): release 命令结果归一化只认结构化状态行，叙述文字不降级
+function testNormalizeReleaseCommandIgnoresNarrativeStatusWords() {
+  const { normalizeReleaseCommandResult } = require(SHK);
+  assert.strictEqual(typeof normalizeReleaseCommandResult, 'function', 'shk.js must export normalizeReleaseCommandResult');
+  const res = normalizeReleaseCommandResult({
+    status: 'PASS',
+    stdout_tail: '注入坏 hook，期望 codex-smoke.sh FAIL 或显式 DEGRADED...\nsummary: 0 WARN, 0 SKIP issues\nall assertions passed',
+    stderr_tail: '',
+  });
+  assert.strictEqual(res.status, 'PASS', `叙述性状态词不得降级 exit 0 的成功命令，实际 ${res.status}`);
+  assert.strictEqual(res.release_required, true);
+}
+
+function testNormalizeReleaseCommandDowngradesStructuredStatusMarkers() {
+  const { normalizeReleaseCommandResult } = require(SHK);
+  // C-GATE-11 结构化三形式（STATUS[:：] 前缀 / [STATUS] 标签 / overall=STATUS）仍必须正确降级
+  const cases = [
+    { tail: '[codex-smoke] DEGRADED: sentinel hook 未执行', expected: 'DEGRADED' },
+    { tail: 'DEGRADED：sentinel hook 未执行（全角冒号）', expected: 'DEGRADED' },
+    { tail: '[SKIP] missing npm proof', expected: 'SKIP' },
+    { tail: 'overall=WARN', expected: 'WARN' },
+    { tail: '[17-oss-dogfood] FAIL: assertion broken but forgot exit 1', expected: 'FAIL' },
+  ];
+  for (const c of cases) {
+    const res = normalizeReleaseCommandResult({ status: 'PASS', stdout_tail: c.tail, stderr_tail: '' });
+    assert.strictEqual(res.status, c.expected, `${JSON.stringify(c.tail)} → ${res.status}, 期望 ${c.expected}`);
+  }
+}
+
 function writeExecutable(file, body) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, body);
   fs.chmodSync(file, 0o755);
 }
 
-function testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream() {
+// pre-release-check.sh 真实 bare repo 测试夹具：release 分支跟踪同名 upstream，
+// 所有 required 脚本默认打印 PASS。overrides 可以按相对路径替换脚本内容
+// （用于负向测试注入 FAIL/SKIP 等场景）。
+function setupPreReleaseFixture(overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-pre-release-'));
   const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-pre-release-origin-'));
+  fs.mkdirSync(path.join(dir, 'tests/scripts'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+  fs.copyFileSync(PRE_RELEASE_CHECK, path.join(dir, 'tests/pre-release-check.sh'));
+  fs.chmodSync(path.join(dir, 'tests/pre-release-check.sh'), 0o755);
+
+  const scriptBodies = {
+    'tests/run.js': '#!/usr/bin/env node\nconsole.log("Total: 1 passed, 0 failed, 1 total");\n',
+    'tests/scripts/17-oss-dogfood-validation.sh': '#!/bin/bash\necho "PASS: dogfood"\n',
+    'tests/scripts/18-upstream-ci-dogfood.sh': '#!/bin/bash\necho "PASS: dogfood"\n',
+    'tests/scripts/19-browser-e2e-dogfood.sh': '#!/bin/bash\necho "PASS: dogfood"\n',
+    'tests/codex-smoke.sh': '#!/bin/bash\necho "PASS: codex smoke"\n',
+    'tests/codex-smoke-selftest.sh': '#!/bin/bash\necho "PASS: codex selftest"\n',
+    'scripts/shk.js': '#!/usr/bin/env node\nconsole.log(JSON.stringify({ overall: "PASS", checks: [{ id: "ok", status: "PASS", message: "ok" }] }));\n',
+    ...overrides,
+  };
+  for (const [relPath, body] of Object.entries(scriptBodies)) {
+    writeExecutable(path.join(dir, relPath), body);
+  }
+
+  spawnSync('git', ['init', '--bare', bare], { encoding: 'utf8' });
+  spawnSync('git', ['init', '-b', 'release/b2b-test', dir], { encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf8' });
+  spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf8' });
+  spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf8' });
+  spawnSync('git', ['commit', '-m', 'test fixture'], { cwd: dir, encoding: 'utf8' });
+  spawnSync('git', ['remote', 'add', 'origin', bare], { cwd: dir, encoding: 'utf8' });
+  spawnSync('git', ['push', '-u', 'origin', 'release/b2b-test'], { cwd: dir, encoding: 'utf8' });
+  return { dir, bare };
+}
+
+function testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream() {
+  const { dir, bare } = setupPreReleaseFixture();
   try {
-    fs.mkdirSync(path.join(dir, 'tests/scripts'), { recursive: true });
-    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
-    fs.copyFileSync(PRE_RELEASE_CHECK, path.join(dir, 'tests/pre-release-check.sh'));
-    fs.chmodSync(path.join(dir, 'tests/pre-release-check.sh'), 0o755);
-
-    writeExecutable(path.join(dir, 'tests/run.js'), '#!/usr/bin/env node\nconsole.log("Total: 1 passed, 0 failed, 1 total");\n');
-    for (const script of [
-      '17-oss-dogfood-validation.sh',
-      '18-upstream-ci-dogfood.sh',
-      '19-browser-e2e-dogfood.sh',
-    ]) {
-      writeExecutable(path.join(dir, 'tests/scripts', script), '#!/bin/bash\necho "PASS: dogfood"\n');
-    }
-    writeExecutable(path.join(dir, 'tests/codex-smoke.sh'), '#!/bin/bash\necho "PASS: codex smoke"\n');
-    writeExecutable(path.join(dir, 'tests/codex-smoke-selftest.sh'), '#!/bin/bash\necho "PASS: codex selftest"\n');
-    writeExecutable(path.join(dir, 'scripts/shk.js'), '#!/usr/bin/env node\nconsole.log(JSON.stringify({ overall: "PASS", checks: [{ id: "ok", status: "PASS", message: "ok" }] }));\n');
-
-    spawnSync('git', ['init', '--bare', bare], { encoding: 'utf8' });
-    spawnSync('git', ['init', '-b', 'release/b2b-test', dir], { encoding: 'utf8' });
-    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf8' });
-    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf8' });
-    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf8' });
-    spawnSync('git', ['commit', '-m', 'test fixture'], { cwd: dir, encoding: 'utf8' });
-    spawnSync('git', ['remote', 'add', 'origin', bare], { cwd: dir, encoding: 'utf8' });
-    spawnSync('git', ['push', '-u', 'origin', 'release/b2b-test'], { cwd: dir, encoding: 'utf8' });
-
     const res = runBash(path.join(dir, 'tests/pre-release-check.sh'), [], { cwd: dir });
     assert.strictEqual(res.status, 0, res.stdout + res.stderr);
     assert.ok(res.stdout.includes('Pre-Release Check: READY'), res.stdout);
     assert.ok(res.stdout.includes('upstream sync'), res.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(bare, { recursive: true, force: true });
+  }
+}
+
+// T4 (C-GATE-09/11): required 脚本打印结构化 FAIL 文本但忘了 exit 1（v0.8.6 同型故障），
+// 整体必须 NOT_READY 且 exit 1——「任一 blocker → 整体 exit 1」的 shell 级负向测试
+function testPreReleaseCheckBlocksRequiredFailTextWithExitZero() {
+  const { dir, bare } = setupPreReleaseFixture({
+    'tests/scripts/17-oss-dogfood-validation.sh': '#!/bin/bash\necho "FAIL: oss dogfood assertion broken"\nexit 0\n',
+  });
+  try {
+    const res = runBash(path.join(dir, 'tests/pre-release-check.sh'), [], { cwd: dir });
+    assert.strictEqual(res.status, 1, `rc=0 + FAIL 文本必须导致整体 exit 1\n${res.stdout}${res.stderr}`);
+    assert.ok(res.stdout.includes('Pre-Release Check: NOT_READY'), res.stdout);
+    assert.ok(res.stdout.includes('FAIL: 2. 17 OSS dogfood'), res.stdout);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(bare, { recursive: true, force: true });
@@ -1799,7 +1911,13 @@ const tests = [
   testVerificationGateRejectsNotSufficientEvidence,
   testVerificationGateRejectsReleaseTagWithoutE2ESufficiency,
   testVerifyReleaseConsumesRequiredEvidenceSet,
+  testVerifyReleaseReadyWhenAutomatedChecksAllPass,
+  testVerifyReleaseStillBlocksRealNonPassRequiredEvidence,
+  testVerifyReleaseSpecConsumesSpecStatusAndSantaLimitation,
+  testNormalizeReleaseCommandIgnoresNarrativeStatusWords,
+  testNormalizeReleaseCommandDowngradesStructuredStatusMarkers,
   testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream,
+  testPreReleaseCheckBlocksRequiredFailTextWithExitZero,
   testVerifyWritesEvidence,
   testVerificationGateRejectsFailEvidence,
   testVerificationGateAcceptsReadyEvidence,

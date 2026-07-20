@@ -1328,12 +1328,22 @@ function releaseCommandTimeout(check) {
   return 120000;
 }
 
+// 只认结构化状态行（"STATUS[:：]" 前缀 / "[STATUS]" 标签 / "overall=STATUS"），
+// 与 tests/pre-release-check.sh 的 status_from_log 同一套匹配规则（C-GATE-11）。
+// 裸词匹配会把叙述文字（如 selftest 横幅"期望 FAIL 或显式 DEGRADED..."、"0 WARN"）
+// 误当成语义证据，导致 exit 0 的成功命令被降级。
+function outputHasStructuredStatus(out, status) {
+  return new RegExp(`\\b${status}[:：]|\\[${status}\\]|overall=${status}\\b`).test(out);
+}
+
 function normalizeReleaseCommandResult(result) {
   const out = String(result.stdout_tail || '') + '\n' + String(result.stderr_tail || '');
   if (result.status === 'PASS') {
-    if (/\bDEGRADED\b/.test(out)) result.status = 'DEGRADED';
-    else if (/\bSKIP\b/.test(out)) result.status = 'SKIP';
-    else if (/\bWARN\b/.test(out)) result.status = 'WARN';
+    // FAIL 优先：脚本打印结构化 FAIL 标记但忘了 exit 1 不能被当作 PASS（v0.8.6 同型故障）
+    if (outputHasStructuredStatus(out, 'FAIL')) result.status = 'FAIL';
+    else if (outputHasStructuredStatus(out, 'DEGRADED')) result.status = 'DEGRADED';
+    else if (outputHasStructuredStatus(out, 'SKIP')) result.status = 'SKIP';
+    else if (outputHasStructuredStatus(out, 'WARN')) result.status = 'WARN';
   }
   result.release_required = true;
   return result;
@@ -1350,6 +1360,33 @@ function doctorEvidenceCheck(root) {
       ? 'doctor PASS'
       : `doctor ${report.overall}: ${report.checks.filter(c => c.status !== 'PASS').map(c => `${c.id}=${c.status}`).join(', ')}`,
   };
+}
+
+// 只能由 agent/human review 完成的检查：自动化 verify 跑不出真实结果，
+// 只能留结构化占位 SKIP（agent_review_required:true）。占位不算 release 失败，
+// 但必须进 limitations（claims_ready:false），不能伪装成 PASS 证据。
+const AGENT_REVIEW_ONLY_CHECKS = new Set(['santa']);
+
+function isAgentReviewPlaceholder(name, check) {
+  return AGENT_REVIEW_ONLY_CHECKS.has(name)
+    && !!check && check.status === 'SKIP'
+    && check.agent_review_required === true;
+}
+
+// evidence overall 判定（C-GATE-09）：
+// - 任何检查真实 FAIL / DEGRADED → 失败
+// - release 必需项非 PASS（真实跑出的 SKIP/WARN 也算）→ 失败，宁可拦
+// - 例外：agent/human review 占位 SKIP（如 santa）不阻断，否则 release 恒 NOT_READY 自锁
+function computeEvidenceOverall(checks, risk) {
+  const notSufficient = Object.values(checks).some(c => c && c.overall === 'NOT_SUFFICIENT');
+  const releaseRequired = new Set(risk === 'release' ? RISK_CHECKS.release : []);
+  const failed = Object.entries(checks).some(([name, c]) => {
+    if (!c) return false;
+    if (c.status === 'FAIL' || c.status === 'DEGRADED') return true;
+    if (!releaseRequired.has(name) || c.status === 'PASS') return false;
+    return !isAgentReviewPlaceholder(name, c);
+  });
+  return failed ? (notSufficient ? 'NOT_SUFFICIENT' : 'NOT_READY') : 'READY';
 }
 
 function makeEvidence(root, risk) {
@@ -1387,7 +1424,8 @@ function makeEvidence(root, risk) {
         checks[check] = normalizeReleaseCommandResult(checks[check]);
       }
     }
-    else checks[check] = { status: 'SKIP', command: '', reason: `${check} requires agent/human review` };
+    else if (check === 'spec') continue; // spec 消费下方 spec_status 的真实结果，不用占位符
+    else checks[check] = { status: 'SKIP', command: '', reason: `${check} requires agent/human review`, agent_review_required: true };
   }
   if (required.includes('e2e')) {
     const sufficiency = e2eSufficiencyAssess(root, risk, checks.e2e);
@@ -1419,6 +1457,15 @@ function makeEvidence(root, risk) {
       summary: effectiveness.human_summary,
     };
   }
+  // spec 必需项消费 spec_status 的真实结果（恒 SKIP 占位符会让 release 永远 NOT_READY，C-GATE-09）
+  if (required.includes('spec') && checks.spec_status) {
+    checks.spec = {
+      status: checks.spec_status.status,
+      command: `node scripts/shk.js spec status --risk ${risk}`,
+      overall: checks.spec_status.overall,
+      summary: checks.spec_status.summary,
+    };
+  }
   const limitations = [];
   if (checks.coverage && checks.coverage.status === 'SKIP') {
     limitations.push({
@@ -1446,13 +1493,17 @@ function makeEvidence(root, risk) {
       summary: 'Runtime/Codex smoke is DEGRADED and cannot be reported as READY evidence.',
     });
   }
-  const notSufficient = Object.values(checks).some(c => c && c.overall === 'NOT_SUFFICIENT');
-  const releaseRequired = new Set(risk === 'release' ? RISK_CHECKS.release : []);
-  const failed = Object.entries(checks).some(([name, c]) => {
-    if (!c) return false;
-    if (c.status === 'FAIL' || c.status === 'DEGRADED') return true;
-    return releaseRequired.has(name) && c.status !== 'PASS';
-  });
+  // santa 占位 SKIP 不阻断 release（见 computeEvidenceOverall），但必须作为
+  // limitation 留痕（claims_ready:false），不能伪装成 PASS 证据
+  if (isAgentReviewPlaceholder('santa', checks.santa)) {
+    limitations.push({
+      check: 'santa',
+      status: 'SKIP',
+      claims_ready: false,
+      reason: checks.santa.reason || 'santa requires agent/human review',
+      summary: 'Santa adversarial review requires agent/human review; this run does not claim santa PASS evidence.',
+    });
+  }
   return {
     schema_version: '1.0',
     task_id: process.env.SHK_TASK_ID || path.basename(root),
@@ -1462,7 +1513,7 @@ function makeEvidence(root, risk) {
     completed_at: new Date().toISOString(),
     checks,
     limitations,
-    overall: failed ? (notSufficient ? 'NOT_SUFFICIENT' : 'NOT_READY') : 'READY',
+    overall: computeEvidenceOverall(checks, risk),
   };
 }
 
@@ -2036,6 +2087,8 @@ if (require.main === module) process.exit(main());
 module.exports = {
   projectRoot,
   makeEvidence,
+  computeEvidenceOverall,
+  normalizeReleaseCommandResult,
   doctorReport,
   expandProfile,
   runSecurityScan,

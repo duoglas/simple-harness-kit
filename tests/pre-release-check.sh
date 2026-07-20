@@ -61,6 +61,10 @@ status_from_log() {
   local log="$2"
   if [ "$rc" -ne 0 ]; then
     echo "FAIL"
+  elif grep -qE '\bFAIL[:：]|\[FAIL\]|overall=FAIL\b' "$log"; then
+    # rc=0 但日志有结构化 FAIL 标记：required 脚本打印 FAIL 却忘了 exit 1，
+    # 不能被判 PASS（v0.8.6 同型故障）
+    echo "FAIL"
   elif grep -qE '\bDEGRADED[:：]|\[DEGRADED\]|overall=DEGRADED\b' "$log"; then
     echo "DEGRADED"
   elif grep -qE '\bSKIP[:：]|\[SKIP\]|overall=SKIP\b' "$log"; then
