@@ -75,6 +75,35 @@ git -C ~/simple-harness-kit pull
 bash ~/simple-harness-kit/install.sh
 ```
 
+### 1.5 One-command upgrade for existing projects (curl | bash)
+
+Run a single command in the **root of an existing project** to bring its SHK up to the target version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/feat/new-gen-adaptation/upgrade.sh | bash
+```
+
+`upgrade.sh` does four things:
+
+1. **Locates the kit**: reads the `~/.simple-harness-kit-root` marker, falls back to `~/simple-harness-kit`, and **clones automatically if the kit was never installed** (works on a fresh machine);
+2. **Checks out the target version**: fetches, then checks out the script's built-in `DEFAULT_REF` (bumped per release; override with `--ref <tag|branch>` or the `SHK_REF` env var). **Aborts** if the kit worktree has uncommitted changes — your local edits are never overwritten;
+3. **Syncs the current project**: runs `update.sh --hooks`, which updates `scripts/hooks/` by `@version` comparison (new hooks are installed automatically, `scripts/lib` shared libs are synced), regenerates `.codex/hooks.json`, and refreshes installed global skills;
+4. **Safe fallback**: running it outside a project directory is harmless — it only updates global skills and tells you to re-run from a project root.
+
+Takes effect in the next session, zero configuration. Pin a specific version:
+
+```bash
+curl -fsSL .../upgrade.sh | bash -s -- --ref v0.12.0-rc.2
+```
+
+Rollback (back to stable master, re-sync):
+
+```bash
+KIT=$(cat ~/.simple-harness-kit-root 2>/dev/null || echo ~/simple-harness-kit) && git -C "$KIT" checkout master && git -C "$KIT" pull && bash "$KIT/update.sh" --hooks .
+```
+
+> Note: `update.sh` only syncs hooks and skills — it **never overwrites** your project's `.claude/rules/*` or `docs/constraints.md`. To adopt the new rule texts, copy them manually from `templates/rules/` and fill the placeholders.
+
 ### 2. Initialize each project once
 
 In the target project:
