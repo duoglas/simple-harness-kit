@@ -80,7 +80,7 @@ bash ~/simple-harness-kit/install.sh
 Run a single command in the **root of an existing project** to bring its SHK up to the target version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/feat/new-gen-adaptation/upgrade.sh | bash
+curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/master/upgrade.sh | bash
 ```
 
 `upgrade.sh` does four things:
@@ -93,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/feat/new
 Takes effect in the next session, zero configuration. Pin a specific version:
 
 ```bash
-curl -fsSL .../upgrade.sh | bash -s -- --ref v0.12.0-rc.2
+curl -fsSL .../upgrade.sh | bash -s -- --ref v0.13.0-rc.1
 ```
 
 Rollback (back to stable master, re-sync):

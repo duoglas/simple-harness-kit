@@ -66,6 +66,13 @@ const REQUIRED_RULE_TEMPLATES = {
     'F5',            // 五步完整性
     'Constraint',    // 规则沉淀
   ],
+  'model-profile.md.tmpl': [
+    '共享层',        // 两家通用原则
+    'Claude 轨',     // 何时用工具
+    'GPT 轨',        // 何时停止探索
+    'eagerness',     // GPT 方向标记
+    '停止条件',      // 任务描述结构
+  ],
   'harness-entry.md.tmpl': [
     'banner',
     '不需要也不应该复读',  // v2 关键行为：banner 由 hook 输出，AI 不复读

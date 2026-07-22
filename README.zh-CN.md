@@ -80,7 +80,7 @@ bash ~/simple-harness-kit/install.sh
 在**旧工程根目录**执行一条命令，把该工程的 SHK 升到目标版本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/feat/new-gen-adaptation/upgrade.sh | bash
+curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/master/upgrade.sh | bash
 ```
 
 `upgrade.sh` 会依次做四件事：
@@ -93,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/feat/new
 新 session 生效，零配置。指定版本示例：
 
 ```bash
-curl -fsSL .../upgrade.sh | bash -s -- --ref v0.12.0-rc.2
+curl -fsSL .../upgrade.sh | bash -s -- --ref v0.13.0-rc.1
 ```
 
 回滚（切回 master 稳定版并重新同步）：

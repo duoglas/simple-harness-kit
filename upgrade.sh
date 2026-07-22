@@ -2,11 +2,11 @@
 # Simple Harness Kit — 一键升级 bootstrap（curl | bash 入口）
 #
 # 用法（在旧工程根目录执行）:
-#   curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/feat/new-gen-adaptation/upgrade.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/master/upgrade.sh | bash
 #
 # 指定版本:
-#   curl -fsSL .../upgrade.sh | bash -s -- --ref v0.12.0-rc.2
-#   或: SHK_REF=v0.12.0-rc.2 curl -fsSL .../upgrade.sh | bash
+#   curl -fsSL .../upgrade.sh | bash -s -- --ref v0.13.0-rc.1
+#   或: SHK_REF=v0.13.0-rc.1 curl -fsSL .../upgrade.sh | bash
 #
 # 行为:
 #   1. 定位 kit（~/.simple-harness-kit-root marker 优先，缺省 ~/simple-harness-kit；不存在则 git clone）
@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-DEFAULT_REF="v0.12.0-rc.3"
+DEFAULT_REF="v0.13.0-rc.1"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 

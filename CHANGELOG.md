@@ -6,6 +6,20 @@
 
 ## [Unreleased]
 
+## [0.13.0-rc.1] - 2026-07-22（RC2 预发布，含 dogfood 反馈闭环）
+
+> 第二轮预发布（RC2）。0.12.0-rc 系列经 shk-workbench + android-ops（gpt-5.6-sol，2 天真实负载）dogfood 全指标达标后，本版把公开侧收敛合入 master，并落地 dogfood 暴露的三个反馈：门禁事件零持久化（验收只能人工推断）、harness-learn instinct 产出零语义、model-profile 未进 init 接线。
+
+### Added
+
+- **gate-events 遥测（B1）**: 新增 `.harness/gate-events.jsonl` 统一门禁事件落点（guard-mode.js 0.3.0 `appendGateEvent`）。五个守门 hook（stage-guard 0.13.0 / verification-gate 0.12.0 / delivery-gate 0.10.0 / safety-guard 0.9.0 / branch-policy-guard 0.11.0）在每次 **warn / deny / light-hint** 时追加结构化事件（gate、hook、mode、action、detail、session、stage）。只记门禁事件不记普通放行；写失败静默。验收指标从人工推断变为可机器度量（`rg -c '"action":"deny"' .harness/gate-events.jsonl`）。
+- **model-profile 进 init 最小配置（A）**: `.claude/rules/model-profile.md` 加入 required-wiring `required_files`，init-prompt.md 最小配置表同步，resources 副本一致，template-integrity 新增 5 锚点检查。新 init 项目自动获得双轨模型行为指引。
+
+### Changed
+
+- **harness-learn 0.9.0 重设计（B2）**: **移除 instinct 机制**——旧版按"工具选择需要纠偏"设计，对新一代模型产出零语义的工具连击统计（`bash→bash` 0.95 置信度），"晋升为 Rule 省 token"建议无效（android-ops dogfood 实证）。新分析维度全部消费 gate-events + stage-history：门禁触发统计、C-GATE-18 响应良性率（触发后 30 分钟内进 VERIFY）、交付修正率（delivery-gate deny 频率）、阈值余量分布（数据驱动的 execute_writes_block 调参建议）。高频修改文件分析保留。`--promote` 改为提示机制已移除。
+- **upgrade.sh / README**: curl 命令 URL 固化为 `master` 路径（合入 master 后的长期稳定命令）；`DEFAULT_REF` → `v0.13.0-rc.1`。
+
 ## [0.12.0-rc.3] - 2026-07-20（预发布 / prerelease）
 
 ### Changed
