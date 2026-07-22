@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
- * @version 0.13.0 (new-generation-agent: + gate-events 遥测)
+ * @version 0.13.1 (terminal apply_patch compatibility)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -269,6 +269,36 @@ function patchPayloadText(input) {
 
 function isPatchTool(toolName) {
   return toolName === 'apply_patch' || toolName === 'functions.apply_patch';
+}
+
+// Codex/IDE hosts do not always expose apply_patch as a native tool. Some only
+// provide a terminal executor, so the same patch arrives as one Bash command.
+// Accept only a single, bare apply_patch heredoc. Reject prefixes, suffixes,
+// pipelines and chained commands so this compatibility path cannot become a
+// general PLAN-stage shell escape hatch.
+function terminalApplyPatchPayload(input) {
+  const toolName = input && input.tool_name;
+  if (!['Bash', 'exec_command', 'functions.exec_command'].includes(toolName)) return null;
+  const command = String(input.tool_input?.command || input.tool_input?.cmd || '');
+  const match = command.match(
+    /^\s*apply_patch[ \t]+<<[ \t]*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))[ \t]*\r?\n([\s\S]*?)\r?\n([A-Za-z_][A-Za-z0-9_]*)[ \t]*$/
+  );
+  if (!match) return null;
+  const opener = match[1] || match[2] || match[3];
+  if (opener !== match[5]) return null;
+  const patch = match[4];
+  if (!patch.startsWith('*** Begin Patch\n') || !patch.endsWith('\n*** End Patch')) return null;
+  return patch + '\n';
+}
+
+function normalizeTerminalApplyPatch(input) {
+  const patch = terminalApplyPatchPayload(input);
+  if (!patch) return input;
+  return {
+    ...input,
+    tool_name: 'apply_patch',
+    tool_input: { patch },
+  };
 }
 
 function patchFileRefs(input) {
@@ -1014,7 +1044,9 @@ process.stdin.on('end', () => {
   let shouldBlock = false;
 
   try {
-    const input = JSON.parse(raw);
+    let input = JSON.parse(raw);
+
+    input = normalizeTerminalApplyPatch(input);
 
     // ── guard_mode 解析（strict/light 双模式）──
     const resolved = guardMode.resolveGuardMode(input, ROOT);
