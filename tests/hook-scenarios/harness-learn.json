@@ -1,25 +1,51 @@
 [
   {
-    "name": "harness-learn: observations → report + instincts",
+    "name": "harness-learn: gate-events → 质量回路报告（v0.9.0，无 instinct 产物）",
     "hook": "harness-learn.js",
     "setup": {
-      ".harness/observations.jsonl": "{\"t\":\"TS_OFFSET_-9M\",\"tool\":\"Read\",\"input\":\"README.md\"}\n{\"t\":\"TS_OFFSET_-8M\",\"tool\":\"Grep\",\"input\":\"pattern\"}\n{\"t\":\"TS_OFFSET_-7M\",\"tool\":\"Bash\",\"input\":\"node tests/run.js\"}\n{\"t\":\"TS_OFFSET_-6M\",\"tool\":\"Read\",\"input\":\"README.md\"}\n{\"t\":\"TS_OFFSET_-5M\",\"tool\":\"Grep\",\"input\":\"pattern\"}\n{\"t\":\"TS_OFFSET_-4M\",\"tool\":\"Bash\",\"input\":\"node tests/run.js\"}\n{\"t\":\"TS_OFFSET_-3M\",\"tool\":\"Read\",\"input\":\"README.md\"}\n{\"t\":\"TS_OFFSET_-2M\",\"tool\":\"Grep\",\"input\":\"pattern\"}\n{\"t\":\"TS_OFFSET_-1M\",\"tool\":\"Bash\",\"input\":\"node tests/run.js\"}\n{\"t\":\"TS_OFFSET_-50S\",\"tool\":\"Edit\",\"input\":\"scripts/hooks/harness-learn.js | patch\"}\n{\"t\":\"TS_OFFSET_-40S\",\"tool\":\"Edit\",\"input\":\"scripts/hooks/harness-learn.js | patch\"}\n{\"t\":\"TS_OFFSET_-30S\",\"tool\":\"Edit\",\"input\":\"scripts/hooks/harness-learn.js | patch\"}\n"
+      ".harness/observations.jsonl": "{\"t\":\"TS_OFFSET_-12M\",\"tool\":\"Read\",\"input\":\"README.md\"}\n{\"t\":\"TS_OFFSET_-11M\",\"tool\":\"Bash\",\"input\":\"node tests/run.js\"}\n{\"t\":\"TS_OFFSET_-10M\",\"tool\":\"Edit\",\"input\":\"merged/core.js | patch\"}\n{\"t\":\"TS_OFFSET_-9M\",\"tool\":\"Edit\",\"input\":\"merged/core.js | patch\"}\n{\"t\":\"TS_OFFSET_-8M\",\"tool\":\"Edit\",\"input\":\"merged/core.js | patch\"}\n{\"t\":\"TS_OFFSET_-7M\",\"tool\":\"Bash\",\"input\":\"git status\"}\n{\"t\":\"TS_OFFSET_-6M\",\"tool\":\"Read\",\"input\":\"docs/a.md\"}\n{\"t\":\"TS_OFFSET_-5M\",\"tool\":\"Bash\",\"input\":\"node x\"}\n{\"t\":\"TS_OFFSET_-4M\",\"tool\":\"Edit\",\"input\":\"merged/core.js | patch\"}\n{\"t\":\"TS_OFFSET_-3M\",\"tool\":\"Read\",\"input\":\"b.md\"}\n{\"t\":\"TS_OFFSET_-2M\",\"tool\":\"Bash\",\"input\":\"echo\"}\n{\"t\":\"TS_OFFSET_-1M\",\"tool\":\"Edit\",\"input\":\"scripts/x.js | patch\"}\n",
+      ".harness/gate-events.jsonl": "{\"t\":\"TS_OFFSET_-9M\",\"gate\":\"C-GATE-18\",\"hook\":\"stage-guard\",\"mode\":\"light\",\"action\":\"warn\",\"detail\":{\"count\":100,\"threshold\":200}}\n{\"t\":\"TS_OFFSET_-8M\",\"gate\":\"C-GATE-18\",\"hook\":\"stage-guard\",\"mode\":\"strict\",\"action\":\"deny\",\"detail\":{\"count\":200,\"threshold\":200}}\n{\"t\":\"TS_OFFSET_-5M\",\"gate\":\"dg-no-structured-evidence\",\"hook\":\"delivery-gate\",\"mode\":\"light\",\"action\":\"deny\"}\n",
+      ".harness/stage-history.jsonl": "{\"stage\":\"EXECUTE\",\"t\":\"TS_OFFSET_-10M\"}\n{\"stage\":\"VERIFY\",\"t\":\"TS_OFFSET_-7M\"}\n"
     },
     "expect": {
       "exitCode": 0,
-      "stdoutContains": ["分析完成: 12 条观察", "报告:"],
+      "stdoutContains": [
+        "分析完成",
+        "3 条门禁事件"
+      ],
       "files": {
         ".harness/learn-report.md": {
           "contains": [
-            "观察数据: 12 条",
-            "Read → Grep → Bash",
-            "scripts/hooks/harness-learn.js"
+            "质量回路（gate-events）",
+            "C-GATE-18 响应良性率",
+            "交付修正",
+            "阈值余量",
+            "merged/core.js"
+          ],
+          "containsNot": [
+            "instinct",
+            "Token 优化"
           ]
-        },
-        ".harness/instincts/read-grep-bash.json": {
+        }
+      }
+    }
+  },
+  {
+    "name": "harness-learn: 无门禁事件 → 报告标注两种可能（好信号或未升级）",
+    "hook": "harness-learn.js",
+    "setup": {
+      ".harness/observations.jsonl": "{\"t\":\"TS_OFFSET_-12M\",\"tool\":\"Bash\",\"input\":\"echo 0\"}\n{\"t\":\"TS_OFFSET_-11M\",\"tool\":\"Bash\",\"input\":\"echo 1\"}\n{\"t\":\"TS_OFFSET_-10M\",\"tool\":\"Bash\",\"input\":\"echo 2\"}\n{\"t\":\"TS_OFFSET_-9M\",\"tool\":\"Bash\",\"input\":\"echo 3\"}\n{\"t\":\"TS_OFFSET_-8M\",\"tool\":\"Bash\",\"input\":\"echo 4\"}\n{\"t\":\"TS_OFFSET_-7M\",\"tool\":\"Bash\",\"input\":\"echo 5\"}\n{\"t\":\"TS_OFFSET_-6M\",\"tool\":\"Bash\",\"input\":\"echo 6\"}\n{\"t\":\"TS_OFFSET_-5M\",\"tool\":\"Bash\",\"input\":\"echo 7\"}\n{\"t\":\"TS_OFFSET_-4M\",\"tool\":\"Bash\",\"input\":\"echo 8\"}\n{\"t\":\"TS_OFFSET_-3M\",\"tool\":\"Bash\",\"input\":\"echo 9\"}\n{\"t\":\"TS_OFFSET_-2M\",\"tool\":\"Bash\",\"input\":\"echo 10\"}\n{\"t\":\"TS_OFFSET_-1M\",\"tool\":\"Bash\",\"input\":\"echo 11\"}\n"
+    },
+    "expect": {
+      "exitCode": 0,
+      "files": {
+        ".harness/learn-report.md": {
           "contains": [
-            "\"trigger\": \"Read → Grep → Bash\"",
-            "\"type\": \"tool-sequence\""
+            "暂无门禁事件",
+            "好信号"
+          ],
+          "containsNot": [
+            "instinct"
           ]
         }
       }
