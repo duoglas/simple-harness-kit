@@ -6,6 +6,52 @@
 
 ## [Unreleased]
 
+## [0.13.0-rc.1] - 2026-07-22（RC2 预发布，含 dogfood 反馈闭环）
+
+> 第二轮预发布（RC2）。0.12.0-rc 系列经 shk-workbench + android-ops（gpt-5.6-sol，2 天真实负载）dogfood 全指标达标后，本版把公开侧收敛合入 master，并落地 dogfood 暴露的三个反馈：门禁事件零持久化（验收只能人工推断）、harness-learn instinct 产出零语义、model-profile 未进 init 接线。
+
+### Added
+
+- **gate-events 遥测（B1）**: 新增 `.harness/gate-events.jsonl` 统一门禁事件落点（guard-mode.js 0.3.0 `appendGateEvent`）。五个守门 hook（stage-guard 0.13.0 / verification-gate 0.12.0 / delivery-gate 0.10.0 / safety-guard 0.9.0 / branch-policy-guard 0.11.0）在每次 **warn / deny / light-hint** 时追加结构化事件（gate、hook、mode、action、detail、session、stage）。只记门禁事件不记普通放行；写失败静默。验收指标从人工推断变为可机器度量（`rg -c '"action":"deny"' .harness/gate-events.jsonl`）。
+- **model-profile 进 init 最小配置（A）**: `.claude/rules/model-profile.md` 加入 required-wiring `required_files`，init-prompt.md 最小配置表同步，resources 副本一致，template-integrity 新增 5 锚点检查。新 init 项目自动获得双轨模型行为指引。
+
+### Changed
+
+- **harness-learn 0.9.0 重设计（B2）**: **移除 instinct 机制**——旧版按"工具选择需要纠偏"设计，对新一代模型产出零语义的工具连击统计（`bash→bash` 0.95 置信度），"晋升为 Rule 省 token"建议无效（android-ops dogfood 实证）。新分析维度全部消费 gate-events + stage-history：门禁触发统计、C-GATE-18 响应良性率（触发后 30 分钟内进 VERIFY）、交付修正率（delivery-gate deny 频率）、阈值余量分布（数据驱动的 execute_writes_block 调参建议）。高频修改文件分析保留。`--promote` 改为提示机制已移除。
+- **upgrade.sh / README**: curl 命令 URL 固化为 `master` 路径（合入 master 后的长期稳定命令）；`DEFAULT_REF` → `v0.13.0-rc.1`。
+
+## [0.12.0-rc.3] - 2026-07-20（预发布 / prerelease）
+
+### Changed
+
+- **C-GATE-18 EXECUTE 写操作阈值 50 → 200，且可配置/可关闭（VH-28，用户反馈）**: 用户在真实工程 53 次写操作被拦，反馈阈值太小——新一代模型单轮长程自治运行中 50+ 次写操作是正常工作形态，不是失控信号。stage-guard 0.12.0 → 0.12.1：默认告警 100 / 硬阻止 200（strict；light 仅按告警间隔周期提醒不阻断）；`.harness/config.json` 的 `execute_writes_warn` / `execute_writes_block` 可自定义，设 0 关闭对应行为；阻止消息附带调整方法。`guard-mode.js` 0.2.0 新增 `readHarnessConfig` 共享配置读取。新增 5 个场景测试（含"53 次不再阻止"回归与 config 覆盖/关闭用例）。
+
+## [0.12.0-rc.2] - 2026-07-20（预发布 / prerelease，替代 rc.1）
+
+### Added
+
+- **`upgrade.sh` — curl | bash 一键升级入口**: 自举脚本，自动定位 kit（`~/.simple-harness-kit-root` marker 优先，缺省 `~/simple-harness-kit`，不存在则 clone）→ fetch + 切目标 ref（分支取远端最新 detached、tag 定点；kit 工作区脏则中止保护本地改动）→ 当前目录是 Harness 工程则 `update.sh --hooks` 同步 hooks + skills，否则仅更新 skills 并提示。支持 `--ref <tag|branch>` / `SHK_REF` 覆盖（默认 `v0.12.0-rc.2`，随 release 更新）。`upgrade.sh` 已加入 verification-gate 的 USER_ENTRY_FILES 白名单（C-GATE-07 用户入口守门）。
+
+## [0.12.0-rc.1] - 2026-07-20（预发布 / prerelease，已被 rc.2 替代）
+
+> 新一代模型适配（new-generation-agent）临时版本。核心：guard_mode 双模式，light 下"过程门禁 → 结果门禁"。
+> 已在 shk-workbench dogfood（Claude Fable 5 实测 + Codex gpt-5.6-sol 实机冒烟 PASS）；正式版前接受行为反馈调整。
+> 本段同时包含此前 Unreleased 中的 VH-27 系列 Fixed（随本 rc 一并发布）。
+> 已知限制：`templates/rules/model-profile.md.tmpl` 为可选模板（未进 init 最小配置），新项目需手动复制启用；正式版补全接线。
+
+### Added
+
+- **guard_mode 双模式（strict/light）— 新一代模型适配（new-generation-agent）**: 新增 `scripts/hooks/guard-mode.js`，按模型代际自动选择守门模式。解析顺序：`HARNESS_GUARD_MODE` 环境变量 > `.harness/config.json` 的 `guard_mode` > 模型自动检测（Claude Code 读 hook transcript 尾部 model 字段；Codex 读 `~/.codex/config.toml` model 键）> 默认 strict。新一代判定（→ light）：Fable/Mythos 全系、Opus ≥4.7、Sonnet ≥5、GPT ≥5.6（含 `gpt-5.6-sol` 等后缀变体）、o5+；检测不到不切换。自动切 light 时按 session 输出一次提示。设计动机：新一代模型字面遵循指令且自带规划/自验，旧的过程门禁与之冲突反而降低产出质量（用户实测），故把"过程门禁"降级为"结果门禁"——light 下 deny 白名单只剩 safety-guard、branch-policy-guard、verification-gate 证据检查、delivery-gate 无证据交付四类。
+- **`templates/rules/model-profile.md.tmpl`**: 新增双轨模型行为指引模板（共享层 / Claude 轨 / GPT 轨）。两家矫正方向相反：Claude 4.7+ 对工具/子代理偏保守（需"何时用"触发条件），GPT 5.6+ 默认过度探索（需"何时停"预算与收敛条件），不可共用一份矫正片段。
+
+### Changed
+
+- **`harness-stage-guard.js` 0.11.0 → 0.12.0**: light 模式下本 hook deny 归零——first-call guard、PLAN 只读门禁、EXECUTE spec 门与中段 recheck、C-GATE-17（EXECUTE→PLAN 需 VERIFY）、C-GATE-18（写操作计数阻断）全部移除或降级为提示/警告；缺失/损坏/无效 stage 文件降级为一次性提示（阶段声明成为可选遥测）；阶段 directive 只在阶段切换时注入一次；C-GATE-19 Agent spawn 提醒与遥测（pretool-observations / stage-history）保留。strict 模式行为与 0.11.0 逐字节一致。
+- **`verification-gate.js` 0.10.0 → 0.11.0**: 检查项按 [过程]/[证据] 分类。light 下 commit/push 阶段检查（①③）降级为提示；证据存在性、时效性、结构化 READY、e2e sufficiency、release blockers、C-GATE-07 三模式证据（②④⑤）两种模式一致保留 deny。light 下 stage 文件可选：无有效 since 时跳过时效锚点，证据存在性/READY 仍强制。
+- **`delivery-gate.js` 0.8.0 → 0.9.0**: light 模式阶段不作为阻断依据（仅 OFF 跳过）；宣称交付 → 证据检查全套照跑（结构化 READY / DEGRADED / e2e 充分性 / 时效），通过即放行，跳过 EXECUTE/VERIFY 阶段特定阻断。strict 行为不变。
+- **`harness-session-start.js` 0.9.1 → 0.10.0 / `harness-entry-banner.js` 0.10.0 → 0.11.0**: banner 去仪式化——banner 由 hook 展示，AI Directive 不再要求模型原样复读；文案模式中性（不再宣称"会被 exit 2 阻止"，阻断行为随 guard_mode 而变）。
+- **`templates/rules/{harness-entry,role-constraints,qa-standards}.md.tmpl` 重写**: 入口改为"规格完整即开始 + 一次性问全"（PLAN 暂停保留）；"Director 禁止写代码"改为委派准则（可并行派 Agent、单文件直接做）+ EXECUTE 内自治约定（次要选择不中途询问）；QA 从默认五层全开改为风险分级（默认 Layer 1+2，高危升级），Layer 2 只列真实存在的可执行命令（不存在标 N/A 并移出 Gate），TDD 铁律条件化（运行时产品代码测试先行，docs/配置/模板豁免），Reviewer rubric 换 coverage-first（报告全部发现标注置信度，下游过滤——对策：新一代模型字面执行保守过滤指令导致 recall 下降）。
+
 ### Fixed
 
 - **`shk verify --risk release` 恒 NOT_READY 自锁（C-GATE-09，VH-27）**: `makeEvidence` 把 release 必需的 `spec` / `santa` 恒置为 SKIP 占位符，而 release 判定要求全部必需项 PASS，导致自动化检查全 PASS 也永远 NOT_READY，并经 doctor 的 verify-evidence 检查级联成自举死锁。现在 `spec` 消费 `checks.spec_status` 的真实结果；`santa` 这类只能 agent/human review 的占位 SKIP 不再阻断 release，但必须进入 `limitations`（`claims_ready:false`）留痕，不能伪装成 PASS 证据；真实 FAIL / DEGRADED 以及必需项真实跑出的 SKIP / WARN 仍然阻断（宁可拦）。判定逻辑抽为 `computeEvidenceOverall` 并补「全 PASS → READY」「santa 占位进 limitations 而非 failed」回归测试。

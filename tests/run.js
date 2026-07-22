@@ -232,6 +232,11 @@ function runScenario(scenario) {
     : '';
   const env = {
     ...process.env,
+    // 测试确定性（new-generation-agent）：guard-mode 会检测宿主机模型
+    // （transcript / ~/.codex/config.toml），开发机若配置新一代模型会把默认
+    // strict 场景切成 light、strict 断言全挂。这里强制 strict 作为场景默认；
+    // light 场景显式写 "env": {"HARNESS_GUARD_MODE": "light"} 覆盖。
+    HARNESS_GUARD_MODE: 'strict',
     ...(scenario.env || {}),
   };
 

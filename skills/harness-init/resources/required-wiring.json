@@ -6,7 +6,9 @@
     ".claude/rules/qa-standards.md",
     ".claude/rules/feedback-workflow.md",
     ".claude/rules/harness-entry.md",
+    ".claude/rules/model-profile.md",
     "scripts/hooks/harness-stage-guard.js",
+    "scripts/hooks/guard-mode.js",
     "scripts/hooks/harness-session-start.js",
     "scripts/hooks/harness-entry-banner.js",
     "scripts/hooks/session-logger.js",
@@ -19,27 +21,115 @@
     "CLAUDE.md"
   ],
   "wirings": [
-    { "event": "SessionStart", "matcher": null, "script": "harness-session-start.js" },
-    { "event": "UserPromptSubmit", "matcher": null, "script": "harness-entry-banner.js" },
-    { "event": "PreToolUse", "matcher": "Bash", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "Edit", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "Write", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "Agent", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "TaskUpdate", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "Read", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "Grep", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "Glob", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "WebFetch", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "WebSearch", "script": "harness-stage-guard.js" },
-    { "event": "PreToolUse", "matcher": "Bash", "script": "safety-guard.js" },
-    { "event": "PostToolUse", "matcher": "Agent", "script": "session-logger.js" },
-    { "event": "PostToolUse", "matcher": "Bash", "script": "session-logger.js" },
-    { "event": "PostToolUse", "matcher": "Edit", "script": "session-logger.js" },
-    { "event": "PostToolUse", "matcher": "Write", "script": "session-logger.js" },
-    { "event": "PostToolUse", "matcher": "Write", "script": "stage-since-autofill.js" },
-    { "event": "PostToolUseFailure", "matcher": null, "script": "session-logger.js" },
-    { "event": "StopFailure", "matcher": null, "script": "session-logger.js" },
-    { "event": "TaskCompleted", "matcher": null, "script": "harness-stage-guard.js" },
-    { "event": "SessionEnd", "matcher": null, "script": "session-end.js" }
+    {
+      "event": "SessionStart",
+      "matcher": null,
+      "script": "harness-session-start.js"
+    },
+    {
+      "event": "UserPromptSubmit",
+      "matcher": null,
+      "script": "harness-entry-banner.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Edit",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Write",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Agent",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "TaskUpdate",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Read",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Grep",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Glob",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "WebFetch",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "WebSearch",
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "script": "safety-guard.js"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Agent",
+      "script": "session-logger.js"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Bash",
+      "script": "session-logger.js"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Edit",
+      "script": "session-logger.js"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Write",
+      "script": "session-logger.js"
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Write",
+      "script": "stage-since-autofill.js"
+    },
+    {
+      "event": "PostToolUseFailure",
+      "matcher": null,
+      "script": "session-logger.js"
+    },
+    {
+      "event": "StopFailure",
+      "matcher": null,
+      "script": "session-logger.js"
+    },
+    {
+      "event": "TaskCompleted",
+      "matcher": null,
+      "script": "harness-stage-guard.js"
+    },
+    {
+      "event": "SessionEnd",
+      "matcher": null,
+      "script": "session-end.js"
+    }
   ]
 }

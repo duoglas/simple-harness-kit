@@ -3,7 +3,7 @@
 
 /**
  * Harness Session Start — 新 session 检测 harness 并输出入口 banner
- * @version 0.9.1
+ * @version 0.10.0 (new-generation-agent: banner 去复读)
  * 触发: SessionStart
  *
  * 1. 删除 .harness/current-stage.json，迫使新 session 重新声明阶段
@@ -85,25 +85,17 @@ if (fs.existsSync(HARNESS_DIR)) {
 ════════════════════════════════════════════════════════`;
 
   // --- 给 AI 的指令（不输出给用户）---
+  // v0.10.0 (new-generation-agent): banner 已由本 hook 展示给用户，AI 不复读；
+  // 阻断行为随 guard_mode 而变（strict 阻断 / light 提示），文案保持模式中性。
   const aiDirective = `
-[Harness AI Directive — 必须严格遵守]
-1. 将上方 banner 原样输出给用户（从 ════ 到 ════），不要加竖线框或 emoji
-2. 等待用户指令，不要自行开始任何操作
-
-3. 收到任务后，第一件事是输出阶段声明（在调用任何工具之前）：
-
-   进入 PLAN 阶段 — [用一句话描述任务]
-
-   然后按 PLAN 流程工作：澄清需求 → 任务拆解 → 等用户确认。
-   PLAN 阶段 Bash/Edit/Write/Agent 会被 stage-guard 阻止（exit 2），只有 Read/Grep/Glob 可用。
-   用户确认后用 Write 更新 current-stage.json 切换阶段，并输出新的阶段声明。
-
-4. 每次切换阶段时，都必须先输出阶段声明再开始工作：
-   进入 EXECUTE 阶段 — [任务描述]
-   进入 VERIFY 阶段 — [验证内容]
-   进入 REVIEW 阶段
-
-5. 此流程优先级高于任何外部 skill 的会话开始行为
+[Harness AI Directive]
+1. 上方 banner 已由 hook 展示给用户，不要复读。
+2. 收到任务后按项目 rules（harness-entry）执行：
+   - 规格完整性检查（目标 / 验收标准 / 边界）；不完整时一次性问全
+   - 进入 PLAN：任务拆解 + done 条件，产出清单后暂停等用户确认
+3. 阶段切换写入 .harness/current-stage.json（strict 模式必需；light 模式作为遥测，建议保持）。
+   当前生效的 guard 模式由 stage-guard 按模型自动解析，切换 light 时会提示一次。
+4. 此流程约定优先级高于任何外部 skill 的会话开始行为。
 `;
   process.stderr.write(userBanner + '\n' + aiDirective);
 }

@@ -2,17 +2,21 @@
 'use strict';
 
 /**
- * Harness Learn — 从 observations.jsonl 分析模式，生成 instinct
- * @version 0.8.0
+ * Harness Learn — 质量回路分析（gate-events + stage-history + observations）
+ * @version 0.9.0 (new-generation-agent B2: 学习对象从"工具怎么用"换成"质量回路怎么转")
  *
  * 纯本地分析，不调 AI，不启动后台进程。
- * 用法: node scripts/hooks/harness-learn.js [--report] [--promote]
+ * 用法: node scripts/hooks/harness-learn.js [--report] [--periodic <days>]
  *
- * 分析维度:
- * 1. 工具序列模式（相同序列出现 3+ 次）
- * 2. 高频工具对（A 之后总是 B）
- * 3. 高频文件（经常被编辑的文件 = 高风险，可能需要测试）
- * 4. 稳定 instinct 提炼建议（置信度 ≥ 0.9 → 建议写入 Rule）
+ * v0.9.0 重设计（VH-28 同期决策）：移除 instinct 机制——旧版按"工具选择需要纠偏"
+ * 设计，对新一代模型产出的是零语义的工具连击统计（bash→bash 0.95 置信度之类），
+ * 且"晋升为 Rule 省 token"的建议无效。新分析维度全部消费门禁事件：
+ *
+ * 1. 门禁触发统计   — gate-events.jsonl 按 gate 聚合 deny/warn/hint
+ * 2. 响应良性率     — C-GATE-18 warn/deny 后 30 分钟内是否进入 VERIFY（stage-history）
+ * 3. 交付修正率     — delivery-gate deny 次数（"宣称完成但无证据"的发生频率）
+ * 4. 阈值余量       — C-GATE-18 事件 detail.count 分布 vs 阈值 → 数据驱动的调参建议
+ * 5. 高频修改文件   — 保留（observations，高风险文件 → 测试覆盖提示）
  */
 
 const fs = require('fs');
@@ -21,216 +25,152 @@ const findRoot = require('./find-root');
 const ROOT = findRoot();
 
 const OBS_FILE = path.join(ROOT, '.harness/observations.jsonl');
-const INSTINCTS_DIR = path.join(ROOT, '.harness/instincts');
+const GATE_EVENTS_FILE = path.join(ROOT, '.harness/gate-events.jsonl');
+const STAGE_HISTORY_FILE = path.join(ROOT, '.harness/stage-history.jsonl');
 const REPORT_FILE = path.join(ROOT, '.harness/learn-report.md');
+const PERIODIC_DIR = path.join(ROOT, '.harness/reports');
 
-// ── 读取 observations ──
+const RESPONSE_WINDOW_MS = 30 * 60 * 1000; // 触发后 30 分钟内进 VERIFY 算良性响应
 
-function loadObservations() {
-  if (!fs.existsSync(OBS_FILE)) return [];
-  return fs.readFileSync(OBS_FILE, 'utf8')
+// ── 数据加载 ──
+
+function loadJsonl(file) {
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8')
     .split('\n')
     .filter(Boolean)
     .map(line => { try { return JSON.parse(line); } catch { return null; } })
     .filter(Boolean);
 }
 
-// ── 读取已有 instincts ──
+const loadObservations = () => loadJsonl(OBS_FILE);
+const loadGateEvents = () => loadJsonl(GATE_EVENTS_FILE);
+const loadStageHistory = () => loadJsonl(STAGE_HISTORY_FILE);
 
-function loadInstincts() {
-  if (!fs.existsSync(INSTINCTS_DIR)) return [];
-  return fs.readdirSync(INSTINCTS_DIR)
-    .filter(f => f.endsWith('.json'))
-    .map(f => {
-      try { return JSON.parse(fs.readFileSync(path.join(INSTINCTS_DIR, f), 'utf8')); }
-      catch { return null; }
-    })
-    .filter(Boolean);
-}
+// ── 分析 1: 门禁触发统计 ──
 
-// ── 分析 1: 工具序列模式 ──
-
-function analyzeToolSequences(obs) {
-  const windowSize = 3;
-  const sequences = {};
-
-  for (let i = 0; i <= obs.length - windowSize; i++) {
-    const seq = obs.slice(i, i + windowSize).map(o => o.tool).join(' → ');
-    sequences[seq] = (sequences[seq] || 0) + 1;
+function analyzeGateSummary(events) {
+  const byGate = {};
+  for (const ev of events) {
+    const g = ev.gate || 'unknown';
+    byGate[g] = byGate[g] || { deny: 0, warn: 0, hint: 0 };
+    if (byGate[g][ev.action] !== undefined) byGate[g][ev.action] += 1;
   }
-
-  return Object.entries(sequences)
-    .filter(([, count]) => count >= 3)
-    .sort((a, b) => b[1] - a[1])
-    .map(([seq, count]) => ({ pattern: seq, count, type: 'tool-sequence' }));
+  return Object.entries(byGate)
+    .map(([gate, c]) => ({ gate, ...c, total: c.deny + c.warn + c.hint }))
+    .sort((a, b) => b.total - a.total);
 }
 
-// ── 分析 2: 工具对（A 之后跟 B）──
+// ── 分析 2: C-GATE-18 响应良性率 ──
+// warn/deny 触发后 RESPONSE_WINDOW 内 stage-history 出现 VERIFY = 良性响应
+// （android-ops 实测案例："写操作上限触发后按门禁进入 VERIFY，没有绕过"）
 
-function analyzeToolPairs(obs) {
-  const pairs = {};
-  for (let i = 0; i < obs.length - 1; i++) {
-    const pair = `${obs[i].tool} → ${obs[i + 1].tool}`;
-    pairs[pair] = (pairs[pair] || 0) + 1;
+function analyzeResponseRate(events, stageHistory) {
+  const triggers = events.filter(e => e.gate === 'C-GATE-18' && (e.action === 'warn' || e.action === 'deny'));
+  if (triggers.length === 0) return null;
+  const verifyTimes = stageHistory
+    .filter(h => h.stage === 'VERIFY')
+    .map(h => new Date(h.t).getTime())
+    .filter(t => !Number.isNaN(t));
+  let benign = 0;
+  for (const tr of triggers) {
+    const t0 = new Date(tr.t).getTime();
+    if (Number.isNaN(t0)) continue;
+    if (verifyTimes.some(vt => vt >= t0 && vt - t0 <= RESPONSE_WINDOW_MS)) benign += 1;
   }
-
-  return Object.entries(pairs)
-    .filter(([, count]) => count >= 5)
-    .sort((a, b) => b[1] - a[1])
-    .map(([pair, count]) => ({ pattern: pair, count, type: 'tool-pair' }));
+  return { triggers: triggers.length, benign, rate: triggers.length ? benign / triggers.length : 0 };
 }
 
-// ── 分析 3: 高频文件 ──
+// ── 分析 3: 交付修正 ──
+
+function analyzeDeliveryCorrections(events) {
+  return events.filter(e => e.hook === 'delivery-gate' && e.action === 'deny').length;
+}
+
+// ── 分析 4: 阈值余量（C-GATE-18 detail.count 分布） ──
+
+function analyzeThresholdHeadroom(events) {
+  const counts = events
+    .filter(e => e.gate === 'C-GATE-18' && e.detail && typeof e.detail.count === 'number')
+    .map(e => ({ count: e.detail.count, threshold: e.detail.threshold || e.detail.interval || null }));
+  if (counts.length === 0) return null;
+  const values = counts.map(c => c.count).sort((a, b) => a - b);
+  const max = values[values.length - 1];
+  const p90 = values[Math.min(values.length - 1, Math.floor(values.length * 0.9))];
+  const threshold = counts.map(c => c.threshold).filter(Boolean).pop() || null;
+  return { samples: counts.length, max, p90, threshold };
+}
+
+// ── 分析 5: 高频修改文件（保留自旧版） ──
 
 function analyzeHotFiles(obs) {
   const files = {};
   for (const o of obs) {
-    if (['Edit', 'Write'].includes(o.tool) && o.input) {
-      const filePath = o.input.split(' | ')[0].split('|')[0].trim();
-      if (filePath) files[filePath] = (files[filePath] || 0) + 1;
-    }
+    if (!/edit|write|patch/i.test(String(o.tool || ''))) continue;
+    const input = String(o.input || '');
+    const file = input.split(' | ')[0].split(' ')[0].trim();
+    if (!file || file.length > 200) continue;
+    files[file] = (files[file] || 0) + 1;
   }
-
   return Object.entries(files)
     .filter(([, count]) => count >= 3)
-    .sort((a, b) => b[1] - a[1])
-    .map(([file, count]) => ({ file, count, type: 'hot-file' }));
+    .map(([file, count]) => ({ file, count }))
+    .sort((a, b) => b.count - a.count);
 }
 
-// ── 分析 4: 时间分布 ──
+// ── 报告 ──
 
-function analyzeTimeDistribution(obs) {
-  const hours = {};
-  for (const o of obs) {
-    const h = new Date(o.t).getHours();
-    hours[h] = (hours[h] || 0) + 1;
+function gateSummaryLines(summary) {
+  const lines = [];
+  lines.push('| 门禁 | deny | warn | hint | 合计 |');
+  lines.push('|------|------|------|------|------|');
+  for (const g of summary.slice(0, 12)) {
+    lines.push(`| ${g.gate} | ${g.deny} | ${g.warn} | ${g.hint} | ${g.total} |`);
   }
-  return hours;
+  return lines;
 }
 
-// ── 生成/更新 instinct ──
-
-function upsertInstinct(id, data) {
-  if (!fs.existsSync(INSTINCTS_DIR)) fs.mkdirSync(INSTINCTS_DIR, { recursive: true });
-  const filePath = path.join(INSTINCTS_DIR, `${id}.json`);
-
-  let existing = null;
-  try { existing = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch {}
-
-  if (existing) {
-    // 更新置信度
-    existing.confidence = Math.min(0.95, existing.confidence + 0.05);
-    existing.observations = (existing.observations || 0) + data.count;
-    existing.lastSeen = new Date().toISOString();
-    fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
-    return { action: 'updated', instinct: existing };
-  } else {
-    const instinct = {
-      id,
-      trigger: data.pattern,
-      type: data.type,
-      confidence: confidenceFromCount(data.count),
-      observations: data.count,
-      createdAt: new Date().toISOString(),
-      lastSeen: new Date().toISOString(),
-      scope: 'user',
-    };
-    fs.writeFileSync(filePath, JSON.stringify(instinct, null, 2));
-    return { action: 'created', instinct };
+function qualityLoopSection(events, stageHistory) {
+  const lines = [];
+  lines.push('\n## 质量回路（gate-events）');
+  if (events.length === 0) {
+    lines.push('\n暂无门禁事件。两种可能：');
+    lines.push('- 好信号：本期没有任何阻断/警告（light 模式的目标状态）；');
+    lines.push('- 或 hooks 尚未升级到含 gate-events 遥测的版本（stage-guard ≥ 0.13）。');
+    return lines;
   }
-}
+  const summary = analyzeGateSummary(events);
+  const denies = events.filter(e => e.action === 'deny').length;
+  lines.push(`\n事件总数: ${events.length}（deny ${denies}）`);
+  lines.push('');
+  lines.push(...gateSummaryLines(summary));
 
-function confidenceFromCount(count) {
-  if (count >= 20) return 0.85;
-  if (count >= 10) return 0.7;
-  if (count >= 5) return 0.5;
-  return 0.3;
-}
-
-// ── 晋升 instinct → Rule ──
-
-const RULES_DIR = path.join(ROOT, '.claude/rules');
-
-function promoteToRule(instinct) {
-  if (!fs.existsSync(RULES_DIR)) fs.mkdirSync(RULES_DIR, { recursive: true });
-
-  const ruleFileName = `learned-${instinct.id}.md`;
-  const rulePath = path.join(RULES_DIR, ruleFileName);
-
-  // 根据 instinct 类型生成 Rule 内容
-  let ruleContent = '';
-  if (instinct.type === 'tool-sequence') {
-    ruleContent = `# 工具序列模式: ${instinct.trigger}
-
-> 自动从行为数据晋升（instinct ${instinct.id}，置信度 ${instinct.confidence}，${instinct.observations} 次观察）
-
-此模式在开发过程中稳定出现。遵循此序列可以提高效率。
-
-- **模式:** ${instinct.trigger}
-- **晋升时间:** ${new Date().toISOString().slice(0, 10)}
-`;
-  } else if (instinct.type === 'tool-pair') {
-    ruleContent = `# 工具对模式: ${instinct.trigger}
-
-> 自动从行为数据晋升（instinct ${instinct.id}，置信度 ${instinct.confidence}，${instinct.observations} 次观察）
-
-此工具调用对在开发过程中稳定出现。
-
-- **模式:** ${instinct.trigger}
-- **晋升时间:** ${new Date().toISOString().slice(0, 10)}
-`;
-  } else {
-    ruleContent = `# 行为模式: ${instinct.trigger}
-
-> 自动从行为数据晋升（instinct ${instinct.id}，置信度 ${instinct.confidence}，${instinct.observations} 次观察）
-
-- **模式:** ${instinct.trigger}
-- **晋升时间:** ${new Date().toISOString().slice(0, 10)}
-`;
+  const resp = analyzeResponseRate(events, stageHistory);
+  if (resp) {
+    lines.push(`\n**C-GATE-18 响应良性率**: ${resp.benign}/${resp.triggers}（触发后 30 分钟内进入 VERIFY）` +
+      (resp.rate < 0.5 ? ' — 偏低，模型在绕行而非配合，检查阈值与提示文案' : ''));
   }
-
-  fs.writeFileSync(rulePath, ruleContent);
-
-  // 标记 instinct 为已晋升
-  const instinctPath = path.join(INSTINCTS_DIR, `${instinct.id}.json`);
-  instinct.promoted = true;
-  instinct.promotedAt = new Date().toISOString();
-  instinct.rulePath = rulePath;
-  fs.writeFileSync(instinctPath, JSON.stringify(instinct, null, 2));
-
-  return { action: 'promoted', rulePath };
+  const corrections = analyzeDeliveryCorrections(events);
+  if (corrections > 0) {
+    lines.push(`\n**交付修正**: delivery-gate 拦截 ${corrections} 次"宣称完成但证据不足"——检查验证是否习惯性前置。`);
+  }
+  const headroom = analyzeThresholdHeadroom(events);
+  if (headroom && headroom.threshold) {
+    lines.push(`\n**C-GATE-18 阈值余量**: 观测峰值 ${headroom.max} / P90 ${headroom.p90}（阈值 ${headroom.threshold}，样本 ${headroom.samples}）` +
+      (headroom.max >= headroom.threshold * 0.9
+        ? ` — 建议 .harness/config.json 调整 execute_writes_block（如 ${Math.ceil(headroom.max * 1.5 / 50) * 50}）或确认周期性 VERIFY 节奏`
+        : ' — 余量充足'));
+  }
+  return lines;
 }
 
-// ── 生成报告 ──
-
-function generateReport(obs, sequences, pairs, hotFiles, instincts) {
+function generateReport(obs, events, stageHistory, hotFiles) {
   const lines = [];
   lines.push('# Harness Learn 分析报告');
   lines.push(`\n生成时间: ${new Date().toISOString().slice(0, 16)}`);
-  lines.push(`观察数据: ${obs.length} 条`);
-  lines.push(`已有 instincts: ${instincts.length} 条`);
+  lines.push(`观察数据: ${obs.length} 条 | 门禁事件: ${events.length} 条`);
 
-  lines.push('\n## 工具使用模式');
-  if (sequences.length === 0 && pairs.length === 0) {
-    lines.push('\n数据不足，暂无明显模式。（至少需要 20+ 条观察数据）');
-  } else {
-    if (pairs.length > 0) {
-      lines.push('\n### 高频工具对');
-      lines.push('| 模式 | 次数 |');
-      lines.push('|------|------|');
-      for (const p of pairs.slice(0, 10)) {
-        lines.push(`| ${p.pattern} | ${p.count} |`);
-      }
-    }
-    if (sequences.length > 0) {
-      lines.push('\n### 工具序列（3 步）');
-      lines.push('| 序列 | 次数 |');
-      lines.push('|------|------|');
-      for (const s of sequences.slice(0, 10)) {
-        lines.push(`| ${s.pattern} | ${s.count} |`);
-      }
-    }
-  }
+  lines.push(...qualityLoopSection(events, stageHistory));
 
   if (hotFiles.length > 0) {
     lines.push('\n## 高频修改文件（可能需要测试覆盖）');
@@ -241,107 +181,41 @@ function generateReport(obs, sequences, pairs, hotFiles, instincts) {
     }
   }
 
-  // Token 优化建议
-  const stableInstincts = instincts.filter(i => i.confidence >= 0.9);
-  if (stableInstincts.length > 0) {
-    lines.push('\n## Token 优化建议');
-    lines.push('\n以下 instinct 已稳定（置信度 ≥ 0.9），建议提炼为 Rule 以减少 token 消耗：');
-    for (const i of stableInstincts) {
-      lines.push(`- **${i.id}** (${i.confidence}) — ${i.trigger}`);
-    }
-    lines.push('\n提炼方法: 将 trigger+action 写入 `.claude/rules/` 中的规则文件。');
-  }
-
-  // 改进建议
   lines.push('\n## 改进建议');
+  const suggestions = [];
   if (hotFiles.length > 0) {
-    lines.push(`- ${hotFiles[0].file} 修改了 ${hotFiles[0].count} 次 — 建议确认是否有测试覆盖`);
+    suggestions.push(`- \`${hotFiles[0].file}\` 修改了 ${hotFiles[0].count} 次 — 建议确认测试覆盖`);
   }
-  if (sequences.some(s => s.pattern.includes('Bash') && s.count > 5)) {
-    lines.push('- 频繁使用 Bash 命令 — 考虑是否可以用专用工具替代（如 Grep 替代 grep）');
+  const denies = events.filter(e => e.action === 'deny');
+  if (denies.length > 0) {
+    const topGate = analyzeGateSummary(denies)[0];
+    suggestions.push(`- 门禁 ${topGate.gate} 拦截最多（${topGate.deny} 次）— 高频拦截通常意味着流程与工作形态不匹配，走 F1-F5 评估阈值/规则`);
   }
+  if (suggestions.length === 0) {
+    suggestions.push('- 本期无门禁拦截且无高风险文件——保持现状。');
+  }
+  lines.push(...suggestions);
 
   return lines.join('\n');
 }
 
-// ── 周期性报告 ──
-
-const PERIODIC_DIR = path.join(ROOT, '.harness/reports');
-
-function generatePeriodicReport(allObs, periodObs, periodDays, sequences, pairs, hotFiles, instinctsBefore, instinctsAfter) {
+function generatePeriodicReport(periodDays, obs, events, stageHistory, hotFiles) {
   const now = new Date();
   const since = new Date(now - periodDays * 24 * 60 * 60 * 1000);
   const lines = [];
-
-  lines.push('# 开发效率周期报告');
+  lines.push('# 开发质量周期报告');
   lines.push(`\n期间: ${since.toISOString().slice(0, 10)} ~ ${now.toISOString().slice(0, 10)} (${periodDays} 天)`);
-  lines.push(`本期观察: ${periodObs.length} 条 | 全量: ${allObs.length} 条`);
-
-  // Instinct 变化
-  const beforeIds = new Set(instinctsBefore.map(i => i.id));
-  const newInstincts = instinctsAfter.filter(i => !beforeIds.has(i.id));
-  const updatedInstincts = instinctsAfter.filter(i => {
-    const before = instinctsBefore.find(b => b.id === i.id);
-    return before && before.confidence !== i.confidence;
-  });
-  const promoted = instinctsAfter.filter(i => i.promoted && !instinctsBefore.find(b => b.id === i.id && b.promoted));
-
-  lines.push('\n## Instinct 变化');
-  lines.push(`- 新增: ${newInstincts.length}`);
-  lines.push(`- 置信度变化: ${updatedInstincts.length}`);
-  lines.push(`- 已晋升为 Rule: ${promoted.length}`);
-
-  if (newInstincts.length > 0) {
-    lines.push('\n### 新发现的模式');
-    for (const i of newInstincts) {
-      lines.push(`- **${i.id}** (${i.confidence}) — ${i.trigger}`);
-    }
-  }
-
-  // 高频模式
-  if (pairs.length > 0 || sequences.length > 0) {
-    lines.push('\n## 高频模式（本期）');
-    for (const p of pairs.slice(0, 5)) {
-      lines.push(`- "${p.pattern}" — ${p.count} 次`);
-    }
-    for (const s of sequences.slice(0, 3)) {
-      lines.push(`- "${s.pattern}" — ${s.count} 次`);
-    }
-  }
-
-  // 高频文件
+  lines.push(`本期观察: ${obs.length} 条 | 本期门禁事件: ${events.length} 条`);
+  lines.push(...qualityLoopSection(events, stageHistory));
   if (hotFiles.length > 0) {
     lines.push('\n## 高频修改文件');
     for (const f of hotFiles.slice(0, 5)) {
       lines.push(`- \`${f.file}\` — ${f.count} 次修改`);
     }
   }
-
-  // Token 优化
-  const promotable = instinctsAfter.filter(i => i.confidence >= 0.9 && !i.promoted);
-  if (promotable.length > 0) {
-    lines.push('\n## Token 优化机会');
-    lines.push(`${promotable.length} 个 instinct 已稳定（≥0.9），可运行 \`--promote\` 晋升为 Rule:`);
-    for (const i of promotable) {
-      lines.push(`- **${i.id}** (${i.confidence}) — ${i.trigger}`);
-    }
+  if (obs.length < 20) {
+    lines.push('\n> 本期数据量偏少，指标可能不稳定。');
   }
-
-  // 改进建议
-  lines.push('\n## 改进建议');
-  if (hotFiles.length > 0) {
-    lines.push(`- \`${hotFiles[0].file}\` 修改了 ${hotFiles[0].count} 次 — 建议确认测试覆盖`);
-  }
-  if (sequences.some(s => s.pattern.includes('Bash') && s.count > 5)) {
-    lines.push('- 频繁使用 Bash — 考虑是否可以用专用工具替代');
-  }
-  if (promotable.length > 0) {
-    lines.push(`- ${promotable.length} 个 instinct 可晋升 — 运行 \`node scripts/hooks/harness-learn.js --promote\``);
-  }
-  if (periodObs.length < 20) {
-    lines.push('- 本期数据量偏少，模式识别可能不准确');
-  }
-
   return lines.join('\n');
 }
 
@@ -350,83 +224,42 @@ function generatePeriodicReport(allObs, periodObs, periodDays, sequences, pairs,
 function main() {
   const args = process.argv.slice(2);
   const isReport = args.includes('--report');
-  const isPromote = args.includes('--promote');
+  if (args.includes('--promote')) {
+    console.log('instinct 机制已在 v0.9.0 移除（旧机制产出无语义的工具连击统计）。');
+    console.log('质量回路指标见 learn-report；规则沉淀走 F1-F5 → constraints.md。');
+  }
   const periodicIdx = args.indexOf('--periodic');
   const periodDays = periodicIdx !== -1 ? parseInt(args[periodicIdx + 1], 10) || 7 : 0;
 
   const allObs = loadObservations();
-  if (allObs.length < 10) {
-    console.log(`观察数据仅 ${allObs.length} 条，建议积累 20+ 条后再分析。`);
+  const allEvents = loadGateEvents();
+  const stageHistory = loadStageHistory();
+
+  if (allObs.length < 10 && allEvents.length === 0) {
+    console.log(`观察数据仅 ${allObs.length} 条且无门禁事件，建议积累后再分析。`);
     if (allObs.length === 0) console.log('提示: 确认 session-logger Hook 已启用且 HARNESS_LEARN !== off');
     return;
   }
 
-  // 周期性报告：只分析时间窗口内的数据
   const cutoff = periodDays > 0 ? new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000) : null;
   const obs = cutoff ? allObs.filter(o => new Date(o.t) >= cutoff) : allObs;
-
-  if (periodDays > 0 && obs.length < 5) {
-    console.log(`本期（${periodDays} 天）仅 ${obs.length} 条观察，数据不足。使用全量数据分析。`);
-  }
-
-  const instinctsBefore = loadInstincts();
-  const sequences = analyzeToolSequences(obs);
-  const pairs = analyzeToolPairs(obs);
+  const events = cutoff ? allEvents.filter(e => new Date(e.t) >= cutoff) : allEvents;
   const hotFiles = analyzeHotFiles(obs);
 
-  // 生成/更新 instincts（始终用全量数据）
-  const allSequences = cutoff ? analyzeToolSequences(allObs) : sequences;
-  const allPairs = cutoff ? analyzeToolPairs(allObs) : pairs;
-
-  const changes = [];
-  for (const s of allSequences.slice(0, 5)) {
-    const id = s.pattern.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    changes.push(upsertInstinct(id, s));
-  }
-  for (const p of allPairs.slice(0, 5)) {
-    const id = p.pattern.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    changes.push(upsertInstinct(id, p));
-  }
-
-  const allInstincts = loadInstincts();
-
-  // 周期性报告
   if (periodDays > 0) {
-    const periodicReport = generatePeriodicReport(allObs, obs, periodDays, sequences, pairs, hotFiles, instinctsBefore, allInstincts);
-
+    const report = generatePeriodicReport(periodDays, obs, events, stageHistory, hotFiles);
     if (!fs.existsSync(PERIODIC_DIR)) fs.mkdirSync(PERIODIC_DIR, { recursive: true });
     const reportFile = path.join(PERIODIC_DIR, `${new Date().toISOString().slice(0, 10)}-${periodDays}d.md`);
-    fs.writeFileSync(reportFile, periodicReport);
-
-    if (isReport) {
-      console.log(periodicReport);
-    } else {
-      console.log(`周期报告（${periodDays} 天）: ${reportFile}`);
-    }
+    fs.writeFileSync(reportFile, report);
+    if (isReport) console.log(report);
+    else console.log(`周期报告（${periodDays} 天）: ${reportFile}`);
   } else {
-    // 常规报告
-    const report = generateReport(allObs, sequences, pairs, hotFiles, allInstincts);
+    const report = generateReport(allObs, allEvents, stageHistory, hotFiles);
     fs.writeFileSync(REPORT_FILE, report);
-
-    if (isReport) {
-      console.log(report);
-    } else {
-      console.log(`分析完成: ${allObs.length} 条观察 → ${changes.filter(c => c.action === 'created').length} 个新 instinct, ${changes.filter(c => c.action === 'updated').length} 个更新`);
+    if (isReport) console.log(report);
+    else {
+      console.log(`分析完成: ${allObs.length} 条观察 + ${allEvents.length} 条门禁事件`);
       console.log(`报告: ${REPORT_FILE}`);
-      console.log(`Instincts: ${INSTINCTS_DIR}/`);
-    }
-  }
-
-  if (isPromote) {
-    const stable = allInstincts.filter(i => i.confidence >= 0.9 && !i.promoted);
-    if (stable.length > 0) {
-      console.log(`\n晋升 ${stable.length} 个稳定 instinct 为 Rule:`);
-      for (const i of stable) {
-        const result = promoteToRule(i);
-        console.log(`  ${result.action}: ${i.id} (${i.confidence}) → ${result.rulePath}`);
-      }
-    } else {
-      console.log('\n暂无达到晋升条件（≥0.9 且未晋升）的 instinct。');
     }
   }
 }

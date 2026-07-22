@@ -31,7 +31,9 @@ function runNode(script, args, opts = {}) {
     cwd: opts.cwd,
     input: opts.input,
     encoding: 'utf8',
-    env: { ...process.env, ...(opts.env || {}) },
+    // 测试确定性（new-generation-agent）：强制 strict，避免宿主机模型
+    // 检测（如 ~/.codex/config.toml 配置了新一代模型）把 strict 断言切成 light。
+    env: { ...process.env, HARNESS_GUARD_MODE: 'strict', ...(opts.env || {}) },
   });
 }
 
@@ -417,8 +419,11 @@ function testUserPromptSubmitProvidesCodexVisibleBanner() {
     const out = JSON.parse(res.stdout);
     const additionalContext = out.hookSpecificOutput && out.hookSpecificOutput.additionalContext;
     assert.ok(additionalContext, 'hookSpecificOutput.additionalContext should exist');
-    assert.ok(additionalContext.includes('HARNESS MODE ACTIVE'), additionalContext);
-    assert.ok(additionalContext.includes('进入 PLAN 阶段'), additionalContext);
+    // v2 (new-generation-agent): 不再强制模型原样复读框线 banner——
+    // additionalContext 提供可自然转述的入口告知 + harness-entry 流程指引。
+    assert.ok(additionalContext.includes('Harness Engineering'), additionalContext);
+    assert.ok(additionalContext.includes('规格完整性检查'), additionalContext);
+    assert.ok(!additionalContext.includes('原样输出'), 'v2 不应再要求原样复读 banner: ' + additionalContext);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

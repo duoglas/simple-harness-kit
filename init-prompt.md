@@ -40,6 +40,7 @@ AI 会自动扫描项目（package.json、技术栈、目录结构），不需�
 | QA 标准 | `.claude/rules/qa-standards.md` | 量化验收指标 |
 | 反馈流程 | `.claude/rules/feedback-workflow.md` | F1-F5 反馈处理 |
 | 入口规则 | `.claude/rules/harness-entry.md` | 新 session banner + 等待指令 |
+| 模型行为指引 | `.claude/rules/model-profile.md` | 新一代模型双轨指引（Claude 轨/GPT 轨），guard 模式说明 |
 
 ### 生成顺序（必须遵守，防半安装 hook 自爆）
 

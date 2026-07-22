@@ -1,37 +1,24 @@
 # Harness 入口规则 / Harness Entry
 
-## 新 Session 强制检测
+> v2（new-generation-agent）：banner 由 hook 输出，AI 不再复读；入口从"等待指令"改为"规格完整即开始"。
+> guard 模式（strict/light）由 stage-guard 按模型代际自动解析（详见 model-profile 规则），AI 无需处理。
+
+## 新 Session 入口
 
 每次新 session 开始，如果工作目录存在 `.harness/` 目录，说明本项目已启用 Harness。
 
-**必须执行：**
+- 入口 banner 由 SessionStart hook 输出（Codex 场景由 UserPromptSubmit fallback 注入）。**AI 不需要也不应该复读 banner**——把首轮输出留给实际工作。
+- guard 模式切换时 hook 会提示一次，无需 AI 处理。固定模式：`.harness/config.json` 写 `{"guard_mode":"strict"|"light"}`，或环境变量 `HARNESS_GUARD_MODE`。
 
-1. 向用户输出 Harness 入口 banner（SessionStart 会初始化状态；Codex 下 UserPromptSubmit 会通过 additionalContext 提供可见入口 fallback）
-2. 等待用户指令，不自行开始操作
-3. 收到任务后，进入 PLAN 阶段：
-   - 明确需求和验收标准
-   - 任务拆解（每个任务 ≤15 分钟可独立验证）
-   - 定义每个任务的单一主要风险和客观 done 条件
+## 收到任务后
+
+1. **规格完整性检查**：确认三件事——目标是什么、什么算完成（验收标准）、边界在哪（不做什么）。
+2. 规格不完整时，**一次性问全**缺失项，不要分多轮逐个问。
+3. 规格完整后进入 PLAN：
+   - 任务拆解，每个任务可独立验证，定义客观 done 条件
    - 列出不可逆动作；发布、部署、删除数据、覆盖真实环境等动作必须等人确认
-   - 产出任务清单后暂停，等用户确认再继续
-
-**banner 固定格式（原样输出，不要加竖线框或 emoji）：**
-
-```
-════════════════════════════════════════════════════════
-  HARNESS MODE ACTIVE
-════════════════════════════════════════════════════════
-
-本项目已启用 Harness Engineering 6 阶段 Loop:
-
-  PLAN → SETUP → EXECUTE → VERIFY → REVIEW → FEEDBACK
-
-临时关闭: /harness-off
-════════════════════════════════════════════════════════
-```
-
-- 不要省略、不要改写、不要埋在其他输出中
+   - 产出任务清单后**暂停，等用户确认再继续**（入口的一次性确认；确认后执行过程中不再碎问，见 role-constraints 的自治约定）
 
 ## 优先级
 
-此规则优先级高于任何外部 skill 的会话开始行为。Harness 入口 banner 必须是 session 的第一个输出。
+Harness 流程约定优先级高于任何外部 skill 的会话开始行为。与外部 skill 冲突时，以本项目 rules 为准。

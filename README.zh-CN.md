@@ -75,6 +75,35 @@ git -C ~/simple-harness-kit pull
 bash ~/simple-harness-kit/install.sh
 ```
 
+### 1.5 已有工程一键升级（curl | bash）
+
+在**旧工程根目录**执行一条命令，把该工程的 SHK 升到目标版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/master/upgrade.sh | bash
+```
+
+`upgrade.sh` 会依次做四件事：
+
+1. **定位 kit**：读 `~/.simple-harness-kit-root` marker，缺省用 `~/simple-harness-kit`；**没装过会自动 git clone**（全新电脑也能直接跑这条命令）；
+2. **切到目标版本**：fetch 后 checkout 脚本内置的 `DEFAULT_REF`（随 release 更新；可用 `--ref <tag|branch>` 或环境变量 `SHK_REF` 覆盖）。kit 本地有未提交改动会**中止**，不覆盖你的修改；
+3. **同步当前工程**：调 `update.sh --hooks` 按 `@version` 比对更新 `scripts/hooks/`（新增 hook 自动安装、`scripts/lib` 共享库补齐），并重新生成 `.codex/hooks.json`、更新已安装的全局 skills；
+4. **安全兜底**：不在工程目录跑也无害——只更新全局 skills 并提示到工程根目录重跑。
+
+新 session 生效，零配置。指定版本示例：
+
+```bash
+curl -fsSL .../upgrade.sh | bash -s -- --ref v0.13.0-rc.1
+```
+
+回滚（切回 master 稳定版并重新同步）：
+
+```bash
+KIT=$(cat ~/.simple-harness-kit-root 2>/dev/null || echo ~/simple-harness-kit) && git -C "$KIT" checkout master && git -C "$KIT" pull && bash "$KIT/update.sh" --hooks .
+```
+
+> 注意：`update.sh` 只同步 hooks 和 skills，**不覆盖**工程已有的 `.claude/rules/*` 与 `docs/constraints.md`（你的定制内容安全）。要采用新版规则文本，请手动从 `templates/rules/` 复制并替换占位符。
+
 ### 2. 每个项目初始化一次
 
 进入目标工程：
