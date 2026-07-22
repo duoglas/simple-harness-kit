@@ -1529,7 +1529,16 @@
         "C-GATE-18",
         "VERIFY",
         "execute_writes_block"
-      ]
+      ],
+      "files": {
+        ".harness/gate-events.jsonl": {
+          "contains": [
+            "C-GATE-18",
+            "\"action\":\"deny\"",
+            "\"threshold\":200"
+          ]
+        }
+      }
     }
   },
   {

@@ -3,11 +3,16 @@
 
 /**
  * Safety Guard Hook — 拦截危险命令
- * @version 0.8.1
+ * @version 0.9.0 (new-generation-agent: + gate-events 遥测)
  * 触发: PreToolUse:Bash
  *
  * 根据项目需要添加/修改 BLOCKED 规则。
+ * 注: safety-guard 属 deny 白名单（危险/不可逆操作），light 模式下同样阻断。
  */
+
+const findRoot = require('./find-root');
+const guardMode = require('./guard-mode');
+const ROOT = findRoot();
 
 const MAX_STDIN = 1024 * 1024;
 let raw = '';
@@ -33,6 +38,11 @@ process.stdin.on('end', () => {
 
     for (const rule of BLOCKED) {
       if (rule.pattern.test(cmd)) {
+        guardMode.appendGateEvent(ROOT, {
+          gate: 'safety-guard', hook: 'safety-guard',
+          mode: guardMode.resolveGuardMode(input, ROOT).mode,
+          action: 'deny', detail: { rule: rule.msg }, session_id: input.session_id,
+        });
         process.stderr.write(`[Safety Guard] ${rule.msg}\n命令: ${cmd}\n`);
         process.exit(2);
       }

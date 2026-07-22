@@ -3,7 +3,7 @@
 
 /**
  * Guard Mode Resolver — strict/light 双模式解析 + 双轨模型检测
- * @version 0.2.0 (new-generation-agent: + readHarnessConfig 共享配置读取)
+ * @version 0.3.0 (new-generation-agent: + gate-events 遥测落点 appendGateEvent)
  *
  * 解析顺序（先命中先用）:
  *   0. 环境变量 HARNESS_GUARD_MODE=strict|light（最高优先级——测试确定性 + 用户临时覆盖）
@@ -181,4 +181,31 @@ function onceNotice(resolved, input, root) {
     `  - 如需固定模式，写入 .harness/config.json: {"guard_mode":"strict"} 或 {"guard_mode":"light"}\n`;
 }
 
-module.exports = { resolveGuardMode, onceNotice, isNewGenModel, detectClaudeModel, detectCodexModel, readHarnessConfig };
+/**
+ * gate-events 遥测（v0.3.0）：门禁事件统一落点 <ROOT>/.harness/gate-events.jsonl。
+ * 只记 warn / deny / hint（light 降级提示）事件，不记普通放行——量小且全是信号。
+ * 写失败静默：telemetry 永不影响主流程。
+ * 消费方：harness-learn（门禁触发率/响应良性率/阈值余量分布）、dogfood 验收
+ * （`rg -c '"action":"deny"' .harness/gate-events.jsonl`）。
+ *
+ * @param {string} root Harness 项目根
+ * @param {object} ev { gate, hook, mode, action: 'warn'|'deny'|'hint', detail?, session_id?, stage? }
+ */
+function appendGateEvent(root, ev) {
+  try {
+    const file = path.join(root, '.harness/gate-events.jsonl');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({
+      t: new Date().toISOString(),
+      gate: String(ev.gate || ''),
+      hook: String(ev.hook || ''),
+      mode: String(ev.mode || ''),
+      action: String(ev.action || ''),
+      detail: ev.detail || undefined,
+      session_id: ev.session_id || undefined,
+      stage: ev.stage || undefined,
+    }) + '\n');
+  } catch {}
+}
+
+module.exports = { resolveGuardMode, onceNotice, isNewGenModel, detectClaudeModel, detectCodexModel, readHarnessConfig, appendGateEvent };

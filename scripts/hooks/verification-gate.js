@@ -3,7 +3,7 @@
 
 /**
  * Verification Gate Hook — commit/push 前的阶段和证据检查
- * @version 0.11.0 (new-generation-agent: guard_mode 双模式)
+ * @version 0.12.0 (new-generation-agent: + gate-events 遥测)
  * 触发: PreToolUse:Bash
  *
  * 五重检查（[过程] 检查在 light 模式降级为提示；[证据] 检查两种模式一致保留）:
@@ -94,6 +94,10 @@ process.stdin.on('end', () => {
 
     // guard_mode 解析（light 下过程类检查降级为提示）
     const LIGHT = guardMode.resolveGuardMode(input, ROOT).mode === 'light';
+    const emitGate = (action, gate, detail) => guardMode.appendGateEvent(ROOT, {
+      gate, hook: 'verification-gate', mode: LIGHT ? 'light' : 'strict',
+      action, detail, session_id: input.session_id,
+    });
 
     // 读取当前阶段
     let stage = null;
@@ -106,6 +110,7 @@ process.stdin.on('end', () => {
 
     if (!stage) {
       if (!LIGHT) {
+        emitGate('deny', 'vg-stage-missing');
         process.stderr.write(
           '[Verification Gate] 无法确定当前阶段（.harness/current-stage.json 不存在或无效）。\n' +
           '→ git commit/push 需要在 Harness 阶段声明后才能执行。\n'
@@ -120,10 +125,12 @@ process.stdin.on('end', () => {
     if (isPush) {
       if (stage && !PUSH_ALLOWED_STAGES.includes(stage)) {
         if (LIGHT) {
+          emitGate('hint', 'vg-push-stage', { stage });
           process.stderr.write(
             `[Verification Gate][light 提示] 当前阶段 ${stage} 非 REVIEW，建议确认验证已完成再 push（不阻断）。\n`
           );
         } else {
+          emitGate('deny', 'vg-push-stage', { stage });
           process.stderr.write(
             `[Verification Gate] push 只允许在 REVIEW 阶段。当前阶段: ${stage}。\n` +
             '→ 完成 VERIFY 和 REVIEW 后再 push。\n'
@@ -139,10 +146,12 @@ process.stdin.on('end', () => {
     if (isCommit || isTag) {
       if (stage && !COMMIT_ALLOWED_STAGES.includes(stage)) {
         if (LIGHT) {
+          emitGate('hint', 'vg-commit-stage', { stage });
           process.stderr.write(
             `[Verification Gate][light 提示] 当前阶段 ${stage} 非 VERIFY/REVIEW/FEEDBACK（不阻断，证据检查仍强制）。\n`
           );
         } else {
+          emitGate('deny', 'vg-commit-stage', { stage });
           process.stderr.write(
             `[Verification Gate] 当前阶段 ${stage} 不允许 commit。\n` +
             `→ commit 只允许在: ${COMMIT_ALLOWED_STAGES.join(', ')}。\n` +
@@ -165,6 +174,7 @@ process.stdin.on('end', () => {
       }
 
       if (!freshReport) {
+        emitGate('deny', 'vg-no-evidence');
         process.stderr.write(
           '[Verification Gate] 未找到验证报告。\n' +
           '→ 请先完成 QA 验证，产出证据文件。\n' +
@@ -175,6 +185,7 @@ process.stdin.on('end', () => {
 
       // ── 证据时效性检查 ──
       if (stageSince && freshReport.mtime < stageSince) {
+        emitGate('deny', 'vg-evidence-stale');
         process.stderr.write(
           `[Verification Gate] 验证证据早于当前任务开始时间，可能是上一轮残留。\n` +
           `→ 证据文件: ${freshReport.path}（修改于 ${freshReport.mtime.toISOString()}）\n` +
@@ -188,6 +199,7 @@ process.stdin.on('end', () => {
       const structured = readStructuredEvidence(freshReport.path);
       if (structured) {
         if (structured.overall !== 'READY') {
+          emitGate('deny', 'vg-not-ready', { overall: structured.overall });
           process.stderr.write(
             `[Verification Gate] 结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}。\n` +
             `→ 证据文件: ${freshReport.path}\n` +
@@ -197,6 +209,7 @@ process.stdin.on('end', () => {
         }
         const sufficiencyBlockers = e2eSufficiencyEvidenceBlockers(structured, isTag ? 'release' : 'medium');
         if (sufficiencyBlockers.length > 0) {
+          emitGate('deny', 'vg-e2e-sufficiency');
           process.stderr.write(
             '[Verification Gate] E2E sufficiency 证据不足。\n' +
             '→ 具体问题: ' + sufficiencyBlockers.join('; ') + '\n' +
@@ -207,6 +220,7 @@ process.stdin.on('end', () => {
         const requiredRisk = isTag ? 'release' : 'low';
         const evidenceRisk = structured.risk || 'low';
         if ((RISK_ORDER[evidenceRisk] || 0) < RISK_ORDER[requiredRisk]) {
+          emitGate('deny', 'vg-risk-level', { evidence: evidenceRisk, required: requiredRisk });
           process.stderr.write(
             `[Verification Gate] 验证证据风险等级不足: evidence=${evidenceRisk}, required=${requiredRisk}。\n` +
             `→ 证据文件: ${freshReport.path}\n`
@@ -216,6 +230,7 @@ process.stdin.on('end', () => {
         if (isTag) {
           const releaseBlockers = releaseEvidenceBlockers(structured);
           if (releaseBlockers.length > 0) {
+            emitGate('deny', 'vg-release-blockers');
             process.stderr.write(
               '[Verification Gate] release tag 被阻止：发布风险必须有完整 E2E/runtime 证据。\n' +
               '→ 具体问题: ' + releaseBlockers.join('; ') + '\n' +
@@ -235,6 +250,7 @@ process.stdin.on('end', () => {
             const evidence = readAllEvidenceText();
             const missing = RUNTIME_MARKERS.filter(m => !evidence.includes(m));
             if (missing.length > 0) {
+              emitGate('deny', 'C-GATE-07', { files: hit });
               process.stderr.write(
                 `[Verification Gate] C-GATE-07: 本次 commit 涉及用户入口文件 ${JSON.stringify(hit)}，\n` +
                 `但验证证据 ${freshReport.path} 缺少以下 runtime 模式标记: ${JSON.stringify(missing)}\n` +

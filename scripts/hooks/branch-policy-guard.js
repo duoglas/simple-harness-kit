@@ -26,6 +26,18 @@
  */
 
 const { execFileSync } = require('child_process');
+const guardMode = require('./guard-mode');
+const findRootBpg = require('./find-root');
+const BPG_ROOT = findRootBpg();
+// gate-events 遥测（branch-policy 属 deny 白名单，light 下同样阻断；mode 记录解析值）
+let BPG_INPUT = null;
+function emitBpg(action, gate, detail) {
+  guardMode.appendGateEvent(BPG_ROOT, {
+    gate, hook: 'branch-policy-guard',
+    mode: guardMode.resolveGuardMode(BPG_INPUT, BPG_ROOT).mode,
+    action, detail, session_id: BPG_INPUT && BPG_INPUT.session_id,
+  });
+}
 const { loadPreset } = require('./load-preset');
 
 const MAX_STDIN = 1024 * 1024;
@@ -158,6 +170,7 @@ function extractCommitType(cmd) {
 process.stdin.on('end', () => {
   try {
     const input = JSON.parse(raw);
+    BPG_INPUT = input;
     const cmd = String(input.tool_input?.command || '');
 
     if (!/git\s+(push|commit)/.test(cmd)) return;
@@ -185,6 +198,7 @@ process.stdin.on('end', () => {
 
       if (target.wildcard) {
         if (protected_branches.length || merge_only.length) {
+          emitBpg('deny', 'bpg-wildcard-push');
           process.stderr.write(
             '[Branch Policy Guard] git push --all / --mirror is unsafe with protected branches.\n' +
             `→ Active preset: ${preset.name}\n` +
@@ -203,6 +217,7 @@ process.stdin.on('end', () => {
 
       for (const dst of target.dst || []) {
         if (matchesAny(dst, merge_only)) {
+          emitBpg('deny', 'bpg-merge-only-push', { branch: dst });
           process.stderr.write(
             `[Branch Policy Guard] Direct push to '${dst}' is forbidden by preset '${preset.name}'.\n` +
             `→ Branch matches merge-only pattern. Use a Merge Request / Pull Request.\n` +
@@ -229,6 +244,7 @@ process.stdin.on('end', () => {
       if (Array.isArray(blockedPatterns) && blockedPatterns.length > 0) {
         for (const pat of blockedPatterns) {
           if (branchMatchesPattern(branch, pat)) {
+            emitBpg('deny', 'bpg-type-blocked', { type, branch });
             process.stderr.write(
               `[Branch Policy Guard] Commit type '${type}' is forbidden on branch '${branch}'.\n` +
               `→ Active preset: ${preset.name}\n` +
@@ -248,6 +264,7 @@ process.stdin.on('end', () => {
         if (!Array.isArray(allowedTypes) || allowedTypes.length === 0) continue;
         if (!globToRegex(branchPat).test(branch)) continue;
         if (!allowedTypes.includes(type)) {
+          emitBpg('deny', 'bpg-type-required', { type, branch });
           process.stderr.write(
             `[Branch Policy Guard] Commit type '${type}' is not allowed on branch '${branch}'.\n` +
             `→ Active preset: ${preset.name}\n` +

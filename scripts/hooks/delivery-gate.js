@@ -3,7 +3,7 @@
 
 /**
  * Delivery Gate Hook — AI 输出文字前的合规检查
- * @version 0.9.0 (new-generation-agent: guard_mode 双模式)
+ * @version 0.10.0 (new-generation-agent: + gate-events 遥测)
  * 触发: Stop
  *
  * 在 AI 生成回复但还未展示给用户之前触发。
@@ -79,6 +79,10 @@ process.stdin.on('end', () => {
     }
 
     const LIGHT = guardMode.resolveGuardMode(input, ROOT).mode === 'light';
+    const emitGate = (action, gate, detail) => guardMode.appendGateEvent(ROOT, {
+      gate, hook: 'delivery-gate', mode: LIGHT ? 'light' : 'strict',
+      action, detail, session_id: input.session_id, stage,
+    });
 
     // 跳过检查的阶段。
     // strict: PLAN/OFF 跳过（PLAN 输出计划是正常行为）。
@@ -98,6 +102,7 @@ process.stdin.on('end', () => {
     // 交付话术必须有 fresh READY 结构化 evidence；REVIEW/FEEDBACK 阶段也一样。
     const structured = readStructuredEvidence();
     if (!structured) {
+      emitGate('deny', 'dg-no-structured-evidence');
       process.stderr.write(
         '[Delivery Gate] 阻止：缺少结构化 READY 验证证据。\n' +
         `→ 请先运行验证并写入 ${EVIDENCE_JSON}，不能靠口头说完成。\n`
@@ -105,6 +110,7 @@ process.stdin.on('end', () => {
       process.exit(2);
     }
     if (structured && structured.overall && structured.overall !== 'READY') {
+      emitGate('deny', 'dg-not-ready', { overall: structured.overall });
       process.stderr.write(
         `[Delivery Gate] 阻止：当前验证证据不是 READY: overall=${structured.overall}。\n` +
         '→ 不能把测试失败或准出失败说成完成。先修复失败项，重新产出 READY evidence。\n'
@@ -112,6 +118,7 @@ process.stdin.on('end', () => {
       process.exit(2);
     }
     if (structured && hasDegradedRequiredCheck(structured)) {
+      emitGate('deny', 'dg-degraded');
       process.stderr.write(
         '[Delivery Gate] 阻止：验证证据里有 DEGRADED 的必需检查。\n' +
         '→ 报告必须保留限制说明，不能把 DEGRADED 说成 PASS。\n'
@@ -120,6 +127,7 @@ process.stdin.on('end', () => {
     }
     const sufficiencyBlockers = e2eSufficiencyEvidenceBlockers(structured);
     if (sufficiencyBlockers.length > 0) {
+      emitGate('deny', 'dg-e2e-sufficiency');
       process.stderr.write(
         '[Delivery Gate] 阻止：E2E 充分性证据不足。\n' +
         '→ 具体问题: ' + sufficiencyBlockers.join('; ') + '\n' +
@@ -128,6 +136,7 @@ process.stdin.on('end', () => {
       process.exit(2);
     }
     if (!isFreshStructuredEvidence(stageSince)) {
+      emitGate('deny', 'dg-stale-evidence');
       process.stderr.write(
         '[Delivery Gate] 阻止：验证证据不是 fresh evidence，可能是上一轮残留。\n' +
         '→ 请重新跑验证，产出晚于当前阶段开始时间的 READY evidence。\n'
@@ -148,6 +157,7 @@ process.stdin.on('end', () => {
     // 到这里：AI 在 EXECUTE/VERIFY 阶段使用了交付性语言
 
     if (stage === 'EXECUTE') {
+      emitGate('deny', 'dg-execute-stage');
       process.stderr.write(
         '[Delivery Gate] 阻止：当前在 EXECUTE 阶段，未完成 VERIFY 就宣称交付。\n' +
         '→ 必须先切到 VERIFY 阶段，产出验证证据，再向用户交付。\n' +
@@ -163,6 +173,7 @@ process.stdin.on('end', () => {
       });
 
       if (!hasEvidence) {
+        emitGate('deny', 'dg-verify-no-evidence');
         process.stderr.write(
           '[Delivery Gate] 阻止：在 VERIFY 阶段宣称交付但缺少验证证据。\n' +
           '→ 请先产出验证证据文件: ' + EVIDENCE_PATHS.join(' 或 ') + '\n' +

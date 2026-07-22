@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
- * @version 0.12.1 (new-generation-agent: guard_mode 双模式 + C-GATE-18 阈值可配置)
+ * @version 0.13.0 (new-generation-agent: + gate-events 遥测)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -312,7 +312,17 @@ function patchTouchesOnlyIterationSpec(input) {
   return refs.length > 0 && refs.every(p => patchRefMatches(p, ITERATION_SPEC_FILE));
 }
 
-function denyPreToolUse(input, message) {
+// gate-events 遥测上下文（stdin 解析后填充）与统一发射口（v0.13.0 B1）
+const GATE_CTX = { session_id: undefined, stage: undefined };
+function emitGate(action, gate, detail) {
+  guardMode.appendGateEvent(ROOT, {
+    gate, hook: 'stage-guard', mode: LIGHT ? 'light' : 'strict',
+    action, detail, session_id: GATE_CTX.session_id, stage: GATE_CTX.stage,
+  });
+}
+
+function denyPreToolUse(input, message, gate) {
+  emitGate('deny', gate || 'stage-guard');
   const reason = String(message || 'Blocked by Harness Stage Guard').replace(/\s+/g, ' ').trim();
   if (input && input.hook_event_name === 'PreToolUse') {
     process.stdout.write(JSON.stringify({
@@ -328,7 +338,8 @@ function denyPreToolUse(input, message) {
   process.exit(2);
 }
 
-function denyPermissionRequest(message) {
+function denyPermissionRequest(message, gate) {
+  emitGate('deny', gate || 'stage-guard');
   const reason = String(message || 'Blocked by Harness Stage Guard').replace(/\s+/g, ' ').trim();
   process.stdout.write(JSON.stringify({
     decision: {
@@ -374,6 +385,7 @@ function hintOnce(key, message) {
   state.hints = state.hints || {};
   state.hints[key] = new Date().toISOString();
   writeDirectiveState(state);
+  emitGate('hint', key);
   process.stderr.write(message);
 }
 // light 模式专用 PLAN directive：PLAN 暂停约定保留，但 light 不做工具阻断，
@@ -764,7 +776,7 @@ function enforceExecuteSpecRecheck(data, input) {
   }
   lines.push('下一步：先修 .harness/iteration-spec.json，或者切回 PLAN 重新对齐。');
   lines.push(`机器状态：${report.overall}`);
-  return denyPreToolUse(input, lines.join('\n') + '\n');
+  return denyPreToolUse(input, lines.join('\n') + '\n', 'execute-spec-recheck');
 }
 
 // 校验错误的统一出口：strict → exit 2 阻断；light → 提示 + 放行（阶段文件是可选遥测）。
@@ -915,6 +927,7 @@ function enforceVerifyGateIfNeeded(newData, input) {
   if (LIGHT) {
     // light: C-GATE-17 降级为强警告——EXECUTE 后未 VERIFY 就回 PLAN 仍值得提醒，
     // 但硬拦截交给 verification-gate 证据检查 + delivery-gate。
+    emitGate('hint', 'C-GATE-17');
     process.stderr.write(
       '[Harness Stage Guard][light 警告] 上一轮 EXECUTE 之后未经过 VERIFY 就切回 PLAN（不阻断）。\n' +
       '→ 建议先验证当前工作并产出证据；commit/交付仍会被证据门禁拦截。\n'
@@ -922,8 +935,9 @@ function enforceVerifyGateIfNeeded(newData, input) {
     return;
   }
   if (input && input.hook_event_name === 'PreToolUse') {
-    return denyPreToolUse(input, VERIFY_GATE_BLOCK);
+    return denyPreToolUse(input, VERIFY_GATE_BLOCK, 'C-GATE-17');
   }
+  emitGate('deny', 'C-GATE-17');
   process.stderr.write(VERIFY_GATE_BLOCK);
   process.exit(2);
 }
@@ -962,6 +976,7 @@ function enforceReviewGateIfNeeded(newData, input) {
     const message = REVIEW_GATE_BLOCK + '\n具体问题:\n' + gateErrors.map(e => '  - ' + e).join('\n') + '\n';
     if (LIGHT) {
       // light: 降级为强警告。硬拦截由 verification-gate 证据检查 + delivery-gate 承担。
+      emitGate('hint', 'C-GATE-01', { errors: gateErrors.length });
       process.stderr.write(
         '[Harness Stage Guard][light 警告] REVIEW Gate 未满足（不阻断，但 verification-gate/delivery-gate 仍会按证据拦截交付）:\n' +
         gateErrors.map(e => '  - ' + e).join('\n') + '\n'
@@ -969,7 +984,7 @@ function enforceReviewGateIfNeeded(newData, input) {
       return;
     }
     if (input && input.hook_event_name === 'PreToolUse') {
-      return denyPreToolUse(input, message);
+      return denyPreToolUse(input, message, 'C-GATE-01');
     }
     process.stderr.write(message);
     process.exit(2);
@@ -1004,6 +1019,8 @@ process.stdin.on('end', () => {
     // ── guard_mode 解析（strict/light 双模式）──
     const resolved = guardMode.resolveGuardMode(input, ROOT);
     LIGHT = resolved.mode === 'light';
+    GATE_CTX.session_id = input.session_id;
+    GATE_CTX.stage = readCurrentStageValue() || undefined;
     const notice = guardMode.onceNotice(resolved, input, ROOT);
     if (notice) process.stderr.write(notice);
 
@@ -1027,7 +1044,8 @@ process.stdin.on('end', () => {
       const currentStage = readCurrentStageValue();
       if (!currentStage || currentStage === 'PLAN') {
         return denyPermissionRequest(
-          '[Harness Stage Guard] PLAN 阶段拒绝权限升级。先完成 PLAN 并经用户确认后，再写入 .harness/current-stage.json 切换到 EXECUTE。'
+          '[Harness Stage Guard] PLAN 阶段拒绝权限升级。先完成 PLAN 并经用户确认后，再写入 .harness/current-stage.json 切换到 EXECUTE。',
+          'plan-permission'
         );
       }
       return;
@@ -1145,7 +1163,7 @@ process.stdin.on('end', () => {
         if (!LIGHT && toolCount.count === 0 && !TASK_TOOLS.includes(toolName)) {
           // 递增计数器，下次不再阻止
           try { fs.writeFileSync(TOOL_COUNT_FILE, JSON.stringify({ count: 1 }) + '\n'); } catch {}
-          return denyPreToolUse(input, FIRST_CALL_BLOCK);
+          return denyPreToolUse(input, FIRST_CALL_BLOCK, 'first-call');
         } else if (LIGHT) {
           // ── light: 无阶段区别对待，PLAN 只读门禁移除；directive 仅阶段切换注入 ──
           // C-GATE-19 Agent spawn 提醒保留（非阻断，对子代理质量有价值）
@@ -1166,6 +1184,7 @@ process.stdin.on('end', () => {
             execWrites.count = (execWrites.count || 0) + 1;
             try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify(execWrites) + '\n'); } catch {}
             if (lightWarnInterval > 0 && execWrites.count > 0 && execWrites.count % lightWarnInterval === 0) {
+              emitGate('warn', 'C-GATE-18', { count: execWrites.count, interval: lightWarnInterval });
               process.stderr.write(
                 `[Harness Stage Guard][light 提醒] EXECUTE 已累计 ${execWrites.count} 次写操作（不阻断）。\n` +
                 `→ 建议阶段性验证当前工作并产出证据，避免一次性交付大量未验证变更。\n`
@@ -1195,7 +1214,7 @@ process.stdin.on('end', () => {
             process.stderr.write(`[Harness Stage Guard] PLAN 阶段：允许写入 ${writePath}\n`);
           } else {
             // 其他一律阻止
-            return denyPreToolUse(input, PLAN_BLOCK_MSG);
+            return denyPreToolUse(input, PLAN_BLOCK_MSG, 'plan-readonly');
           }
         } else {
           // 非 PLAN 阶段：注入阶段工作要求
@@ -1227,6 +1246,7 @@ process.stdin.on('end', () => {
             try { fs.writeFileSync(EXECUTE_WRITES_FILE, JSON.stringify(execWrites) + '\n'); } catch {}
 
             if (BLOCK_THRESHOLD > 0 && execWrites.count >= BLOCK_THRESHOLD) {
+              emitGate('deny', 'C-GATE-18', { count: execWrites.count, threshold: BLOCK_THRESHOLD });
               return denyPreToolUse(input,
                 `[Harness Stage Guard] EXECUTE 阶段已执行 ${execWrites.count} 次写操作，超过阈值 ${BLOCK_THRESHOLD}（C-GATE-18）。\n` +
                 `必须先进入 VERIFY 阶段验证当前工作质量，再继续执行。\n` +
@@ -1235,6 +1255,7 @@ process.stdin.on('end', () => {
                 `→ 阈值可调: .harness/config.json {"execute_writes_block": N}（0 关闭）\n`
               );
             } else if (WARN_THRESHOLD > 0 && execWrites.count === WARN_THRESHOLD) {
+              emitGate('warn', 'C-GATE-18', { count: execWrites.count, threshold: BLOCK_THRESHOLD });
               process.stderr.write(
                 `[Harness Stage Guard] 提醒：EXECUTE 阶段已执行 ${execWrites.count} 次写操作。\n` +
                 `建议尽快进入 VERIFY 阶段检查工作质量。` +
@@ -1274,6 +1295,7 @@ process.stdin.on('end', () => {
   }
 
   if (shouldBlock && !LIGHT) {
+    emitGate('deny', 'stage-declaration');
     process.exit(2);
   }
   // stdout 保持为空（Codex runtime 兼容，见 VH-13）
