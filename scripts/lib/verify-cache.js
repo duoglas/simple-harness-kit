@@ -25,9 +25,18 @@ const { spawnSync } = require('child_process');
 const CACHE_REL = '.harness/verify-cache.json';
 
 const SOURCE_EXT = [
-  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.java', '.kt', '.go', '.py', '.rb',
+  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.java', '.kt', '.kts', '.go', '.py', '.rb',
   '.rs', '.c', '.cc', '.cpp', '.h', '.hpp', '.cs', '.swift', '.sh', '.bash', '.bsh', '.php',
+  '.vue', '.svelte', '.astro', '.scala', '.sbt', '.dart', '.ex', '.exs', '.erl', '.clj',
+  '.css', '.scss', '.sass', '.less', '.html', '.htm', '.sql', '.proto', '.graphql', '.gql',
+  '.tf', '.tfvars', '.m', '.mm', '.lua', '.pl', '.r', '.jl', '.zig', '.nim',
 ];
+// 配置/数据类：内容变了同样会改变构建或测试结果，此前全部落进 'any' 从不失效（Santa F4/F7）。
+const CONFIG_EXT = ['.yaml', '.yml', '.toml', '.ini', '.env', '.properties', '.gradle'];
+const CONFIG_NAME_RE = /(^|\/)(Dockerfile|docker-compose[^/]*|Makefile|CMakeLists\.txt|\.gitmodules|\.env[^/]*|.*\.lock|.*-lock\.json)$/i;
+const CI_PATH_RE = /(^|\/)(\.github\/workflows|\.gitlab-ci\.yml|\.circleci|\.travis\.yml|Jenkinsfile)/i;
+// fixture / testdata 是测试的输入，改了必须重跑测试。
+const DATA_PATH_RE = /(^|\/)(fixtures?|testdata|test-data|__fixtures__|golden|snapshots?|__snapshots__)(\/|$)/i;
 const CONFIG_HINT = [
   'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'tsconfig', 'jsconfig',
   'eslint', 'prettier', 'jest.config', 'vitest.config', 'babel.config', 'webpack', 'vite.config',
@@ -61,10 +70,13 @@ function classify(rel) {
   const kinds = ['any'];
   const ext = path.extname(rel).toLowerCase();
   if (SOURCE_EXT.includes(ext)) kinds.push('source');
-  if (CONFIG_HINT.some(h => rel.includes(h))) kinds.push('config');
-  if (TEST_HINT.test(rel)) kinds.push('test');
+  if (CONFIG_EXT.includes(ext) || CONFIG_HINT.some(h => rel.includes(h))
+      || CONFIG_NAME_RE.test(rel) || CI_PATH_RE.test(rel)) kinds.push('config');
+  if (TEST_HINT.test(rel) || DATA_PATH_RE.test(rel)) kinds.push('test');
   if (E2E_HINT.test(rel)) kinds.push('e2e');
   if (/spec\.json$|iteration-spec\.json$/.test(rel)) kinds.push('spec');
+  // 兜底：无扩展名的可执行脚本（bin/、scripts/ 下）按源码算，宁可多跑不可漏。
+  if (!ext && /(^|\/)(bin|scripts?)\//.test(rel)) kinds.push('source');
   return kinds;
 }
 
@@ -77,7 +89,25 @@ function git(root, args) {
  * harness 自己的簿记不参与验证指纹。否则每写一次缓存/journal，
  * 下一轮的变更集就多一个文件，指纹永远在变，缓存永不命中。
  */
-const LEDGER_NOISE = [/^\.harness\//, /\/journal\.jsonl$/, /\/evidence\//, /(^|\/)INDEX\.md$/];
+// 只锚定到真实的簿记位置。此前用不锚定的 /\/evidence\//、/INDEX\.md$/，
+// 会把 src/evidence/parser.js、app/INDEX.md 这类真实业务源码一起排除出变更集，
+// 于是改了源码却全线 CACHED（Santa F5/F6）。
+function ledgerNoiseMatchers(root) {
+  let tasksRel = 'docs/tasks';
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(root, '.harness/config.json'), 'utf8'));
+    if (cfg && typeof cfg.tasks_dir === 'string' && cfg.tasks_dir.trim()) tasksRel = cfg.tasks_dir.trim();
+  } catch { /* 用默认 */ }
+  tasksRel = tasksRel.replace(/^\.\//, '').replace(/\/+$/, '');
+  const esc = tasksRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [
+    /^\.harness\//,
+    new RegExp('^' + esc + '/[^/]+/journal\\.jsonl$'),
+    new RegExp('^' + esc + '/[^/]+/evidence/'),
+    new RegExp('^' + esc + '/INDEX\\.md$'),
+    new RegExp('^' + esc + '/[^/]+/task\\.json$'),
+  ];
+}
 
 /**
  * 工作树里所有已变更/未跟踪文件。指纹的输入面——没变更就没什么可重跑的。
@@ -85,6 +115,7 @@ const LEDGER_NOISE = [/^\.harness\//, /\/journal\.jsonl$/, /\/evidence\//, /(^|\
  * 未暂存修改的行首就是空格，trim 掉会把路径切错一位。
  */
 function changedFiles(root) {
+  const noise = ledgerNoiseMatchers(root);
   const r = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' });
   if (r.status !== 0) return [];
   return String(r.stdout || '')
@@ -92,15 +123,47 @@ function changedFiles(root) {
     .filter(l => l.length > 3)
     .map(l => l.slice(3))
     .map(p => (p.includes(' -> ') ? p.split(' -> ').pop() : p))
-    .map(p => p.replace(/^"|"$/g, '').trim())
+    .map(unquoteGitPath)
     .filter(Boolean)
-    .filter(p => !LEDGER_NOISE.some(re => re.test(p)));
+    .filter(p => !noise.some(re => re.test(p)));
+}
+
+/**
+ * git 默认 core.quotepath=true，非 ASCII 路径被输出成 "src/\346\250\241.js" 这种八进制转义。
+ * 不还原就 stat 不到文件、fileStamp 恒为 'missing'、指纹恒定、检查永远 CACHED。
+ * 对中文项目是必现问题（Santa F11）。
+ */
+function unquoteGitPath(p) {
+  const t = String(p).trim();
+  if (!(t.startsWith('"') && t.endsWith('"'))) return t;
+  const inner = t.slice(1, -1);
+  const bytes = [];
+  for (let i = 0; i < inner.length; i += 1) {
+    if (inner[i] === '\\' && /^[0-7]{3}/.test(inner.slice(i + 1, i + 4))) {
+      bytes.push(parseInt(inner.slice(i + 1, i + 4), 8));
+      i += 3;
+    } else if (inner[i] === '\\' && i + 1 < inner.length) {
+      const map = { n: 10, t: 9, r: 13, '"': 34 };
+      const c = inner[i + 1];
+      bytes.push(map[c] !== undefined ? map[c] : c.charCodeAt(0));
+      i += 1;
+    } else {
+      bytes.push(...Buffer.from(inner[i], 'utf8'));
+    }
+  }
+  return Buffer.from(bytes).toString('utf8');
 }
 
 function fileStamp(root, rel) {
+  const abs = path.join(root, rel);
   try {
-    const st = fs.statSync(path.join(root, rel));
-    return `${st.size}:${Math.floor(st.mtimeMs)}`;
+    const st = fs.statSync(abs);
+    if (!st.isFile()) return 'dir:' + st.size;
+    // 内容 hash 而非 size+mtime：后者会被 cp -p / rsync -a / touch -r / 构建缓存
+    // 以及粗粒度 mtime 碰撞——同大小同时间戳的不同内容拿到同一指纹（Santa F10）。
+    // 超过阈值的大文件退回 size+mtime，避免每轮读几百 MB。
+    if (st.size > 4 * 1024 * 1024) return 'big:' + st.size + ':' + Math.floor(st.mtimeMs);
+    return 'h:' + crypto.createHash('sha1').update(fs.readFileSync(abs)).digest('hex').slice(0, 16);
   } catch {
     return 'missing';
   }
