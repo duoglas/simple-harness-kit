@@ -3,7 +3,7 @@
   "title": "Task Ledger：任务态持久化（产出/簿记分层）",
   "status": "open",
   "risk": "high",
-  "stage": "PLAN",
+  "stage": "VERIFY",
   "created": "2026-07-26T03:07:49.017Z",
   "started_at": "2026-07-26T03:07:49.017Z",
   "closed": null,
@@ -12,5 +12,14 @@
   "agents": [
     "claude"
   ],
-  "commits": []
+  "commits": [
+    "29fcedb",
+    "abedee7",
+    "1da06d8",
+    "b4aae64",
+    "2f8655b",
+    "7e51900",
+    "3336e11",
+    "8deedb9"
+  ]
 }

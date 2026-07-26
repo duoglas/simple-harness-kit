@@ -3,3 +3,5 @@
 {"t":"2026-07-26T03:09:35.749Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"K1 核心库 + K2 CLI + K3 shk.js 路径改造完成，spec READY；下一步 K4 改 stage-guard 白名单"}
 {"t":"2026-07-26T03:21:57.341Z","agent":"claude","stage":"EXECUTE","kind":"finding","text":"verify-cache 两个自伤 bug：porcelain 整体 trim 切错路径、缓存文件自己进指纹导致永不命中；均由真机连跑暴露"}
 {"t":"2026-07-26T03:21:57.423Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"K4 stage-guard 白名单改造完成并验证：存量项目行为不变，任务目录整体放行，跨任务目录仍拦"}
+{"t":"2026-07-26T03:42:37.315Z","agent":"claude","stage":"VERIFY","kind":"stage","text":"K1-K8 全部完成：核心库/CLI/hook/增量验证/迁移/测试/文档。8 个 commit 已拆分提交，泄漏扫描 0 命中，template-integrity 32/32，task-ledger 专项 27/27"}
+{"t":"2026-07-26T03:42:38.025Z","agent":"claude","stage":"VERIFY","kind":"handoff","text":"未做：kit 未推送远端、未发 rc tag、未在真实 android-ops 执行迁移（均为 spec 标注的 needs_confirmation 不可逆动作，等用户确认）"}
