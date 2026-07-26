@@ -1,0 +1,5 @@
+{"t":"2026-07-26T03:07:49.237Z","agent":"claude","stage":"PLAN","kind":"stage","text":"任务创建：Task Ledger：任务态持久化（产出/簿记分层）"}
+{"t":"2026-07-26T03:09:35.533Z","agent":"claude","stage":"EXECUTE","kind":"finding","text":"spec-quality 的 must 过滤集被误用于引用存在性校验，已拆出 allRequirementIds；dogfood 第一次写 spec 就撞到"}
+{"t":"2026-07-26T03:09:35.749Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"K1 核心库 + K2 CLI + K3 shk.js 路径改造完成，spec READY；下一步 K4 改 stage-guard 白名单"}
+{"t":"2026-07-26T03:21:57.341Z","agent":"claude","stage":"EXECUTE","kind":"finding","text":"verify-cache 两个自伤 bug：porcelain 整体 trim 切错路径、缓存文件自己进指纹导致永不命中；均由真机连跑暴露"}
+{"t":"2026-07-26T03:21:57.423Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"K4 stage-guard 白名单改造完成并验证：存量项目行为不变，任务目录整体放行，跨任务目录仍拦"}
