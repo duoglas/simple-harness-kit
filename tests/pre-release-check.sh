@@ -153,12 +153,17 @@ fi
 # ── upgrade.sh DEFAULT_REF 契约 ──
 # 发版前强制：DEFAULT_REF 必须在 origin 上存在，且其 tree 含 task-ledger 与 shk.js。
 # 放在这里而不是日常套件——tag 尚未创建时它本就该红，日常开发不该被这个挡住。
-echo ""
-echo "── upgrade.sh DEFAULT_REF 契约 ──"
-if bash "$(dirname "${BASH_SOURCE[0]}")/scripts/21-upgrade-ref-contract.sh"; then
-  record_status "upgrade DEFAULT_REF" "PASS" "ref 存在且 tree 含 task-ledger/shk.js"
-else
-  record_status "upgrade DEFAULT_REF" "FAIL" "DEFAULT_REF 不可用——curl|bash 升级会失败或装到无任务态的版本"
+# 脚本可能不存在：quality-suite 的 pre-release 夹具只铺它自己需要的几个脚本，
+# 把"夹具里没有这个文件"报成发布阻断是误报。
+UPGRADE_REF_CHECK="$(dirname "${BASH_SOURCE[0]}")/scripts/21-upgrade-ref-contract.sh"
+if [ -f "$UPGRADE_REF_CHECK" ]; then
+  echo ""
+  echo "── upgrade.sh DEFAULT_REF 契约 ──"
+  if bash "$UPGRADE_REF_CHECK"; then
+    record_status "upgrade DEFAULT_REF" "PASS" "ref 存在且 tree 含 task-ledger/shk.js"
+  else
+    record_status "upgrade DEFAULT_REF" "FAIL" "DEFAULT_REF 不可用——curl|bash 升级会失败或装到无任务态的版本"
+  fi
 fi
 
 echo ""

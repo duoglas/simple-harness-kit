@@ -22,7 +22,21 @@ REF="$(grep -m1 '^DEFAULT_REF=' "$ROOT/upgrade.sh" | sed 's/^DEFAULT_REF="//; s/
 [ -n "$REF" ] || { echo "  [21-upgrade-ref] 无法解析 DEFAULT_REF"; exit 1; }
 echo "  [21-upgrade-ref] DEFAULT_REF=$REF"
 
+# 只在 kit 本体仓库里有意义。quality-suite 会用临时夹具仓库跑 pre-release-check，
+# 那种仓库的 origin 上当然没有 kit 的 tag——在那里检查会得到误报。
+if [ ! -d "$ROOT/methodology" ] || [ ! -f "$ROOT/manifests/shk-profiles.json" ]; then
+  echo "  [21-upgrade-ref] SKIP: 非 kit 本体仓库（无 methodology/ 或 manifests/）"
+  exit 0
+fi
+
 REMOTE="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+case "$REMOTE" in
+  *simple-harness-kit*) ;;
+  *)
+    echo "  [21-upgrade-ref] SKIP: origin 不是 kit 仓库（$REMOTE）"
+    exit 0
+    ;;
+esac
 if [ -z "$REMOTE" ]; then
   echo "  [21-upgrade-ref] SKIP: 无 origin 远端"
   exit 0
