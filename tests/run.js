@@ -561,6 +561,35 @@ try {
   console.log(`  Quality Gate Suite FAIL: ${e.message}\n`);
 }
 
+// ── Task Ledger / Verify Cache Unit Tests ──
+// 覆盖 scripts/lib/task-ledger.js 与 scripts/lib/verify-cache.js：任务态路径解析、
+// legacy 回落、tasks_dir 边界、journal、增量验证指纹与缓存、selectTests。
+// 每个用例自建独立 git 仓库夹具，不依赖 hook runtime。详见 tests/task-ledger.test.js。
+let ledgerFailed = 0;
+let ledgerTotal = 0;
+try {
+  const ledgerScript = path.resolve(__dirname, 'task-ledger.test.js');
+  if (fs.existsSync(ledgerScript)) {
+    console.log('  Task Ledger / Verify Cache Tests\n');
+    const res = require('child_process').spawnSync(process.execPath, [ledgerScript], {
+      stdio: 'inherit',
+      timeout: 3 * 60 * 1000,
+    });
+    ledgerTotal = 1;
+    if (res.status !== 0) {
+      ledgerFailed = 1;
+      console.log(`\n  Task Ledger Suite FAIL (exit ${res.status})\n`);
+    } else {
+      console.log(`\n  Task Ledger Suite PASS\n`);
+    }
+  } else {
+    console.log(`  Task Ledger Suite SKIP (脚本不存在: ${ledgerScript})\n`);
+  }
+} catch (e) {
+  ledgerFailed = 1;
+  console.log(`  Task Ledger Suite FAIL: ${e.message}\n`);
+}
+
 // ── Scripted Test Matrix (tests/scripts/run-all.sh) ──
 // 维度 1-7 install/update/skill-path/e2e/invariant/mutation/pathstyle/scope
 // 纯 shell 测试, 不依赖 Node 测试框架. 结果作为 run.js 总 exit code 的一部分.
@@ -675,9 +704,9 @@ try {
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
-const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + scriptedFailed + smokeFailed + initSmokeFailed;
-const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
 console.log(`  ══════════════════════════════`);
-console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
+console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (ledgerTotal - ledgerFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
 
 process.exit(totalFailed > 0 ? 1 : 0);
