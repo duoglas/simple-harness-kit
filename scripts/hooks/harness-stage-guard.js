@@ -48,6 +48,7 @@ const path = require('path');
 const { isLegitimateHarnessRoot } = require('./find-root');
 const findRoot = require('./find-root');
 const specQuality = require('../lib/spec-quality');
+const ledger = require('../lib/task-ledger');
 const guardMode = require('./guard-mode');
 const ROOT_RAW = findRoot();
 // macOS /tmp → /private/tmp symlink 导致 path.resolve 和 Claude Code 的绝对路径不一致。
@@ -110,8 +111,29 @@ const STAGES = ['PLAN', 'SETUP', 'EXECUTE', 'VERIFY', 'REVIEW', 'FEEDBACK'];
 let LIGHT = false;
 const LAST_DIRECTIVE_FILE = path.join(ROOT, '.harness/last-directive.json');
 const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
-const PLAN_FILE = path.join(ROOT, '.harness/current-plan.md');
-const ITERATION_SPEC_FILE = path.join(ROOT, '.harness/iteration-spec.json');
+// 产出类路径随当前任务解析；无 .harness/CURRENT 时回落 .harness/ 单例（存量项目行为不变）。
+function planFile() { return ledger.resolveArtifactPath(ROOT, 'plan'); }
+function iterationSpecFile() { return ledger.resolveArtifactPath(ROOT, 'spec'); }
+function specDisplayPath() { return ledger.relFromRoot(ROOT, iterationSpecFile()); }
+
+/** 路径是否落在当前任务目录内——PLAN 阶段整个任务目录可写。 */
+function isInsideCurrentTaskDir(p) {
+  const cur = ledger.currentTaskPaths(ROOT);
+  if (!cur || !p) return false;
+  const abs = path.resolve(p);
+  const dir = path.resolve(cur.dir);
+  return abs === dir || abs.startsWith(dir + path.sep);
+}
+
+function patchTouchesOnlyCurrentTaskDir(input) {
+  const refs = patchFileRefs(input);
+  if (!refs.length) return false;
+  return refs.every(r => {
+    const ref = String(r || '').replace(/^["']|["']$/g, '').trim();
+    if (!ref) return false;
+    return isInsideCurrentTaskDir(path.isAbsolute(ref) ? ref : path.resolve(ROOT, ref));
+  });
+}
 const SPEC_GATE_CACHE_FILE = path.join(ROOT, '.harness/spec-gate-cache.json');
 const TOOL_COUNT_FILE = path.join(ROOT, '.harness/tool-count.json');
 const STAGE_HISTORY_FILE = path.join(ROOT, '.harness/stage-history.jsonl');
@@ -288,7 +310,7 @@ function patchRefMatches(fileRef, targetPath) {
   if (!ref) return false;
   const target = path.resolve(targetPath);
   if (ref === '.harness/current-stage.json' && target === path.resolve(STAGE_FILE)) return true;
-  if (ref === '.harness/current-plan.md' && target === path.resolve(PLAN_FILE)) return true;
+  if (ref === '.harness/current-plan.md' && target === path.resolve(planFile())) return true;
   const resolved = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(ROOT, ref);
   return resolved === target;
 }
@@ -304,12 +326,12 @@ function patchTouchesOnlyHarnessStage(input) {
 
 function patchTouchesOnlyHarnessPlan(input) {
   const refs = patchFileRefs(input);
-  return refs.length > 0 && refs.every(p => patchRefMatches(p, PLAN_FILE));
+  return refs.length > 0 && refs.every(p => patchRefMatches(p, planFile()));
 }
 
 function patchTouchesOnlyIterationSpec(input) {
   const refs = patchFileRefs(input);
-  return refs.length > 0 && refs.every(p => patchRefMatches(p, ITERATION_SPEC_FILE));
+  return refs.length > 0 && refs.every(p => patchRefMatches(p, iterationSpecFile()));
 }
 
 // gate-events 遥测上下文（stdin 解析后填充）与统一发射口（v0.13.0 B1）
@@ -441,7 +463,7 @@ const STAGE_DIRECTIVES = {
 只允许：读文件了解现状、与用户对齐需求。
 
 必须完成以下步骤再继续：
-1. 写/更新 .harness/iteration-spec.json：需求、方案、风险、流量路径、测试计划、验收标准
+1. 写/更新 iteration spec（有当前任务则在任务目录 spec.json，否则 .harness/iteration-spec.json）：需求、方案、风险、流量路径、测试计划、验收标准
 2. 按 spec 拆任务——每个任务 ≤15 分钟可独立验证
 3. 定义每个任务的 done 条件，并关联 spec 中的 requirement / risk / traffic_flow
 4. 识别任务间依赖关系
@@ -624,21 +646,21 @@ function missingFrom(requiredSet, coveredSet) {
 }
 
 function evaluateIterationSpecForExecute() {
-  if (!safeFileExists(ITERATION_SPEC_FILE)) {
+  if (!safeFileExists(iterationSpecFile())) {
     return {
       overall: 'NOT_READY',
-      missing: ['.harness/iteration-spec.json'],
+      missing: [specDisplayPath()],
       weak: [],
     };
   }
 
   let spec = null;
   try {
-    spec = JSON.parse(safeReadFileSync(ITERATION_SPEC_FILE) || 'null');
+    spec = JSON.parse(safeReadFileSync(iterationSpecFile()) || 'null');
   } catch {
     return {
       overall: 'NOT_READY',
-      missing: ['.harness/iteration-spec.json 不是合法 JSON'],
+      missing: [`${specDisplayPath()} 不是合法 JSON`],
       weak: [],
     };
   }
@@ -648,7 +670,7 @@ function evaluateIterationSpecForExecute() {
 
 function iterationSpecRegularStat() {
   try {
-    const st = fs.lstatSync(ITERATION_SPEC_FILE);
+    const st = fs.lstatSync(iterationSpecFile());
     if (st.isSymbolicLink() || !st.isFile()) return null;
     return { mtimeMs: st.mtimeMs, size: st.size };
   } catch {
@@ -733,10 +755,12 @@ function isWriteToHarnessPlanningFile(input) {
   const writePath = String(input.tool_input?.file_path || '');
   if (toolName === 'Write') {
     const resolvedWrite = resolvedPathMaybe(writePath);
-    return [PLAN_FILE, ITERATION_SPEC_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f));
+    return [planFile(), iterationSpecFile(), STAGE_FILE].some(f => resolvedWrite === path.resolve(f))
+      || isInsideCurrentTaskDir(resolvedWrite);
   }
   return isPatchTool(toolName)
-    && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input) || patchTouchesOnlyHarnessStage(input));
+    && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input)
+      || patchTouchesOnlyHarnessStage(input) || patchTouchesOnlyCurrentTaskDir(input));
 }
 
 function shouldRecheckSpecDuringExecute(data, input) {
@@ -1199,9 +1223,13 @@ process.stdin.on('end', () => {
           const isReadOnlyBash = toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command);
           // 精确匹配：realpathSync 后比对, 跟随 symlink 确保 /tmp ↔ /private/tmp 一致
           const resolvedWrite = (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })();
+          // PLAN 阶段可写：阶段声明 + 当前任务目录内任意产出（spec/plan/findings/证据草稿）。
+          // 白名单从三个硬编码路径放开到任务目录——PLAN 本来就该自由记录，只是不该改产品代码。
           const isAllowedWrite = (toolName === 'Write' &&
-            [PLAN_FILE, ITERATION_SPEC_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f))) ||
-            (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input) || patchTouchesOnlyHarnessStage(input)));
+            ([planFile(), iterationSpecFile(), STAGE_FILE].some(f => resolvedWrite === path.resolve(f))
+              || isInsideCurrentTaskDir(resolvedWrite))) ||
+            (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input)
+              || patchTouchesOnlyHarnessStage(input) || patchTouchesOnlyCurrentTaskDir(input)));
 
           if (isReadTool || isReadOnlyBash) {
             // 读操作 / 只读 Bash 放行，注入 directive
