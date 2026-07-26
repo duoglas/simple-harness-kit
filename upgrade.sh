@@ -29,13 +29,30 @@ DEFAULT_REF="v0.14.0-rc.1"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 
+DO_MIGRATE=0
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --ref)
       [ $# -ge 2 ] || { echo "[shk-upgrade] --ref 缺少参数"; exit 1; }
       REF="$2"; shift 2 ;;
+    --migrate)
+      # 显式表达"顺便把本工程迁到任务态"。默认不做——迁移会建目录并改 .gitignore，
+      # 属于有副作用的操作，不该在一条同步命令里隐式发生。
+      DO_MIGRATE=1; shift ;;
     --help|-h)
-      echo "用法: curl -fsSL <raw>/upgrade.sh | bash [-s -- --ref <tag|branch>]"; exit 0 ;;
+      cat <<'USAGE'
+用法:
+  curl -fsSL <raw>/upgrade.sh | bash                      # 只同步 hooks/lib/CLI
+  curl -fsSL <raw>/upgrade.sh | bash -s -- --migrate      # 同步 + 迁移到任务态（一键）
+  curl -fsSL <raw>/upgrade.sh | bash -s -- --ref <tag>    # 指定版本
+
+--migrate 会在当前工程执行 `shk task migrate --apply`：
+  - 只复制不删除，存量 .harness/ 文件原样保留
+  - 建 <tasks_dir>/<TASK-ID>/ 并追加 .gitignore 规则
+  - 目标任务目录已存在时拒绝执行，不覆盖任何已有任务数据
+USAGE
+      exit 0 ;;
     *) shift ;;
   esac
 done
@@ -73,14 +90,30 @@ else
   echo "[shk-upgrade] 提示: 在工程根目录重跑本命令，可同步该工程的 hooks。"
 fi
 
-# ── 4. 任务态迁移提示 ──
-# 不自动执行：迁移会建目录并改 .gitignore，属于有副作用操作，交给用户确认。
+# ── 4. 任务态迁移 ──
+# 默认只提示不执行：迁移会建目录并改 .gitignore，属于有副作用操作。
+# 传 --migrate 表示用户已显式表达意图，才真正执行。
 if [ -d "scripts/hooks" ] && [ ! -f ".harness/CURRENT" ]; then
-  echo ""
-  echo "[shk-upgrade] 本工程尚未启用任务态（无 .harness/CURRENT）。"
-  echo "[shk-upgrade] 预演迁移: node scripts/shk.js task migrate"
-  echo "[shk-upgrade] 执行迁移: node scripts/shk.js task migrate --apply"
-  echo "[shk-upgrade] 迁移只复制不删除，存量 .harness/ 文件原样保留。"
+  if [ "$DO_MIGRATE" = "1" ]; then
+    echo ""
+    echo "[shk-upgrade] 迁移到任务态（--migrate）..."
+    if [ ! -f "scripts/shk.js" ]; then
+      echo "[shk-upgrade] 中止: scripts/shk.js 未同步成功，无法迁移。" >&2
+      exit 1
+    fi
+    if node scripts/shk.js task migrate --apply; then
+      echo "[shk-upgrade] 迁移完成。当前任务: $(cat .harness/CURRENT 2>/dev/null || echo '(未知)')"
+      echo "[shk-upgrade] 下一步: node scripts/shk.js task status"
+    else
+      echo "[shk-upgrade] 迁移未执行（见上方原因）。同步本身已完成，可稍后手动重试。" >&2
+    fi
+  else
+    echo ""
+    echo "[shk-upgrade] 本工程尚未启用任务态（无 .harness/CURRENT）。"
+    echo "[shk-upgrade] 预演迁移: node scripts/shk.js task migrate"
+    echo "[shk-upgrade] 一键迁移: 重跑本命令并加 -s -- --migrate"
+    echo "[shk-upgrade] 迁移只复制不删除，存量 .harness/ 文件原样保留。"
+  fi
 fi
 
 echo ""
