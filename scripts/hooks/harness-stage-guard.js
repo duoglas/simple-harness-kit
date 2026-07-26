@@ -141,12 +141,8 @@ const PRETOOL_OBS_FILE = path.join(ROOT, '.harness/pretool-observations.jsonl');
 const INFRA_TIER_FILE = path.join(ROOT, '.harness/infra-tier.json');
 
 // 验证证据文件——至少一个存在才算 VERIFY 做过
-const VERIFY_EVIDENCE = [
-  path.join(ROOT, '.harness/verify-evidence.json'),
-  path.join(ROOT, 'docs/verification-report.md'),
-  path.join(ROOT, '.harness/last-verification.json'),
-  path.join(ROOT, '.harness/verify-evidence.md'),
-];
+// 证据路径随当前任务解析；任务模式下只认任务目录内的证据（Santa F2）。
+function verifyEvidenceList() { return ledger.evidenceSearchPaths(ROOT); }
 
 // 阶段切换到 REVIEW 时的 Gate 检查
 const REVIEW_GATE_BLOCK = `[Harness Stage Guard] 切换到 REVIEW 被阻止（C-GATE-01）。
@@ -878,7 +874,7 @@ function recordStageHistory(stage) {
 
 
 function readStructuredVerifyEvidence() {
-  const jsonPath = path.join(ROOT, '.harness/verify-evidence.json');
+  const jsonPath = ledger.structuredEvidencePath(ROOT);
   try {
     const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     if (data && data.schema_version && data.overall) return data;
@@ -983,10 +979,10 @@ function enforceReviewGateIfNeeded(newData, input) {
   if (!history.includes('VERIFY')) gateErrors.push('未经过 VERIFY 阶段');
 
   // 检查 2: 验证证据文件
-  const hasEvidence = VERIFY_EVIDENCE.some(p => {
+  const hasEvidence = verifyEvidenceList().some(p => {
     try { return fs.statSync(p).isFile(); } catch { return false; }
   });
-  if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + VERIFY_EVIDENCE.join(' / ') + '）');
+  if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + verifyEvidenceList().join(' / ') + '）');
 
   const structured = readStructuredVerifyEvidence();
   if (structured) {

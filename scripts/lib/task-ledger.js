@@ -146,6 +146,34 @@ function relFromRoot(root, abs) {
   return r.split(path.sep).join('/');
 }
 
+/**
+ * 结构化验证证据的权威路径。门禁消费方必须用这个，不要自己拼 .harness/verify-evidence.json。
+ *
+ * 关键语义：有当前任务时**只**认任务目录内的证据，绝不回退 .harness/ 单例。
+ * 回退会造成一个隐蔽的失效：migrate 是复制不删除，legacy 证据会永远留在原地且再也不被更新，
+ * 而它一旦参与优先级，门禁就被钉死在一张永不刷新的旧快照上（Santa 审查 F2）。
+ */
+function structuredEvidencePath(root) {
+  return resolveArtifactPath(root, 'evidenceJson');
+}
+
+/**
+ * 证据存在性检查用的候选列表，按优先级。第一项永远是结构化证据的权威路径。
+ * 其余是历史遗留的弱证据形式，只能证明"验证跑过"，不能提供 overall/checks 结构。
+ */
+function evidenceSearchPaths(root) {
+  const primary = structuredEvidencePath(root);
+  const cur = currentTaskPaths(root);
+  const weak = cur
+    ? [cur.evidenceMd, path.join(root, 'docs/verification-report.md')]
+    : [
+      path.join(root, 'docs/verification-report.md'),
+      path.join(root, '.harness/last-verification.json'),
+      path.join(root, '.harness/verify-evidence.md'),
+    ];
+  return [primary, ...weak];
+}
+
 function readTask(root, id) {
   return readJson(taskPaths(root, id).task);
 }
@@ -246,6 +274,8 @@ module.exports = {
   taskPaths,
   currentTaskPaths,
   resolveArtifactPath,
+  structuredEvidencePath,
+  evidenceSearchPaths,
   relFromRoot,
   readTask,
   writeTask,

@@ -37,12 +37,22 @@ const MAX_STDIN = 1024 * 1024;
 const STAGE_FILE = path.join(ROOT, '.harness/current-stage.json');
 const COMMIT_ALLOWED_STAGES = ['VERIFY', 'REVIEW', 'FEEDBACK'];
 const PUSH_ALLOWED_STAGES = ['REVIEW'];
-const REPORT_PATHS = [
-  path.join(ROOT, '.harness/verify-evidence.json'),
-  path.join(ROOT, 'docs/verification-report.md'),
-  path.join(ROOT, '.harness/last-verification.json'),
-  path.join(ROOT, '.harness/verify-evidence.md'),
-];
+// lib 可能在升级窗口内尚未同步到目标工程；require 失败时降级为 legacy 单例路径，
+// 保持旧行为而不是让 hook 崩掉（崩掉会让所有工具调用失败）。
+let ledger = null;
+try { ledger = require('../lib/task-ledger'); } catch { ledger = null; }
+function evidenceJsonPath() {
+  return ledger ? ledger.structuredEvidencePath(ROOT) : path.join(ROOT, '.harness/verify-evidence.json');
+}
+function evidencePathList() {
+  return ledger ? ledger.evidenceSearchPaths(ROOT) : [
+    path.join(ROOT, '.harness/verify-evidence.json'),
+    path.join(ROOT, 'docs/verification-report.md'),
+    path.join(ROOT, '.harness/last-verification.json'),
+    path.join(ROOT, '.harness/verify-evidence.md'),
+  ];
+}
+
 const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
 
 // ── C-GATE-07: kit-only 守门 ──
@@ -163,7 +173,7 @@ process.stdin.on('end', () => {
 
       // ── 验证证据检查 ──
       let freshReport = null;
-      for (const p of REPORT_PATHS) {
+      for (const p of evidencePathList()) {
         try {
           const stat = fs.statSync(p);
           if (stat.isFile()) {
@@ -178,7 +188,7 @@ process.stdin.on('end', () => {
         process.stderr.write(
           '[Verification Gate] 未找到验证报告。\n' +
           '→ 请先完成 QA 验证，产出证据文件。\n' +
-          '→ 验证报告应在: ' + REPORT_PATHS.join(' 或 ') + '\n'
+          '→ 验证报告应在: ' + evidencePathList().join(' 或 ') + '\n'
         );
         process.exit(2);
       }
@@ -297,7 +307,7 @@ function readStructuredEvidence(filePath) {
 
 function readAllEvidenceText() {
   let out = '';
-  for (const p of REPORT_PATHS) {
+  for (const p of evidencePathList()) {
     try {
       if (fs.statSync(p).isFile()) out += '\n' + fs.readFileSync(p, 'utf8');
     } catch {}
