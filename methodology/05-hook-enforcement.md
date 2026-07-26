@@ -156,6 +156,8 @@ const cmd = String(input.tool_input?.command || '');
 if (/git\s+commit/.test(cmd)) {
   // 检查是否有 verification report
   const fs = require('fs');
+  // 示意代码。真实实现按当前任务解析证据路径（scripts/lib/task-ledger.js 的
+  // evidenceSearchPaths），且任务模式下只接受结构化证据——弱证据只能证明"跑过"。
   const reportExists = fs.existsSync('docs/verification-report.md') ||
     fs.existsSync('.harness/last-verification.json');
 

@@ -161,10 +161,22 @@ verification-gate hook 会强制这两条规则。不符合时 exit 2 阻止操�
 
 **证据时效性要求**（verification-gate 强制）: commit 时必须存在至少一份验证证据文件，且其 mtime 必须晚于 current-stage.json 的 since。这条规则在 VERIFY/REVIEW/FEEDBACK 三个阶段的 commit 都生效，不只是 VERIFY。
 
-证据文件可以是以下任一（按优先级查找）:
+证据文件按当前任务解析（`scripts/lib/task-ledger.js` 的 `evidenceSearchPaths`），
+优先级从高到低：
+
+**有当前任务时**（`.harness/CURRENT` 存在）:
+- `<tasks_dir>/<TASK-ID>/evidence/verify-evidence.json` — 结构化证据，**任务模式下必需**
+- `<tasks_dir>/<TASK-ID>/evidence/verify-evidence.md`
+- `docs/verification-report.md`
+
+**无当前任务时**（存量项目，行为与升级前一致）:
+- `.harness/verify-evidence.json`
 - `docs/verification-report.md`
 - `.harness/last-verification.json`
 - `.harness/verify-evidence.md`
+
+注意后三类只是**弱证据**：能证明"验证跑过"，但不含 `overall` / `checks` 结构。
+任务模式下只有弱证据会被拒绝——用 `shk verify --write-evidence` 生成，不要手工拼路径。
 
 每个任务通常产生 1 个主 commit（VERIFY 后），可能有 0-N 个修复 commit。
 

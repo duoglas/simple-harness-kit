@@ -18,10 +18,14 @@
 
 set -euo pipefail
 
-# DEFAULT_REF 必须是 origin 上**已存在**的 ref。指向未推送的分支会让下面的 checkout
-# 以 exit 128 失败，在 set -euo pipefail 下直接中止整个升级——比默认值过期严重得多。
-# 本分支合并并打 tag 之后再改这里。
-DEFAULT_REF="v0.13.0-rc.1"
+# DEFAULT_REF 必须是 origin 上**已存在**的 ref，且其 tree 必须含 task-ledger（否则
+# 升级完提示的 `shk task migrate` 会 MODULE_NOT_FOUND）。两条都由
+# tests/scripts/21-upgrade-ref-contract.sh 强制，不靠注释约束——R1 曾把这个字段
+# 写成未推送的分支导致 checkout exit 128，当时只补了注释，注释拦不住第二次。
+#
+# 打 tag 的顺序：先在本 commit 里把 DEFAULT_REF 指向即将创建的 tag，再让 tag 指向本
+# commit——这样 tag 内的 upgrade.sh 是自洽的，避免"必须先有 tag 才能改 ref"的死循环。
+DEFAULT_REF="v0.14.0-rc.1"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 
