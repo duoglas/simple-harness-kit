@@ -57,7 +57,33 @@ Diff:      [N files changed, +X/-Y lines]
 Overall:   [READY/NOT READY]
 ```
 
-产出写入 `.harness/verify-evidence.md` 或 `.harness/verify-evidence.json`（verification-gate / delivery-gate 据此放行）。
+产出写入验收证据文件（verification-gate / delivery-gate 据此放行）：有当前任务时落 `<tasks_dir>/<TASK-ID>/evidence/`，否则落 `.harness/verify-evidence.{json,md}`。路径由 `shk verify --write-evidence` 自动解析，不要手工拼。
+
+## 多轮验证的成本控制（增量 + 封盘）
+
+一次交付里反复跑完整测试是不可接受的成本，而且长 session 里"我记得刚才那项过了"本身就不可信。
+所以验证状态一律外置到任务目录的 `evidence/`，靠文件判断，不靠记忆。
+
+```
+第 1 轮   shk verify --risk <档> --round 1     全量，建立基线
+修一处
+第 2 轮   shk verify --risk <档> --round 2     只跑：上轮 FAIL 的 + 输入指纹变了的
+...
+全绿后   shk verify --risk <档> --seal         全量封盘，这一轮的 READY 才算数
+```
+
+规则：
+
+- **增量轮不算数**。只要本轮有复用结论（CACHED），overall 就是 `INCREMENTAL_GREEN` 而不是 `READY`，
+  交付前必须有一次 `--seal` 的全量绿。理由：增量轮的绿只覆盖了本轮改动。
+- **上轮没过的一律重跑**，哪怕输入没变——修不动也要如实再报一次失败，不能靠缓存把红变没。
+- **默认输入划分是保守的**：源码变了，build/tests/lint 一起失效。项目可以在
+  `.harness/config.json` 的 `check_inputs` 里按自己的构建结构收窄，换取更细的跳过。
+- **只改文档/spec 时源码类检查会全部命中缓存**——这是收益最大的常见场景（Santa 报的问题里
+  相当一部分是文档和 spec 层面的）。
+- **选测**靠 spec `test_plan` 条目里的 `paths` 字段声明"这条 test 关心哪些路径"。
+  没声明就全跑（保守）。声明了但有变更文件不被任何 paths 覆盖时，会报 uncovered——
+  **不能因为"没有 test 声明关心它"就当作通过**。
 
 ## Layer 3: Spec Compliance Review（升级档）
 

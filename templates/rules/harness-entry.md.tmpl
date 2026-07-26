@@ -1,5 +1,6 @@
 # Harness 入口规则 / Harness Entry
 
+> v3（task-ledger）：任务是第一类实体。接续先读 `.harness/CURRENT`，不要通读历史流水账。
 > v2（new-generation-agent）：banner 由 hook 输出，AI 不再复读；入口从"等待指令"改为"规格完整即开始"。
 > guard 模式（strict/light）由 stage-guard 按模型代际自动解析（详见 model-profile 规则），AI 无需处理。
 
@@ -9,6 +10,30 @@
 
 - 入口 banner 由 SessionStart hook 输出（Codex 场景由 UserPromptSubmit fallback 注入）。**AI 不需要也不应该复读 banner**——把首轮输出留给实际工作。
 - guard 模式切换时 hook 会提示一次，无需 AI 处理。固定模式：`.harness/config.json` 写 `{"guard_mode":"strict"|"light"}`，或环境变量 `HARNESS_GUARD_MODE`。
+
+## 接续已有任务（跨 session / 跨 agent）
+
+`.harness/CURRENT` 存放本机当前任务 ID，是判断"现在在做什么"的**唯一权威来源**。
+
+1. 有 CURRENT：跑 `shk task current` 拿三行摘要（任务/阶段/spec 与证据状态/最近一条 handoff），
+   需要细节再进 `<tasks_dir>/<TASK-ID>/` 取 spec.json、plan.md、journal.jsonl。
+   **不要为了搞清现状去通读仓库里的历史流水账**——那是接续成本失控的根因。
+2. 无 CURRENT：说明还没有进行中的任务。新工作用 `shk task new <slug> --title "..."`；
+   存量项目第一次启用任务态用 `shk task migrate`（先预演，`--apply` 才执行，只复制不删除）。
+
+任务目录里各文件的分工是固定的，不要自创位置：
+
+| 文件 | 放什么 |
+|---|---|
+| `spec.json` | 需求、方案、风险点、流量路径、测试计划、验收标准（schema 同 iteration spec） |
+| `plan.md` | 人读的方案与阶段拆解 |
+| `journal.jsonl` | 决策 / 偏差 / 发现 / 阻塞 / **handoff**，每条一行，`shk task log` 追加 |
+| `findings.md` | 本任务发现；结论稳定后提炼成规则写进 constraints |
+| `evidence/` | 结构化验收证据与报告 |
+| `review/` | 独立 review 与 Santa 报告 |
+
+**结束工作前必须写一条 handoff**：`shk task log "停在哪、下一个人从哪开始" --kind handoff`。
+这条信息在别处没有位置，不写就只存在于你的上下文里，session 一结束就没了。
 
 ## 收到任务后
 

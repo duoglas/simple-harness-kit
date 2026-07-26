@@ -6,6 +6,30 @@
 
 ## [Unreleased]
 
+## [0.14.0-rc.1] - 2026-07-26（Task Ledger：任务态持久化 + 增量验证）
+
+> 输入：android-ops 近一周（07-19~07-26）双端真实负载观察。核心发现是 harness 状态被建模成「一个仓库一份当前状态」，而实际工作是一个仓库上串行/并发跑很多任务、跨多个 agent、跨两家 CLI——于是两端各自长出一套状态文件、互不读取，人肉粘贴文件路径成了唯一的跨端传输通道。实测接续一次要读 135 KB 才能回答"现在在做什么"，冷启动 9.5 分钟 / 25 次工具调用全花在重建上下文。
+
+### Added
+
+- **任务实体与产出/簿记分层**: 新增 `scripts/lib/task-ledger.js`。工程产出落 `<tasks_dir>/<TASK-ID>/`（`task.json` / `spec.json` / `plan.md` / `journal.jsonl` / `findings.md` / `evidence/` / `review/`），进版本库、进评审 diff；工具簿记留 `.harness/`（`CURRENT` 指针、`config.json`、`runs/<TASK-ID>/` 原始日志、遥测），整体不进版本库。分层判据是「卸载 harness 之后这个文件还该不该留」。`tasks_dir` 由 `.harness/config.json` 配置，默认 `docs/tasks`，绝对路径与 `../` 逃逸安全回退。
+- **`.harness/CURRENT` 单指针**: 唯一权威的"本机当前任务"。刻意不跨机同步——两台机器可以在做不同任务。无 CURRENT 时所有产出路径回落 `.harness/` 单例，存量项目行为与升级前完全一致。
+- **`shk task` 命令族**: `new` / `current` / `switch` / `log` / `status` / `close` / `list` / `migrate`。`current` 输出三行接续摘要（任务与阶段、标题、spec 与证据状态加最近一条 handoff），把接续从"通读流水账"变成"读一个结构化指针"。
+- **`journal.jsonl` 事件流**: 单行 JSON 追加，多 agent 并发写不冲突、天然按时间有序、每条自带 agent 标识。新增 `handoff` 事件类型承载"停在哪、下一个人从哪开始"——这条信息此前在文件规范里没有位置，只存在于 session 上下文里，会随 session 结束蒸发。
+- **增量验证与封盘**: 新增 `scripts/lib/verify-cache.js`。每项检查按「它关心哪些文件」算输入指纹，未变则标 CACHED 复用上轮结论；`shk verify --round N` 只跑上轮 FAIL 的加指纹变了的；`--seal` 全量封盘。增量轮凡有复用就判 `INCREMENTAL_GREEN` 而非 READY，交付前必须有一次封盘全量绿。上轮未 PASS 的项即使指纹未变也强制重跑。选测靠 spec `test_plan` 的 `paths` 声明，未被任何 paths 覆盖的变更文件会报 uncovered 而不是静默通过。
+- **`shk task migrate`**: 存量项目一键迁到任务态。默认预演，`--apply` 才动文件，只复制不移动不删除；自动追加 `.gitignore` 规则（忽略 `.harness/`、保留产出目录）；仓库根的接力日志只报告不搬迁。`upgrade.sh` 升级后检测到未启用任务态会打印迁移命令。
+
+### Fixed
+
+- **spec-quality 引用存在性校验误用 must 过滤集**: `acceptance.covers` 引用一条 `priority: should` 的 requirement 会被误报为"关联了不存在的 requirement"，逼使用者把 should 提成 must 或干脆不写该验收项。拆出 `allRequirementIds` 供存在性检查，must 集合仍只管"必须被测试覆盖"的强校验。**优先级字段只应影响要求有多强，不应影响 ID 存不存在。**
+
+### Changed
+
+- **PLAN 阶段写入白名单**: 从三个硬编码路径（`current-plan.md` / `iteration-spec.json` / `current-stage.json`）放开到整个当前任务目录。android-ops 近一周 `gate-events.jsonl` 里 `plan-readonly` deny 91 次，主因就是白名单太窄——PLAN 阶段本来就该自由记录，只是不该改产品代码。
+- **stage-guard / shk 产出类路径**: `iteration-spec.json`、`current-plan.md`、`verify-evidence.*` 全部改走任务解析，无 CURRENT 时回落原路径。运行时类路径（`current-stage.json` 等）一处未动。
+- **`shk lane create`**: 创建 lane 时继承主仓 `CURRENT`，避免 lane 内 agent 失去任务上下文。
+- **rules 模板**: `harness-entry` 新增「接续已有任务」一节（先读 CURRENT，不要通读历史流水账；结束前必须写 handoff）；`qa-standards` 新增「多轮验证的成本控制」一节。
+
 ## [0.13.0-rc.1] - 2026-07-22（RC2 预发布，含 dogfood 反馈闭环）
 
 > 第二轮预发布（RC2）。0.12.0-rc 系列经 shk-workbench + android-ops（gpt-5.6-sol，2 天真实负载）dogfood 全指标达标后，本版把公开侧收敛合入 master，并落地 dogfood 暴露的三个反馈：门禁事件零持久化（验收只能人工推断）、harness-learn instinct 产出零语义、model-profile 未进 init 接线。

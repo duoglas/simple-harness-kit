@@ -66,6 +66,16 @@ else
   echo "[shk-upgrade] 提示: 在工程根目录重跑本命令，可同步该工程的 hooks。"
 fi
 
+# ── 4. 任务态迁移提示 ──
+# 不自动执行：迁移会建目录并改 .gitignore，属于有副作用操作，交给用户确认。
+if [ -d "scripts/hooks" ] && [ ! -f ".harness/CURRENT" ]; then
+  echo ""
+  echo "[shk-upgrade] 本工程尚未启用任务态（无 .harness/CURRENT）。"
+  echo "[shk-upgrade] 预演迁移: node scripts/shk.js task migrate"
+  echo "[shk-upgrade] 执行迁移: node scripts/shk.js task migrate --apply"
+  echo "[shk-upgrade] 迁移只复制不删除，存量 .harness/ 文件原样保留。"
+fi
+
 echo ""
 echo "[shk-upgrade] 完成。新 session 生效。"
 echo "[shk-upgrade] 回滚: git -C \"$KIT\" checkout master && git -C \"$KIT\" pull && bash \"$KIT/update.sh\" --hooks <工程目录>"
