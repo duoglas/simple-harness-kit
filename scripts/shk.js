@@ -1443,7 +1443,10 @@ function makeEvidence(root, risk, cache) {
         }));
       }
       if (risk === 'release' && ['runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
+        // 归一化必须在缓存落库之前生效，否则"打印 FAIL 但 exit 0"的检查会被记成 PASS，
+        // 连 previous-not-pass 重跑规则一起废掉（Santa F5/F8）。
         checks[check] = normalizeReleaseCommandResult(checks[check]);
+        if (cache && !checks[check].cached) cache.record(check, checks[check]);
       }
     }
     else if (check === 'spec') continue; // spec 消费下方 spec_status 的真实结果，不用占位符
@@ -1551,7 +1554,11 @@ function evidenceMarkdown(e) {
   lines.push('|---|---|---|');
   for (const [name, c] of Object.entries(e.checks || {})) {
     const detail = c.summary || c.command || c.reason || (c.findings !== undefined ? `${c.findings} findings` : c.files !== undefined ? `${c.files} files` : '');
-    lines.push(`| ${name} | ${c.status} | ${String(detail).replace(/\|/g, '/')} |`);
+    // 复用上轮结论的行必须显式标注：不标的话 `| tests | PASS | npm test |` 与真跑过
+    // 一模一样，读证据的人无从分辨本轮到底执行了什么（Santa F13）。
+    const status = c.cached ? `${c.status} (CACHED)` : c.status;
+    const suffix = c.cached ? ` — 复用第 ${c.cached_from_round} 轮结论，输入指纹未变` : '';
+    lines.push(`| ${name} | ${status} | ${String(detail + suffix).replace(/\|/g, '/')} |`);
   }
   if (Array.isArray(e.limitations) && e.limitations.length > 0) {
     lines.push('');
@@ -2139,6 +2146,11 @@ function cmdTaskMigrate(rest, root) {
     console.log(`  发现仓库根接力日志：${strays.join(', ')}`);
     console.log('    这些不自动搬迁。建议人工判断后归档到 docs/archive/，只把仍在推进的内容写进新任务 plan.md');
   }
+  if (exists(p.dir)) {
+    console.error(`目标任务目录已存在：${ledger.relFromRoot(root, p.dir)}`);
+    console.error('迁移不会覆盖已有任务的 spec/plan。换一个 --slug，或用 shk task switch 切到它。');
+    return 1;
+  }
   if (!apply) { console.log('\n以上为预演。加 --apply 实际执行。'); return 0; }
 
   ledger.ensureDir(p.evidenceDir);
@@ -2178,17 +2190,36 @@ function ensureLedgerGitignore(root) {
   try { cur = fs.readFileSync(gi, 'utf8'); } catch { cur = ''; }
   if (cur.includes(marker)) return false;
   const tasksRel = ledger.relFromRoot(root, ledger.tasksDir(root));
+
+  // git 不会递归进被排除的目录，所以父目录一旦被忽略，`!<tasks_dir>/` 是彻底无效的。
+  // 与其写一条无效规则再宣称"已保留"，不如先探测、再如实报告需要人工处理（Santa F6/F8）。
+  const probe = path.join(tasksRel, '.probe');
+  const ignored = spawnSync('git', ['check-ignore', '-q', probe], { cwd: root }).status === 0;
+
   const block = [
     '',
     marker,
-    '# 工具簿记：不进版本库',
-    '.harness/',
-    '# 但产出侧必须进（spec/plan/journal/findings 是跨机器接力的唯一载体）',
-    `!${tasksRel}/`,
+    '# 工具簿记不进版本库；用 .harness/* 而不是 .harness/ ，否则下一行的取反不生效',
+    '.harness/*',
+    '!.harness/config.json',
     '',
-  ].join('\n');
-  fs.writeFileSync(gi, cur + block, 'utf8');
-  console.log(`  已追加 .gitignore 规则（.harness/ 忽略，${tasksRel}/ 保留）`);
+  ];
+  fs.writeFileSync(gi, cur + block.join('\n'), 'utf8');
+  console.log('  已追加 .gitignore 规则（.harness/ 内容忽略，保留 config.json）');
+
+  if (ignored) {
+    console.error('');
+    console.error(`  警告：${tasksRel}/ 当前被已有的 .gitignore 规则排除。`);
+    console.error('  任务产出是跨机器接力的唯一载体，被忽略等于这套机制不成立。');
+    console.error('  git 无法用 `!` 重新包含父目录已排除的路径，必须改成逐层放行，例如：');
+    const parts = tasksRel.split('/');
+    parts.forEach((_, i) => {
+      const prefix = parts.slice(0, i + 1).join('/');
+      console.error(`    !${prefix}/${i === parts.length - 1 ? '' : ''}`);
+      if (i < parts.length - 1) console.error(`    ${prefix}/*`);
+    });
+    console.error('  这一步不自动改——取消你已有的忽略规则属于改变你的意图，需要你确认。');
+  }
   return true;
 }
 
