@@ -49,3 +49,66 @@ T6 的断言"生成的 .gitignore 规则不排除 tasks_dir"是文本匹配，�
 
 进入 Fix Cycle。修复顺序按根因聚类而非按编号，详见 journal。
 在全部 critical/high 修复并由全新 Reviewer 复审通过前，本分支不推送、不发 tag、不迁移真实工程。
+
+---
+
+# Fix Cycle R1 复审（Fresh Reviewer）— 仍判 FAIL
+
+9 条里 4 条确实修好（normalize 顺序、migrate 守卫、CACHED 标注、update.sh 同步 CLI），
+证据路径路由在主路径上也确实生效。但：
+
+## Critical 没关掉，只是换了一扇门
+
+`writeEvidence` 每轮无条件写 `docs/verification-report.md`，它在任务模式候选列表排第三；
+`readStructuredEvidence` 对非 `verify-evidence.json` 结尾的路径返回 null，于是它一旦胜出，
+overall / e2e / 风险档检查全部跳过。**`shk task new` 之后新任务尚无证据，提交直接放行。**
+与原始 F1 同样的结果，经由日常流程即可触发。
+
+## 我上一轮改坏了一个东西
+
+`upgrade.sh` 的 `DEFAULT_REF` 被我改成尚未推送的 `feat/task-ledger`。远端不存在该 ref，
+checkout 以 128 失败、`set -euo pipefail` 下整个升级中止。
+**把"过期但能用"改成了"硬失败"，比原问题更糟。**
+
+## 最该记的：复审对方法的批评
+
+上一轮的 verdict 自己写着"三层绿灯都失效，因为测的是同一侧"，
+而那一轮的修复：加了 29 条**仍然只测产出侧**的 E2E、**零新单测**、
+Critical 修复**没有任何回归锁**。测试总数 245 → 245，一个没变。
+
+F-A 和 F-D 正是这样活下来的。**写下教训、甚至把教训写进交付文档，都不等于应用了教训。**
+只有当教训变成一条会失败的检查，它才开始起作用。
+
+R2 因此改变顺序：先写 5 个任务模式门禁场景 → 确认第一条真的红 → 再改代码。
+测试总数 245 → 250。
+
+## R2 已修
+
+| 复审编号 | 问题 | 修法 |
+|---|---|---|
+| F-A | 任务模式下弱证据让门禁 fail-open | 任务模式拿不到结构化证据即拒绝；存量模式行为不变 |
+| F-C | stage-guard 裸 require，lib 缺失时崩溃=守门消失 | try/catch 降级到 legacy 路径实现 |
+| F-N | DEFAULT_REF 指向未推送分支，upgrade 直接中止 | 回到已存在的 tag，并写明"必须是 origin 已存在的 ref" |
+| F-K/F-L | gitignore 检查只挂 migrate，主流程 task new 没有 | task new 同样调用；CURRENT 现在被正确忽略 |
+| F-F | classify 漏 .json/.tmpl（kit 自身 template-integrity 就测 .tmpl） | 补进 config 类；.md 刻意不补，否则缓存收益归零 |
+| F-H | ledgerNoiseMatchers 自己解析 tasks_dir，与 ledger 不一致 | 复用 ledger.tasksDir()，非法配置下两边同步回退 |
+| F-O | init-prompt.md 两份未同步 shk.js | 两份都补 |
+
+## R2 未修（如实列出，等第三轮或降级接受）
+
+- **F-D** REVIEW 门禁降级：复审判未修，但我新增的场景 5（任务模式无结构化证据切 REVIEW）
+  在 strict 下测出 deny。两边结论不一致，需要对齐复现路径后再定。
+- **F-B** light 模式下无 stageSince 锚点，陈旧弱证据无条件通过。这是 light 模式的既有设计
+  （v3 的 B5 议题"证据自锚"就是为它立的），不属于本分支引入，但本分支放大了它的影响面。
+- F-E delivery-gate 的 `evidencePathList()` 是死代码、`EVIDENCE_PATHS` 仍硬编码 legacy
+- F-J migrate dry-run 在目标目录已存在时现在退出 1（行为变化，非破坏性）
+- F-M gitignore 警告只走 stderr，migrate 仍返回 0，自动化检测不到
+- F-I `docs/verification-report.md` 未列入噪音，永远出现在变更集里
+- F-G `.css/.html/.sql/.tf` 归为 source，前端项目缓存命中率趋近于零（保守方向，可接受）
+- 文档不一致：三处 methodology/skills 仍把 `.harness/last-verification.json` 写成有效证据落点，
+  而任务模式不再接受它
+
+## 状态
+
+Santa Fix Cycle 已用 2 轮（上限 3 轮）。第三轮复审未做。
+**在此之前：不推送、不发 tag、不迁移真实工程。**

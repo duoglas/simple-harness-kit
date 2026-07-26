@@ -7,3 +7,5 @@
 {"t":"2026-07-26T03:42:38.025Z","agent":"claude","stage":"VERIFY","kind":"handoff","text":"未做：kit 未推送远端、未发 rc tag、未在真实 android-ops 执行迁移（均为 spec 标注的 needs_confirmation 不可逆动作，等用户确认）"}
 {"t":"2026-07-26T04:26:22.364Z","agent":"claude","stage":"REVIEW","kind":"finding","text":"Santa 双审 NAUGHTY：两个独立 reviewer 均判 FAIL，1 critical + 8 high 高度重合。核心根因：产出路径改了但 verification-gate/delivery-gate/stage-guard 三个消费方读取路径没改，导致任务模式下 commit gate 失效（fail-open）、delivery 永久阻塞（fail-closed）"}
 {"t":"2026-07-26T04:26:22.448Z","agent":"claude","stage":"REVIEW","kind":"deviation","text":"此前告知用户的『一键升级可用』是错的：update.sh 不同步 scripts/shk.js，我实测时手工 cp 了它。必须更正"}
+{"t":"2026-07-26T05:17:25.327Z","agent":"claude","stage":"REVIEW","kind":"stage","text":"Fix Cycle R2 完成：修 F-A(critical 换门重现)/F-C/F-N/F-K/F-L/F-F/F-H/F-O，先写 5 个门禁回归场景再改码，测试 245→250"}
+{"t":"2026-07-26T05:17:25.401Z","agent":"claude","stage":"REVIEW","kind":"handoff","text":"R2 未修项已列入 review/santa-verdict.md：F-D 结论待对齐、F-B 属 light 模式既有设计、其余 5 条 Low。Santa 已用 2/3 轮"}
