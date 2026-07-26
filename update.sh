@@ -226,6 +226,21 @@ if [ -n "$PROJECT_DIR" ]; then
       fi
     fi
 
+    # shk CLI 本体。此前只同步 hooks 和 lib，导致升级后的工程拿不到 `shk task`
+    # ——而 upgrade.sh 却在提示用户跑 `node scripts/shk.js task migrate`，那条命令必然失败。
+    if [ -f "$SCRIPT_DIR/scripts/shk.js" ]; then
+      mkdir -p "$PROJECT_DIR/scripts"
+      if [ ! -f "$PROJECT_DIR/scripts/shk.js" ]; then
+        cp "$SCRIPT_DIR/scripts/shk.js" "$PROJECT_DIR/scripts/shk.js"
+        echo "  新增 CLI: scripts/shk.js"
+      elif ! diff -q "$SCRIPT_DIR/scripts/shk.js" "$PROJECT_DIR/scripts/shk.js" &>/dev/null; then
+        cp "$SCRIPT_DIR/scripts/shk.js" "$PROJECT_DIR/scripts/shk.js"
+        echo "  更新 CLI: scripts/shk.js"
+      else
+        echo "  shk CLI 已是最新版。"
+      fi
+    fi
+
     # ── 2.5 同步 Codex hooks.json（如果存在）──
     if [ -f "$PROJECT_DIR/.codex/hooks.json" ] && [ -f "$PROJECT_DIR/.claude/settings.json" ]; then
       echo ""

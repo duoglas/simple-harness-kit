@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-DEFAULT_REF="v0.13.0-rc.1"
+DEFAULT_REF="feat/task-ledger"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 

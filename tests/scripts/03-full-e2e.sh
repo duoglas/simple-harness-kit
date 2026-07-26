@@ -6,7 +6,7 @@
 #
 # 本脚本 **不派 AI** — 纯 shell 按 SKILL.md 的 init 步骤模拟 init 产物生成:
 #   1. 从 $HOME/.claude/skills/harness-init/resources/settings-json.tmpl 派生 settings.json
-#   2. 从 kit 拷 scripts/hooks/*.js 和 scripts/lib/*.js 到 $CWD/scripts/
+#   2. 从 kit 拷 scripts/hooks/*.js、scripts/lib/*.js 和 scripts/shk.js 到 $CWD/scripts/
 #   3. 从 kit templates/rules/*.tmpl 派生到 $CWD/.claude/rules/*.md
 #   4. 从 kit 拷 templates/constraints.md.tmpl → $CWD/docs/constraints.md
 #   5. 写个最小 CLAUDE.md (要求 > 200 字节)
@@ -62,6 +62,10 @@ cp "$SKILL_RES/settings-json.tmpl" "$TMP_CWD/.claude/settings.json"
 # ── Step 3: 拷 hook 脚本 + 共享库 ──
 mkdir -p "$TMP_CWD/scripts/hooks"
 cp "$TMP_KIT/scripts/hooks/"*.js "$TMP_CWD/scripts/hooks/"
+if [ -f "$TMP_KIT/scripts/shk.js" ]; then
+  # CLI 本体：shk task / shk verify 都在这里，不复制的话任务态与增量验证在目标项目里不可用
+  cp "$TMP_KIT/scripts/shk.js" "$TMP_CWD/scripts/shk.js"
+fi
 if [ -d "$TMP_KIT/scripts/lib" ]; then
   mkdir -p "$TMP_CWD/scripts/lib"
   cp "$TMP_KIT/scripts/lib/"*.js "$TMP_CWD/scripts/lib/"
