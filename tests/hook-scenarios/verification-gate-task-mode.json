@@ -5,7 +5,9 @@
     "stdin": {
       "hook_event_name": "PreToolUse",
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'x'" }
+      "tool_input": {
+        "command": "git commit -m 'x'"
+      }
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
@@ -15,7 +17,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["证据"]
+      "stderr": [
+        "证据"
+      ]
     }
   },
   {
@@ -24,7 +28,9 @@
     "stdin": {
       "hook_event_name": "PreToolUse",
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'x'" }
+      "tool_input": {
+        "command": "git commit -m 'x'"
+      }
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
@@ -35,7 +41,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["NOT_READY"]
+      "stderr": [
+        "NOT_READY"
+      ]
     }
   },
   {
@@ -44,7 +52,9 @@
     "stdin": {
       "hook_event_name": "PreToolUse",
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'x'" }
+      "tool_input": {
+        "command": "git commit -m 'x'"
+      }
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
@@ -56,7 +66,9 @@
     },
     "expect": {
       "exitCode": 2,
-      "stderr": ["NOT_READY"]
+      "stderr": [
+        "NOT_READY"
+      ]
     }
   },
   {
@@ -65,7 +77,9 @@
     "stdin": {
       "hook_event_name": "PreToolUse",
       "tool_name": "Bash",
-      "tool_input": { "command": "git commit -m 'x'" }
+      "tool_input": {
+        "command": "git commit -m 'x'"
+      }
     },
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
@@ -78,7 +92,7 @@
     }
   },
   {
-    "name": "stage-guard 任务模式: 无结构化证据不得进入 REVIEW",
+    "name": "stage-guard 任务模式: 阶段历史完整但无结构化证据 → 仍不得进入 REVIEW",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "hook_event_name": "PreToolUse",
@@ -92,12 +106,46 @@
       ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
       ".harness/CURRENT": "T-20260726-alpha\n",
       "docs/tasks/T-20260726-alpha/task.json": "{\"id\":\"T-20260726-alpha\",\"status\":\"open\",\"stage\":\"VERIFY\"}",
-      "docs/verification-report.md": "# report\n"
+      "docs/verification-report.md": "# report\n",
+      ".harness/stage-history.jsonl": "{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"VERIFY\",\"t\":\"2026-04-03T00:10:00Z\"}\n"
     },
-    "env": { "HARNESS_GUARD_MODE": "strict" },
+    "env": {
+      "HARNESS_GUARD_MODE": "strict"
+    },
     "expect": {
       "exitCode": 0,
-      "stdout": ["deny"]
+      "stdoutContains": [
+        "deny",
+        "缺少结构化验证证据"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard 任务模式: 阶段历史完整 + 结构化 READY → 允许进入 REVIEW",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": ".harness/current-stage.json",
+        "content": "{\"stage\":\"REVIEW\",\"since\":\"auto\",\"task\":\"t\"}"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
+      ".harness/CURRENT": "T-20260726-alpha\n",
+      ".harness/stage-history.jsonl": "{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"VERIFY\",\"t\":\"2026-04-03T00:10:00Z\"}\n",
+      "docs/tasks/T-20260726-alpha/task.json": "{\"id\":\"T-20260726-alpha\",\"status\":\"open\",\"stage\":\"VERIFY\"}",
+      "docs/tasks/T-20260726-alpha/evidence/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"},\"e2e\":{\"status\":\"PASS\",\"command\":\"npm run test:e2e\"},\"e2e_sufficiency\":{\"status\":\"PASS\",\"overall\":\"READY\"}}}"
+    },
+    "env": {
+      "HARNESS_GUARD_MODE": "strict"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutNot": [
+        "deny"
+      ]
     }
   }
 ]

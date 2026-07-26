@@ -1011,6 +1011,12 @@ function enforceReviewGateIfNeeded(newData, input) {
   if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + verifyEvidenceList().join(' / ') + '）');
 
   const structured = readStructuredVerifyEvidence();
+  // 任务模式下没有结构化证据必须报错，不能因为存在一个 markdown 报告就当作验证过。
+  // 否则下面所有实质检查（READY / DEGRADED / e2e 充分性）被 if (structured) 整体跳过，
+  // REVIEW 门禁退化成"某个文件存在"——复审 F-D，上一轮完全没碰。
+  if (!structured && ledger.currentTaskId(ROOT)) {
+    gateErrors.push(`当前任务缺少结构化验证证据（需要 ${ledger.relFromRoot(ROOT, ledger.structuredEvidencePath(ROOT))}）`);
+  }
   if (structured) {
     if (structured.overall !== 'READY') gateErrors.push(`结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}`);
     if (hasDegradedRequiredCheck(structured)) gateErrors.push('结构化验证证据包含 DEGRADED 检查，不能进入 REVIEW');
