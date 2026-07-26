@@ -277,6 +277,36 @@ function runScenario(scenario) {
 
     const expect = scenario.expect || {};
 
+    // expect 键白名单校验。
+    // 三轮 Santa 审查连续死在同一个机制上——「绿灯没有约束力」。最直接的一次实例是
+    // 有人写了 `"stdout": ["deny"]`，而 stdout 只接受字符串字面量，数组被静默忽略，
+    // 那条场景实质上只断言了 exitCode，却看起来是绿的。断言拼错、用了不存在的键、
+    // 或类型不对，都必须当场失败而不是悄悄跳过——否则测试的存在本身就是误导。
+    const EXPECT_KEYS = {
+      exitCode: 'number',
+      stderr: 'array',
+      stderrNot: 'array',
+      stdout: 'string',
+      stdoutContains: 'array',
+      stdoutNot: 'array',
+      files: 'object',
+      dirs: 'object',
+    };
+    for (const [key, value] of Object.entries(expect)) {
+      const want = EXPECT_KEYS[key];
+      if (!want) {
+        errors.push(`expect 含未知键 "${key}"（可用: ${Object.keys(EXPECT_KEYS).join(', ')}）`);
+        continue;
+      }
+      const actual = Array.isArray(value) ? 'array' : typeof value;
+      if (actual !== want) {
+        errors.push(`expect.${key} 类型应为 ${want}，实际 ${actual}`);
+      }
+    }
+    if (typeof expect.stdout === 'string' && !['empty', 'passthrough'].includes(expect.stdout)) {
+      errors.push(`expect.stdout 只接受 "empty" 或 "passthrough"；要匹配内容请用 stdoutContains`);
+    }
+
     // 检查 exit code
     if (expect.exitCode !== undefined && exitCode !== expect.exitCode) {
       errors.push(`exit code: 期望 ${expect.exitCode}, 实际 ${exitCode}`);

@@ -697,7 +697,89 @@ const tests = [
   testSelectTestsWithoutTestPlan,
   testSelectTestsWithoutPathDeclarations,
   testSelectTestsWithPartialPathDeclarations,
+  // 证据路径解析 + gitignore（复审 N2 / N5）
+  testStructuredEvidencePathSwitchesWithCurrent,
+  testEvidenceSearchPathsTaskModeExcludesLegacy,
+  testEvidenceSearchPathsLegacyModeOrder,
+  testEvidencePathsFallBackOnCorruptCurrent,
+  testTaskNewWritesWorkingGitignoreRules,
 ];
+
+// ── 证据路径解析（复审 N2）：Critical 修复就落在这两个函数上，此前零单测覆盖。
+// 第三轮变异测试 M3a 证明了后果——把 legacy 路径**追加**到任务模式的候选列表里，
+// 6 个场景加 27 个单测全部保持绿，而实际行为退回 Santa F2（门禁读永不更新的旧快照）。
+// 场景测试只覆盖夹具里出现过的组合；这里用精确相等锁住整个列表。
+
+function testStructuredEvidencePathSwitchesWithCurrent() {
+  withRepo(null, dir => {
+    assert.strictEqual(
+      ledger.structuredEvidencePath(dir),
+      path.join(dir, '.harness/verify-evidence.json'),
+      '无 CURRENT 时必须是 legacy 单例'
+    );
+    writeFile(dir, '.harness/CURRENT', 'T-20260726-alpha\n');
+    assert.strictEqual(
+      ledger.structuredEvidencePath(dir),
+      path.join(dir, 'docs/tasks/T-20260726-alpha/evidence/verify-evidence.json'),
+      '有 CURRENT 时必须落在任务目录'
+    );
+  });
+}
+
+function testEvidenceSearchPathsTaskModeExcludesLegacy() {
+  withRepo(null, dir => {
+    writeFile(dir, '.harness/CURRENT', 'T-20260726-alpha\n');
+    const paths = ledger.evidenceSearchPaths(dir);
+    const taskDir = path.join(dir, 'docs/tasks/T-20260726-alpha');
+    // 精确相等而非"包含"——追加一个 legacy 路径也必须让这条断言失败。
+    assert.deepStrictEqual(paths, [
+      path.join(taskDir, 'evidence/verify-evidence.json'),
+      path.join(taskDir, 'evidence/verify-evidence.md'),
+      path.join(dir, 'docs/verification-report.md'),
+    ], '任务模式的候选列表必须逐项相等');
+    const harnessDir = path.join(dir, '.harness') + path.sep;
+    for (const p of paths) {
+      assert.ok(!p.startsWith(harnessDir),
+        `任务模式下不得出现 .harness/ 证据（迁移残留会把门禁钉死在旧快照上）：${p}`);
+    }
+  });
+}
+
+function testEvidenceSearchPathsLegacyModeOrder() {
+  withRepo(null, dir => {
+    assert.deepStrictEqual(ledger.evidenceSearchPaths(dir), [
+      path.join(dir, '.harness/verify-evidence.json'),
+      path.join(dir, 'docs/verification-report.md'),
+      path.join(dir, '.harness/last-verification.json'),
+      path.join(dir, '.harness/verify-evidence.md'),
+    ], '存量模式的顺序必须与升级前的 REPORT_PATHS 一致');
+  });
+}
+
+function testEvidencePathsFallBackOnCorruptCurrent() {
+  withRepo(null, dir => {
+    writeFile(dir, '.harness/CURRENT', 'not-a-valid-id\n');
+    assert.strictEqual(ledger.structuredEvidencePath(dir), path.join(dir, '.harness/verify-evidence.json'));
+    assert.strictEqual(ledger.evidenceSearchPaths(dir).length, 4, '指针损坏时必须整体回落 legacy');
+  });
+}
+
+// ── T6 的 gitignore 断言（复审 N5）：Santa 称之为"最刺眼的一条"，此前零回归锁。
+function testTaskNewWritesWorkingGitignoreRules() {
+  withRepo(null, dir => {
+    const shk = path.join(__dirname, '..', 'scripts', 'shk.js');
+    const r = spawnSync('node', [shk, 'task', 'new', 'alpha', '--title', 't'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, `task new 应成功: ${r.stderr}`);
+    const ignored = rel => spawnSync('git', ['check-ignore', '-q', rel], { cwd: dir }).status === 0;
+    assert.ok(ignored('.harness/CURRENT'),
+      'CURRENT 必须被忽略——它是本机指针，跨机同步会让两台机器互相覆盖当前任务');
+    assert.ok(!ignored('.harness/config.json'),
+      'config.json 必须能进 git；用 .harness/ 而不是 .harness/* 会让这条取反失效');
+    const id = fs.readFileSync(path.join(dir, '.harness/CURRENT'), 'utf8').trim();
+    assert.ok(!ignored(`docs/tasks/${id}/task.json`),
+      '任务产出必须能进 git，它是跨机器接力的唯一载体');
+  });
+}
 
 let pass = 0;
 for (const t of tests) {

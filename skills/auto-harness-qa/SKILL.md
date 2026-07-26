@@ -119,7 +119,13 @@ Overall:     [READY / NOT READY]
 Issues:      [待修复问题列表]
 ```
 
-报告写入 `docs/verification-report.md` 或 `.harness/last-verification.json`。
+报告写入验收证据文件，路径由 `node scripts/shk.js verify --write-evidence` 自动解析——
+有当前任务时落 `<tasks_dir>/<TASK-ID>/evidence/verify-evidence.json`，否则落
+`.harness/verify-evidence.json`。不要手工拼路径。
+
+`docs/verification-report.md` 与 `.harness/last-verification.json` 只是弱证据，
+证明"验证跑过"但不含 overall/checks 结构。**任务模式下门禁不接受它们**——
+只写这两个文件会导致提交被拒。
 
 ## 简化模式
 

@@ -47,7 +47,22 @@ const fs = require('fs');
 const path = require('path');
 const { isLegitimateHarnessRoot } = require('./find-root');
 const findRoot = require('./find-root');
-const specQuality = require('../lib/spec-quality');
+// 与下面的 task-ledger 同理：两个 lib 走同一个 update.sh 同步循环，共享升级窗口。
+// 裸 require 失败会让 hook 退出 1，所有门禁在每次工具调用上一起静默失效（复审 N3）。
+let specQuality;
+try {
+  specQuality = require('../lib/spec-quality');
+} catch {
+  // 降级：无法评估 spec 质量时不阻断，但明确标注为未知而不是伪装成通过。
+  specQuality = {
+    evaluateIterationSpec: () => ({
+      overall: 'UNKNOWN',
+      missing: ['scripts/lib/spec-quality.js 缺失，spec 质量未经评估'],
+      weak: [],
+      coverage: {},
+    }),
+  };
+}
 // lib 可能处在"hooks 已更新、lib 未同步"的升级窗口。裸 require 失败会让 hook 退出 1，
 // 于是 plan-readonly / spec 门 / REVIEW 门在每次工具调用上一起静默失效——
 // 守门 hook 崩溃等于守门消失，必须降级而不是崩（复审 F-C）。
