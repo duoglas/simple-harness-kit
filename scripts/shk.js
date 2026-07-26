@@ -2260,6 +2260,9 @@ function cmdTask(args, root) {
     ledger.setCurrentTaskId(root, id);
     ledger.appendJournal(root, id, { kind: 'stage', stage: 'PLAN', text: `任务创建：${flag('--title') || slug}` });
     writeTaskIndex(root);
+    // 新建任务同样要保证产出能进 git、CURRENT 不进 git。migrate 有这一步而 new 没有，
+    // 等于主流程反而丢掉整个 ledger（复审 F-K/F-L）。
+    ensureLedgerGitignore(root);
     console.log(`created ${id}`);
     console.log(`  产出目录 ${ledger.relFromRoot(root, p.dir)}`);
     console.log(`  下一步：写 ${ledger.relFromRoot(root, p.spec)}（需求/风险/流量路径/测试计划/验收），然后 shk task status`);

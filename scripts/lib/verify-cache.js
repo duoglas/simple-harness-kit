@@ -32,7 +32,10 @@ const SOURCE_EXT = [
   '.tf', '.tfvars', '.m', '.mm', '.lua', '.pl', '.r', '.jl', '.zig', '.nim',
 ];
 // 配置/数据类：内容变了同样会改变构建或测试结果，此前全部落进 'any' 从不失效（Santa F4/F7）。
-const CONFIG_EXT = ['.yaml', '.yml', '.toml', '.ini', '.env', '.properties', '.gradle'];
+const CONFIG_EXT = ['.yaml', '.yml', '.toml', '.ini', '.env', '.properties', '.gradle',
+  // .json 与 .tmpl 是真实的测试输入（模板完整性、schema、fixture 都读它们）；
+  // .md 刻意不列——文档改动让全部检查失效会让缓存收益归零（复审 F-F/F-G）。
+  '.json', '.tmpl'];
 const CONFIG_NAME_RE = /(^|\/)(Dockerfile|docker-compose[^/]*|Makefile|CMakeLists\.txt|\.gitmodules|\.env[^/]*|.*\.lock|.*-lock\.json)$/i;
 const CI_PATH_RE = /(^|\/)(\.github\/workflows|\.gitlab-ci\.yml|\.circleci|\.travis\.yml|Jenkinsfile)/i;
 // fixture / testdata 是测试的输入，改了必须重跑测试。
@@ -93,10 +96,12 @@ function git(root, args) {
 // 会把 src/evidence/parser.js、app/INDEX.md 这类真实业务源码一起排除出变更集，
 // 于是改了源码却全线 CACHED（Santa F5/F6）。
 function ledgerNoiseMatchers(root) {
+  // 必须复用 ledger 的解析，不能自己读 config：ledger 对绝对路径和 ../ 逃逸有安全回退，
+  // 各算各的会让两边在非法配置下指向不同目录，簿记文件漏回变更集、指纹每轮都变（复审 F-H）。
   let tasksRel = 'docs/tasks';
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(root, '.harness/config.json'), 'utf8'));
-    if (cfg && typeof cfg.tasks_dir === 'string' && cfg.tasks_dir.trim()) tasksRel = cfg.tasks_dir.trim();
+    const ledger = require('./task-ledger');
+    tasksRel = ledger.relFromRoot(root, ledger.tasksDir(root)) || 'docs/tasks';
   } catch { /* 用默认 */ }
   tasksRel = tasksRel.replace(/^\.\//, '').replace(/\/+$/, '');
   const esc = tasksRel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

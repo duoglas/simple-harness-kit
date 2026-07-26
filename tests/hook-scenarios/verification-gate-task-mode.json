@@ -1,0 +1,103 @@
+[
+  {
+    "name": "verification-gate 任务模式: 只有弱证据(verification-report.md) 无结构化 → 阻止提交",
+    "hook": "verification-gate.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'x'" }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
+      ".harness/CURRENT": "T-20260726-alpha\n",
+      "docs/tasks/T-20260726-alpha/task.json": "{\"id\":\"T-20260726-alpha\",\"status\":\"open\",\"stage\":\"VERIFY\"}",
+      "docs/verification-report.md": "# SHK Verification Report\n\n- overall: NOT_READY\n"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["证据"]
+    }
+  },
+  {
+    "name": "verification-gate 任务模式: 任务目录证据 NOT_READY → 阻止提交",
+    "hook": "verification-gate.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'x'" }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
+      ".harness/CURRENT": "T-20260726-alpha\n",
+      "docs/tasks/T-20260726-alpha/task.json": "{\"id\":\"T-20260726-alpha\",\"status\":\"open\",\"stage\":\"VERIFY\"}",
+      "docs/tasks/T-20260726-alpha/evidence/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"NOT_READY\",\"checks\":{\"tests\":{\"status\":\"FAIL\"}}}",
+      "docs/verification-report.md": "# report\n"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["NOT_READY"]
+    }
+  },
+  {
+    "name": "verification-gate 任务模式: legacy 残留 READY 不得盖过任务目录的 NOT_READY",
+    "hook": "verification-gate.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'x'" }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
+      ".harness/CURRENT": "T-20260726-alpha\n",
+      ".harness/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"}}}",
+      ".harness/last-verification.json": "{\"overall\":\"READY\"}",
+      "docs/tasks/T-20260726-alpha/task.json": "{\"id\":\"T-20260726-alpha\",\"status\":\"open\",\"stage\":\"VERIFY\"}",
+      "docs/tasks/T-20260726-alpha/evidence/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"NOT_READY\",\"checks\":{\"tests\":{\"status\":\"FAIL\"}}}"
+    },
+    "expect": {
+      "exitCode": 2,
+      "stderr": ["NOT_READY"]
+    }
+  },
+  {
+    "name": "verification-gate 任务模式: 任务目录证据 READY → 放行提交",
+    "hook": "verification-gate.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": { "command": "git commit -m 'x'" }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
+      ".harness/CURRENT": "T-20260726-alpha\n",
+      "docs/tasks/T-20260726-alpha/task.json": "{\"id\":\"T-20260726-alpha\",\"status\":\"open\",\"stage\":\"VERIFY\"}",
+      "docs/tasks/T-20260726-alpha/evidence/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"medium\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"},\"e2e\":{\"status\":\"PASS\",\"command\":\"npm run test:e2e\"},\"e2e_sufficiency\":{\"status\":\"PASS\",\"overall\":\"READY\"}}}"
+    },
+    "expect": {
+      "exitCode": 0
+    }
+  },
+  {
+    "name": "stage-guard 任务模式: 无结构化证据不得进入 REVIEW",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Write",
+      "tool_input": {
+        "file_path": ".harness/current-stage.json",
+        "content": "{\"stage\":\"REVIEW\",\"since\":\"auto\",\"task\":\"t\"}"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"t\"}",
+      ".harness/CURRENT": "T-20260726-alpha\n",
+      "docs/tasks/T-20260726-alpha/task.json": "{\"id\":\"T-20260726-alpha\",\"status\":\"open\",\"stage\":\"VERIFY\"}",
+      "docs/verification-report.md": "# report\n"
+    },
+    "env": { "HARNESS_GUARD_MODE": "strict" },
+    "expect": {
+      "exitCode": 0,
+      "stdout": ["deny"]
+    }
+  }
+]

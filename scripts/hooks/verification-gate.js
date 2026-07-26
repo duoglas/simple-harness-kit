@@ -207,6 +207,22 @@ process.stdin.on('end', () => {
 
       // ── 结构化 evidence 检查 ──
       const structured = readStructuredEvidence(freshReport.path);
+      // 任务模式下"没有结构化证据"必须当作"没有证据"，不能因为存在一个 markdown 报告就放行。
+      // 复审 F-A：writeEvidence 每轮都会无条件写 docs/verification-report.md，它一旦成为
+      // 胜出候选，readStructuredEvidence 返回 null，overall/e2e/风险档检查全部跳过——
+      // 于是 shk task new 之后（新任务尚无证据）提交直接放行，Critical 换个门又回来了。
+      // 存量模式保持原有宽松行为不变，只对新特性收紧。
+      if (!structured && ledger && ledger.currentTaskId(ROOT)) {
+        const want = evidenceJsonPath();
+        emitGate('deny', 'vg-no-structured-evidence', { path: freshReport.path });
+        process.stderr.write(
+          '[Verification Gate] 当前任务缺少结构化验证证据。\n' +
+          `→ 找到的是弱证据: ${freshReport.path}（只能证明验证跑过，不含 overall/checks）\n` +
+          `→ 需要: ${want}\n` +
+          '→ 生成: node scripts/shk.js verify --risk <档位> --write-evidence\n'
+        );
+        process.exit(2);
+      }
       if (structured) {
         if (structured.overall !== 'READY') {
           emitGate('deny', 'vg-not-ready', { overall: structured.overall });

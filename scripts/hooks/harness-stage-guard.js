@@ -48,7 +48,33 @@ const path = require('path');
 const { isLegitimateHarnessRoot } = require('./find-root');
 const findRoot = require('./find-root');
 const specQuality = require('../lib/spec-quality');
-const ledger = require('../lib/task-ledger');
+// lib 可能处在"hooks 已更新、lib 未同步"的升级窗口。裸 require 失败会让 hook 退出 1，
+// 于是 plan-readonly / spec 门 / REVIEW 门在每次工具调用上一起静默失效——
+// 守门 hook 崩溃等于守门消失，必须降级而不是崩（复审 F-C）。
+let ledger;
+try {
+  ledger = require('../lib/task-ledger');
+} catch {
+  const legacy = {
+    spec: '.harness/iteration-spec.json',
+    plan: '.harness/current-plan.md',
+    evidenceJson: '.harness/verify-evidence.json',
+    evidenceMd: '.harness/verify-evidence.md',
+  };
+  ledger = {
+    currentTaskId: () => null,
+    currentTaskPaths: () => null,
+    resolveArtifactPath: (root, key) => path.join(root, legacy[key] || legacy.spec),
+    structuredEvidencePath: root => path.join(root, legacy.evidenceJson),
+    evidenceSearchPaths: root => [
+      path.join(root, legacy.evidenceJson),
+      path.join(root, 'docs/verification-report.md'),
+      path.join(root, '.harness/last-verification.json'),
+      path.join(root, legacy.evidenceMd),
+    ],
+    relFromRoot: (root, abs) => path.relative(root, abs).split(path.sep).join('/'),
+  };
+}
 const guardMode = require('./guard-mode');
 const ROOT_RAW = findRoot();
 // macOS /tmp → /private/tmp symlink 导致 path.resolve 和 Claude Code 的绝对路径不一致。

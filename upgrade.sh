@@ -18,7 +18,10 @@
 
 set -euo pipefail
 
-DEFAULT_REF="feat/task-ledger"
+# DEFAULT_REF 必须是 origin 上**已存在**的 ref。指向未推送的分支会让下面的 checkout
+# 以 exit 128 失败，在 set -euo pipefail 下直接中止整个升级——比默认值过期严重得多。
+# 本分支合并并打 tag 之后再改这里。
+DEFAULT_REF="v0.13.0-rc.1"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 
