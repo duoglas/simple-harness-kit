@@ -103,8 +103,9 @@
     },
     {
       "id": "R9",
-      "priority": "must",
-      "text": "按 spec test_plan 的 covers/risks/traffic_flows 映射，只执行与本轮变更相关的测试"
+      "priority": "should",
+      "text": "按 spec test_plan 的 paths 声明识别与本轮变更相关的测试，并报告未被任何 paths 覆盖的变更文件；当前只产出覆盖缺口报告（uncovered），不裁剪实际执行的测试命令——裁剪依赖各项目测试框架的过滤参数，尚未实现，不得声称已按变更选测",
+      "status": "partial"
     },
     {
       "id": "R10",
@@ -272,11 +273,11 @@
       ],
       "negative_or_boundary": true,
       "assertions": [
-        "只改动 covers R3 的面时仅执行关联 test",
         "上轮 FAIL 项在下轮必被重跑",
         "未被任何 test 覆盖的变更面必须报 uncovered 而不是静默通过",
         "增量轮不得直接判 READY，需全量封盘轮",
-        "evidence 中记录 round 与 selected/cached 明细"
+        "evidence 中记录 round 与 selected/cached 明细",
+        "selectTests 报告 uncovered 变更文件；确认它不改变实际执行的测试命令（当前为报告-only）"
       ]
     }
   ],
@@ -361,7 +362,7 @@
     },
     {
       "id": "A8",
-      "text": "选测与多轮收敛，末轮全量封盘",
+      "text": "多轮收敛与末轮全量封盘；选测部分仅验收覆盖缺口报告，不验收实际裁剪",
       "covers": [
         "R9",
         "R10",

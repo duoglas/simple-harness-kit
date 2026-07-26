@@ -5,3 +5,5 @@
 {"t":"2026-07-26T03:21:57.423Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"K4 stage-guard 白名单改造完成并验证：存量项目行为不变，任务目录整体放行，跨任务目录仍拦"}
 {"t":"2026-07-26T03:42:37.315Z","agent":"claude","stage":"VERIFY","kind":"stage","text":"K1-K8 全部完成：核心库/CLI/hook/增量验证/迁移/测试/文档。8 个 commit 已拆分提交，泄漏扫描 0 命中，template-integrity 32/32，task-ledger 专项 27/27"}
 {"t":"2026-07-26T03:42:38.025Z","agent":"claude","stage":"VERIFY","kind":"handoff","text":"未做：kit 未推送远端、未发 rc tag、未在真实 android-ops 执行迁移（均为 spec 标注的 needs_confirmation 不可逆动作，等用户确认）"}
+{"t":"2026-07-26T04:26:22.364Z","agent":"claude","stage":"REVIEW","kind":"finding","text":"Santa 双审 NAUGHTY：两个独立 reviewer 均判 FAIL，1 critical + 8 high 高度重合。核心根因：产出路径改了但 verification-gate/delivery-gate/stage-guard 三个消费方读取路径没改，导致任务模式下 commit gate 失效（fail-open）、delivery 永久阻塞（fail-closed）"}
+{"t":"2026-07-26T04:26:22.448Z","agent":"claude","stage":"REVIEW","kind":"deviation","text":"此前告知用户的『一键升级可用』是错的：update.sh 不同步 scripts/shk.js，我实测时手工 cp 了它。必须更正"}
