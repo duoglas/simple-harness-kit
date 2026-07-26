@@ -112,3 +112,57 @@ R2 因此改变顺序：先写 5 个任务模式门禁场景 → 确认第一条
 
 Santa Fix Cycle 已用 2 轮（上限 3 轮）。第三轮复审未做。
 **在此之前：不推送、不发 tag、不迁移真实工程。**
+
+---
+
+# Fix Cycle R2 复审（第三轮 Fresh Reviewer）— FAIL，但很窄
+
+**先说结论里最重要的一句：HEAD 上没有活的 fail-open。** 每个"必须拦"的探测都拦住了
+（悬空 CURRENT、损坏 JSON、伪造证据缺 schema_version、任务目录里的弱 md、低风险证据
+遇上 git tag、自定义 tasks_dir）。存量模式在 12 个状态下与升级前逐位相同。
+Critical 与 High 是真修好了，4 个指定变异抓到 3 个。
+
+**这一轮是真改进，不是又一次纸面修复**——复审的原话。
+
+## 变异测试：3 抓 1 逃
+
+| 变异 | 结果 |
+|---|---|
+| 移除 verification-gate 的任务模式 `!structured` 拒绝 | 抓到 |
+| 移除 stage-guard 的 `!structured` 分支 | 抓到（同时坐实 F-D 确曾存在） |
+| `structuredEvidencePath` 永远返回 legacy | 抓到（4 个场景一起红） |
+| **`evidenceSearchPaths` 把 legacy 追加到任务模式列表** | **逃逸** |
+
+逃逸那条的后果就是 Santa F2 原样复现：门禁读一张永不更新的旧快照。
+6 个场景 + 27 个单测全绿，而行为已经错了。
+
+根因：承载 Critical 修复的两个函数**零单测覆盖**。
+场景测试只覆盖夹具里出现过的组合，覆盖不到"多加一项"这种形态。
+
+## R3 已修（最小集里属于代码的部分）
+
+| 项 | 修法 |
+|---|---|
+| N1 | `tests/run.js` 的 `expect` 加键名+类型白名单。加上后立刻抓出我自己漏登记的 `files`/`dirs`——**校验当场证明了自己有效** |
+| N2 | `evidenceSearchPaths`/`structuredEvidencePath` 五条单测，用 `deepStrictEqual` 锁整个列表。重放 M3a：单测红、场景仍绿，证明这个洞只有单测能堵 |
+| N5 | 真调 `git check-ignore` 的断言，给"最刺眼的一条"补上回归锁 |
+| N3 | `spec-quality` 裸 require 加降级，与 task-ledger 同理；降级返回 `overall: UNKNOWN` 而非伪装通过 |
+| N4 关键项 | `skills/auto-harness-qa/SKILL.md` 不再指示写 `.harness/last-verification.json`（任务模式门禁不接受，会产出假 bug 报告） |
+
+## 未修，明确记为已知问题
+
+- **F-N（发布顺序约束，非代码问题）**：`upgrade.sh` 的 `DEFAULT_REF=v0.13.0-rc.1` 指向
+  `c2a9105`，早于本特性。默认 `curl | bash` 装的 kit 没有任务态能力，却会打印一条
+  `task migrate` 命令，实跑 `MODULE_NOT_FOUND`。**这是鸡生蛋**：必须先 tag 才能指过去。
+  处置：**tag → 改 DEFAULT_REF → 重跑升级 E2E**，并加一条断言 DEFAULT_REF 对应的 tree
+  里含 `scripts/lib/task-ledger.js`。R1 已经把这个字段写错过一次，注释不是控制手段。
+- N4 余量：`methodology/` 与 `README.md` 另有 2 处提及 `last-verification.json`。
+  可以合并，但**不能带着它发版**。
+- N6 存量模式仍是宽松模式（R4「存量行为不变」的必然结果，任务模式是唯一被加固的模式）
+- N7 `verification-gate` 缺 `hasDegradedRequiredCheck`，与另两个 gate 对同一状态判断不一致（**升级前就存在**）
+- N8/N9 及 R2 已声明的 F-B/F-E/F-G/F-I/F-J/F-M
+
+## 状态
+
+Santa 三轮用尽，按规矩升级人工判断。
+复审给出的人类决策点很窄：**代码侧最小集已做完；剩下的 F-N 是发布顺序，不是代码。**
