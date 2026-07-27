@@ -3,7 +3,7 @@
 
 /**
  * Delivery Gate Hook — AI 输出文字前的合规检查
- * @version 0.10.0 (new-generation-agent: + gate-events 遥测)
+ * @version 0.11.0 (task-ledger: 证据路径按任务解析)
  * 触发: Stop
  *
  * 在 AI 生成回复但还未展示给用户之前触发。

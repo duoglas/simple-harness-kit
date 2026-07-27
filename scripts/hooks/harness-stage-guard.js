@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
- * @version 0.13.0 (new-generation-agent: + gate-events 遥测)
+ * @version 0.14.0 (task-ledger: 产出路径按任务解析 + PLAN 白名单放开到任务目录 + REVIEW 强制结构化证据 + lib require 降级)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）

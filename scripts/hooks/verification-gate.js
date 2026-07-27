@@ -3,7 +3,7 @@
 
 /**
  * Verification Gate Hook — commit/push 前的阶段和证据检查
- * @version 0.12.0 (new-generation-agent: + gate-events 遥测)
+ * @version 0.13.0 (task-ledger: 证据路径按任务解析 + 任务模式强制结构化证据)
  * 触发: PreToolUse:Bash
  *
  * 五重检查（[过程] 检查在 light 模式降级为提示；[证据] 检查两种模式一致保留）:
