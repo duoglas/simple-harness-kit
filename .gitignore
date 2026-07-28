@@ -24,3 +24,8 @@ presets/_local-*/
 # confuse users who clone the kit expecting templates, not a wired-up project.
 .claude/
 .codex/
+
+# --- shk task ledger ---
+# 工具簿记不进版本库；用 .harness/* 而不是 .harness/ ，否则下一行的取反不生效
+.harness/*
+!.harness/config.json

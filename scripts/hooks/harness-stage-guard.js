@@ -419,14 +419,21 @@ function readCurrentStageValue() {
   }
 }
 
-// C-GATE-18 阈值（v0.12.1 可配置）。默认 warn=100 / block=200；
-// config.json 显式设 0（或负数）= 关闭对应行为。非法值回退默认。
+// C-GATE-18 阈值。config.json 显式设 0（或负数）= 关闭对应行为，非法值回退默认。
+//
+// 默认值按真实工作形态实测重定（此前 warn=100 / block=200）：
+// 长跑工程的 harness-learn 报告显示单 session EXECUTE 写操作 **P90 约 2200、峰值约 2700**，
+// 而当时阈值 200 的响应良性率只有 3/54——报告自己的判断是"模型在绕行而不是配合"。
+// 一个绝大多数正常工作都会撞上的阈值，产出的不是节制而是噪音和绕行动作。
+//
+// 重定为 warn=1000 / block=2500：warn 落在 P90 之下、能对真正跑偏的轮次先出声；
+// block 落在实测峰值之上、只拦真正失控的情况。项目可按自己的 learn-report 覆盖。
 function executeWriteThresholds() {
   const cfg = guardMode.readHarnessConfig(ROOT);
   const num = (v, dflt) => (typeof v === 'number' && Number.isFinite(v)) ? Math.floor(v) : dflt;
   return {
-    warn: num(cfg.execute_writes_warn, 100),
-    block: num(cfg.execute_writes_block, 200),
+    warn: num(cfg.execute_writes_warn, 1000),
+    block: num(cfg.execute_writes_block, 2500),
   };
 }
 
