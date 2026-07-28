@@ -233,7 +233,7 @@ if [ -n "$PROJECT_DIR" ]; then
       mkdir -p "$PROJECT_DIR/scripts/lib"
       lib_synced=0
       lib_installed=0
-      for lib in "$LIB_SRC"/*.js; do
+      for lib in "$LIB_SRC"/*.js "$LIB_SRC"/*.py; do
         if [ -f "$lib" ]; then
           name=$(basename "$lib")
           target="$PROJECT_DIR/scripts/lib/$name"
@@ -250,6 +250,17 @@ if [ -n "$PROJECT_DIR" ]; then
       done
       if [ $lib_synced -eq 0 ] && [ $lib_installed -eq 0 ]; then
         echo "  Hook 共享库已是最新版。"
+      fi
+    fi
+
+    # run-guarded 执行器（超时治理，C-AGENT-01 的工具面）。与 lib/*.py 配套，
+    # 不同步过去的话目标工程只有规则没有工具。
+    if [ -f "$SCRIPT_DIR/scripts/run-guarded.sh" ]; then
+      if [ ! -f "$PROJECT_DIR/scripts/run-guarded.sh" ] \
+        || ! diff -q "$SCRIPT_DIR/scripts/run-guarded.sh" "$PROJECT_DIR/scripts/run-guarded.sh" &>/dev/null; then
+        cp "$SCRIPT_DIR/scripts/run-guarded.sh" "$PROJECT_DIR/scripts/run-guarded.sh"
+        chmod +x "$PROJECT_DIR/scripts/run-guarded.sh" 2>/dev/null || true
+        echo "  同步执行器: scripts/run-guarded.sh"
       fi
     fi
 

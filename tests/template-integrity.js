@@ -173,6 +173,37 @@ function runTemplateIntegrityTests() {
     }
   });
 
+  // ── required_files 必须真的被 init 流程复制 ──
+  // 这个坑咬过三次：scripts/lib/spec-quality.js、scripts/shk.js、scripts/run-guarded.sh 都是
+  // "登记进 required_files 了，但 03-full-e2e.sh 的脚本化复制没加对应语句"，
+  // 于是 e2e-acceptance-validate 报 missing。三次都靠 e2e 间接发现，绕了一大圈。
+  // required_files 是声明、03-full-e2e 的复制段是实现，两处必须比对——这正是
+  // "A 处声明、B 处实现而无人比对" 的又一实例，所以直接钉一条检查。
+  check('sync: required_files 里的 scripts/* 都被 03-full-e2e.sh 复制', () => {
+    if (!requiredFiles) return 'required_files 未加载';
+    const e2ePath = path.join(__dirname, 'scripts', '03-full-e2e.sh');
+    if (!fs.existsSync(e2ePath)) return `不存在: ${e2ePath}`;
+    const body = fs.readFileSync(e2ePath, 'utf8');
+    const missing = [];
+    for (const rel of requiredFiles) {
+      if (!rel.startsWith('scripts/')) continue;
+      const base = path.basename(rel);
+      const dir = path.dirname(rel);
+      const ext = path.extname(rel);
+      // 覆盖形式二选一：精确文件名出现，或**该目录**的该扩展名被通配复制。
+      // glob 必须连目录一起匹配 —— 只判断"出现过 scripts/"加"出现过 *.js"会把
+      // 任意 scripts/*.js 都算成已覆盖（这个检查的第一版就是这么写的，变异测试
+      // 立刻证明它抓不到东西）。
+      const exact = body.includes(rel) || body.includes(`/${base}`);
+      const glob = body.includes(`${dir}/"*${ext}`) || body.includes(`${dir}/*${ext}`);
+      if (!exact && !glob) missing.push(rel);
+    }
+    if (missing.length > 0) {
+      return `required_files 声明了但 03-full-e2e.sh 不复制: ${missing.join(', ')}`
+        + '（新装项目会缺这些文件，e2e-acceptance-validate 会报 missing）';
+    }
+  });
+
   // ── T1: settings-json.tmpl 存在 + JSON 有效 ──
   let tmplSettings = null;
   check('template: settings-json.tmpl 存在 + JSON 有效', () => {

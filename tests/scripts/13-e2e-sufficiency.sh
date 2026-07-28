@@ -123,6 +123,7 @@ echo "  [13-e2e-sufficiency] traffic flow FLOW-3 covered: verify delivery gate a
 echo "  [13-e2e-sufficiency] traffic flow FLOW-4 covered: execute stage spec gate flow"
 # 20 必须在本脚本自己的 e2e-result.json 写入之后跑：它以合并方式追加任务态的流量路径证据，
 # 放在前面会被上面那段自验 node 的覆盖式写入冲掉。
+bash "$SCRIPT_DIR/22-run-guarded-selftest.sh"
 bash "$SCRIPT_DIR/20-task-ledger-e2e.sh"
 
 echo "  [13-e2e-sufficiency] PASS: install/init E2E + quality gate blocking contract + app E2E bootstrap mutation + AI Harness target-app workflow + spec-driven target-app acceptance"

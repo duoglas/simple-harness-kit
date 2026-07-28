@@ -36,6 +36,7 @@
 - `INIT` — 初始化流程
 - `GATE` — 交付门控 + 端到端验收
 - `WORK` — Worktree 多 lane 工作模式（git worktree + Claude Code bg-isolation 兼容）
+- `AGENT` — Agent 运行时行为（时间治理、可观察性、观察循环）
 
 ---
 
@@ -122,6 +123,19 @@
 | C-WORK-01 | 每个 git worktree 必须维护**独立**的 `.harness/` 控制状态（current-stage / current-plan / tool-count / stage-history / session-log / observations / verify-evidence 等）。`.harness/` 目录在 worktree 首次启动时由 hook 自动 `mkdir -p` 创建，不依赖 git tracking | worktree 与主仓库共用 `.harness/` 会导致：(a) 多 worktree 并发跑各自的 PLAN→EXECUTE→VERIFY 时互相覆写阶段状态；(b) worktree 内 SessionStart 把主仓库的活跃 stage 重置为 PLAN，主仓库进行中的工作丢上下文；(c) verify-evidence 文件在 worktree A 写但 worktree B 通过 REVIEW Gate；(d) 与 Claude Code bg-isolation 守门冲突——bg-isolation 要求 bg-session 写入落在 worktree 内，但 hook 用主仓库路径，永远死锁（VH-17） | 多 worktree 并行开发完全不可用；bg-session 进 worktree 后 PLAN→EXECUTE 切换永远被拒；用户被迫禁用 bg-isolation 或禁用 harness 二选一 |
 | C-WORK-02 | `scripts/hooks/find-root.js` 检测到 cwd 路径匹配 `<anything>/.claude/worktrees/<name>(/...)?` 时**必须**停在该 worktree 边界返回，禁止继续向上探到主仓库的 `.harness/`。贪婪匹配自然处理嵌套 worktree（返回最内层）。**Windows 反斜杠路径**（如 `C:\repo\.claude\worktrees\foo`）必须先归一化为正斜杠再匹配（VH-18 F5）。守门: `tests/hook-scenarios/find-root.json` 6 项集成 + `tests/run.js` 13 项纯函数单元（含 Unix/Windows/嵌套/edge case） | 仅靠"查 `.harness/` 目录存在性"的向上探索逻辑会跳过 worktree 边界直接走到主仓库（因为 `.gitignore` 阻止 git worktree add 拷贝 `.harness/`），导致所有 hook 路径锚错 → 与 C-WORK-01 同源死锁。worktree 子目录（如 `worktree/src/foo/`）必须正确识别。Unix-only 正则会把 Windows 用户挡在外面 | hook 静默在错的目录写状态文件；主仓库 `.harness/` 成为多 session 共享脏数据池；Windows 用户的 worktree 功能完全不可用 |
 | C-WORK-03 | hook 的 `.harness/` mkdir 自举**必须**通过 `find-root.js::isLegitimateHarnessRoot(ROOT)` 守门：仅当 (a) cwd 匹配 worktree 模式 或 (b) ROOT 下已有 `.harness/` 时才创建，否则直接 `process.exit(0)` 静默退出。`harness-session-start.js` / `harness-stage-guard.js` 顶层 `mkdirSync` 必须在该守门之后 | find-root fallback 到 cwd（无 worktree 模式、无 `.harness/` 祖先）时无条件 mkdir 会**把用户随便 cd 进的任意空目录污染成 Harness 项目**——Codex review 在 `/tmp` 实测复现：`echo {} \| node session-start.js` 生成 `.harness/current-stage.json` 并输出 HARNESS MODE banner（VH-18 F3） | 用户的任意 tmp/工作目录被无声 footprint；session-start 在非 Harness 项目里发出错误的 banner 指令，AI 据此进入不该有的 6 阶段 Loop |
+
+## [JC-09: Agent 时间治理与可观察性]
+
+> 回流自长跑 dogfood 工程的实测经验。这一区域管的不是"做对不对"，而是"卡住时能不能被发现、被中止、被恢复"——
+> 用户最高频的抱怨从来不是结果错，而是十几分钟没有任何反馈、只能人工打断，而打断之后现场也没了。
+
+| ID | 约束 | WHY | 违反后果 |
+|---|---|---|---|
+| C-AGENT-01 | **任何可能超过 60 秒的动作必须可观察、可中止、可恢复。** 启动前声明阶段与停止点；30 秒采样内部进度；60 秒内给用户可见进展；2 分钟无有效进展先取证（保存进程树与现场）；3 分钟无有效进展终止**整个进程组**；同一工作流步骤 5 分钟无增量必须停止，且相同命令、参数、输入**不得原样重试**。等待外部事件（异步回调、人工输入、审批）时到期记 `E2E_PENDING` 并结束动作，不要挂着。仓库工具只能治理子进程与工作流；模型请求自身的失联上限由客户端或外部 supervisor 负责，不要假装能管。实现见 `scripts/run-guarded.sh`（退出码 124=IDLE_TIMEOUT / 125=HARD_TIMEOUT / 3=BUDGET_EXCEEDED / 130=INTERRUPTED） | 仅靠命令最终返回**无法区分"静默卡死"和"仍在推进"**；没有进程组清理、检查点和现场，用户只能人工提醒打断，而重试又丢掉了根因 | 单个命令或 Agent 回合十几分钟无反馈；孤儿子进程继续占资源；测试/部署重复执行且无法从新 session 恢复 |
+| C-AGENT-02 | **时间盒与熔断。** 开始时给出预计阶段与停止点；单个外部通道调用（命令 / 审批 / UI）30 秒无有效进展即终止或换方案，**不得连续等待**；同一通道最多重复 2 次；任一阶段 10 分钟无新结论即停止新增写操作、先汇报；**主结果确定后 2 分钟内交付简短结论**，文档、复盘、长 QA 拆到后续回合；至少每 60 秒给一次真实进展，**不得用重复的"仍在处理"代替结果** | 通道不稳定时重试的边际收益迅速归零，而用户的等待成本线性增长；把主结论压在长篇整理之后交付，等于让用户为不紧急的产物买单 | 一个回合跑一小时；关键结论淹没在过程叙述里；用户反复发"继续" |
+| C-AGENT-03 | **观察循环不得自己成为负载，时间预算必须用真实墙钟。** (a) 预算按秒计，**采样次数不等于秒数**——每次采样若做全量扫描，N 次采样的真实耗时可能是预算的数倍；(b) 高频观察必须缓存或限频读取不变量，不要每个样本都全量重扫历史数据；(c) 大文本探测不得在 `set -o pipefail` 下用会提前关闭管道的命令（如 `grep -q`），否则触发 Broken pipe 被误读为失败；(d) 目标运行时从未就绪时应优先报"加载/启动超时"，不要被一次早期的偶发状态覆盖成别的结论 | 观测器自身的开销会污染被观测对象，也会让"我等了 75 次"与"我等了 75 秒"相差一个数量级；诊断结论的优先级错误会把根因指向偶发表象 | 观察一轮实际跑 6 分钟却以为是 75 秒；Broken pipe 被当成检测失败；根因归到偶发的表层状态 |
+
+---
 
 ## [JC-07: Skill 路径解析 + 测试反假 PASS（VH-10）]
 
