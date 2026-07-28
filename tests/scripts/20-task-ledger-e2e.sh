@@ -113,7 +113,8 @@ F2="$(setup_fixture)"
   $SHK task new handoff-demo --title "接续演示" --risk low >/dev/null
   $SHK task log "改了 A，卡在 B 的空指针" --kind handoff --stage EXECUTE >/dev/null
 )
-T2="$(cat "$F2/.harness/CURRENT")"
+T2="$(cat "$F2/.harness/CURRENT" 2>/dev/null || true)"
+[ -n "$T2" ] || { echo "  FAIL F2 夹具未生成 CURRENT，后续断言无意义" >&2; exit 1; }
 # 关键：另起一个进程，不带任何上下文，只凭 CURRENT 拿摘要
 SUMMARY="$(cd "$F2" && $SHK task current 2>/dev/null)"
 printf '%s' "$SUMMARY" > "$F2/.summary.txt"
@@ -141,7 +142,8 @@ check "F3 存量项目 PLAN 阶段仍放行 legacy spec" "[ '$D_LEGACY' = 'allow
 check "F3 阻断：存量项目 PLAN 阶段仍拦业务代码" "[ '$D_SRC' = 'deny' ]"
 # 迁移后行为切换，且原文件保留
 (cd "$F3" && $SHK task migrate --apply --slug legacy >/dev/null)
-T3="$(cat "$F3/.harness/CURRENT")"
+T3="$(cat "$F3/.harness/CURRENT" 2>/dev/null || true)"
+[ -n "$T3" ] || { echo "  FAIL F3 迁移未生成 CURRENT，后续断言无意义" >&2; exit 1; }
 P_SPEC2="$(artifact_path "$F3" spec)"
 D_TASKDIR="$(guard_decision "$F3" "$F3/docs/tasks/$T3/findings.md")"
 D_SRC2="$(guard_decision "$F3" "$F3/src/a.js")"
