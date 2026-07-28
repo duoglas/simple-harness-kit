@@ -118,6 +118,46 @@ function analyzeHotFiles(obs) {
     .sort((a, b) => b.count - a.count);
 }
 
+/**
+ * 任务状态漂移检测（C-AGENT-04）。
+ *
+ * stage 文件的既有守门只查"新鲜度"——since 是不是够新。但新鲜不等于**记的是这件事**：
+ * 只读审计发现过 stage 停在几天前的旧任务，而同一工作树里躺着 4 条互不相关的改动链，
+ * 于是那一轮所有证据都挂错了账。
+ *
+ * 判据用**时间**而不是文本匹配。第一版试过"任务描述与高频文件路径的词重叠"，
+ * 但那个思路对中文任务名整个失效——中文无法用 ASCII 正则分词，而且"设置页导航重构"
+ * 与 `plugins/settings/nav.java` 之间本来就没有字面重叠。语言相关的判据在多语项目里
+ * 是不可靠的，时间差则语言无关。
+ *
+ * 只提示不阻断：误报的成本远高于漏报。
+ */
+const DRIFT_STALE_HOURS = 12;
+
+function analyzeTaskDrift(stageHistory, hotFiles) {
+  if (!Array.isArray(hotFiles) || hotFiles.length === 0) return null;
+  const last = Array.isArray(stageHistory) && stageHistory.length > 0
+    ? stageHistory[stageHistory.length - 1] : null;
+  if (!last || !last.t) return null;
+
+  const stageAt = Date.parse(last.t);
+  if (!Number.isFinite(stageAt)) return null;
+  const hours = (Date.now() - stageAt) / 3600000;
+  if (hours < DRIFT_STALE_HOURS) return null;
+
+  // stage 很久没动，但仍有可观的写操作量 —— 大概率是忘了切任务
+  const writes = hotFiles.reduce((sum, f) => sum + (f.count || 0), 0);
+  if (writes < 10) return null;
+
+  return {
+    label: String(last.task || last.reason || last.stage || '(未命名)'),
+    since: last.t,
+    hours: Math.round(hours),
+    writes,
+    topFiles: hotFiles.slice(0, 3).map(f => f.file),
+  };
+}
+
 // ── 报告 ──
 
 function gateSummaryLines(summary) {
@@ -179,6 +219,17 @@ function generateReport(obs, events, stageHistory, hotFiles) {
     for (const f of hotFiles.slice(0, 10)) {
       lines.push(`| ${f.file} | ${f.count} |`);
     }
+  }
+
+  const drift = analyzeTaskDrift(stageHistory, hotFiles);
+  if (drift) {
+    lines.push('\n## 任务状态漂移提示（C-AGENT-04）');
+    lines.push(`当前记录的任务是「${drift.label}」，最后一次阶段变更在 ${drift.hours} 小时前`
+      + `（${String(drift.since).slice(0, 16)}），而此后仍有 ${drift.writes} 次写操作，`
+      + `集中在 ${drift.topFiles.join('、')}。`);
+    lines.push('');
+    lines.push('如果工作重心已经转移，先把当前任务切到真正在做的那件事再继续——');
+    lines.push('否则本轮产出的证据会挂在错误的任务上，事后无法归因。这是弱信号，误报请忽略。');
   }
 
   lines.push('\n## 改进建议');
