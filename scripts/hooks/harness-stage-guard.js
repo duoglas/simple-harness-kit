@@ -468,6 +468,9 @@ function injectDirectiveOnChange(stage, task) {
   if (state.lastStage === stage) return;
   state.lastStage = stage;
   state.hints = state.hints || {};
+  // 每进一次 PLAN 就重置暂停提醒：它要在本轮真正动手时再响一次，
+  // 而不是整个 session 只响一次（session 长了，第一次的提醒早滚出视野了）。
+  if (stage === 'PLAN') delete state.hints['plan-pause-reminder'];
   writeDirectiveState(state);
   process.stderr.write(
     `[Harness ON][light] 进入阶段: ${stage}` + (task ? ` — ${task}` : '') + '\n'
@@ -1248,6 +1251,21 @@ process.stdin.on('end', () => {
               `不确定时返回 NEEDS_CONTEXT、Agent prompt 中包含验收标准。\n`
             );
           }
+          // PLAN 暂停是给用户的确认点，不是过程门禁 —— 它跟模型能力无关，
+          // 不该跟着 PLAN 只读门禁一起被 light 降级掉。此前 light 下完全零提示：
+          // 阶段 directive 只在切换时注入一次，session 一长就滚出视野，
+          // 于是"产出清单后暂停等确认"这条约定事实上失效了。
+          // 只在真正要动手写时提醒（纯只读探索不打扰），每个 PLAN 周期一次。
+          if (data.stage === 'PLAN'
+            && !READ_TOOLS.includes(toolName)
+            && !TASK_TOOLS.includes(toolName)
+            && !(toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command))) {
+            hintOnce('plan-pause-reminder',
+              '[Harness Stage Guard] PLAN 阶段要动手写了。\n'
+              + '→ 先确认任务清单已产出、且用户点过头，再进入 EXECUTE。\n'
+              + '（light 不阻断写操作，但这个确认点依然有效：它是给用户看计划的机会，不是过程门禁）\n');
+          }
+
           // C-GATE-18 写操作计数保留为遥测 + 周期性提醒（无 deny）。
           // 提醒间隔 = execute_writes_warn（默认 100；<=0 关闭提醒）。
           if (data.stage === 'EXECUTE' && !READ_TOOLS.includes(toolName) && !TASK_TOOLS.includes(toolName)) {
@@ -1281,6 +1299,10 @@ process.stdin.on('end', () => {
             (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input)
               || patchTouchesOnlyHarnessStage(input) || patchTouchesOnlyCurrentTaskDir(input)));
 
+          // light 模式下 PLAN 只读门禁被移除（新一代模型自带规划能力，不需要硬拦），
+          // 但"产出任务清单后暂停等用户确认"**不是过程门禁，是给用户的确认点**，
+          // 与模型能力无关。此前它跟着过程门禁一起被降级成零提示，于是 light 下
+          // 完全没有任何机制提醒——阶段 directive 只在切换时注入一次，session 一长就滚出视野。
           if (isReadTool || isReadOnlyBash) {
             // 读操作 / 只读 Bash 放行，注入 directive
             process.stderr.write(STAGE_DIRECTIVES.PLAN);

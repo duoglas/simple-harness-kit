@@ -95,6 +95,7 @@ Usage:
   shk task close [--outcome shipped|dropped|superseded]
   shk task list [--open] [--format human|json]
   shk task migrate [--apply] [--slug <slug>] [--title "..."]
+  shk guard-mode [strict|light|auto] [--show]
   shk lane create <name>
   shk lane list
   shk lane compare
@@ -2113,6 +2114,47 @@ function writeTaskIndex(root) {
  * 原则：只复制不移动、不删除。存量项目的 .harness/iteration-spec.json 等原地保留，
  * 迁移出错时用户还能退回去——这类一次性迁移不该是单向门。
  */
+// ── guard mode ────────────────────────────────────────────────────────────
+// 让用户能自己固定/查看 guard 模式，而不是去手改 .harness/config.json。
+// 自动检测有两条不稳定路径（transcript 尾部窗口、codex config 存在性），
+// 长期跑同一个工程时，显式固定比每次重新检测可靠。
+function cmdGuardMode(args, root) {
+  const guardMode = require('./hooks/guard-mode');
+  const cfgPath = path.join(root, '.harness/config.json');
+  const target = args.find(a => ['strict', 'light', 'auto'].includes(a));
+  const show = !target || args.includes('--show');
+
+  if (target) {
+    const cfg = readJson(cfgPath) || {};
+    if (target === 'auto') {
+      delete cfg.guard_mode;
+      console.log('已恢复自动检测（移除 guard_mode）');
+    } else {
+      cfg.guard_mode = target;
+      console.log(`已固定 guard_mode = ${target}`);
+    }
+    writeJson(cfgPath, cfg);
+    console.log(`  写入 ${rel(root, cfgPath)}`);
+  }
+
+  if (show || target) {
+    const resolved = guardMode.resolveGuardMode({}, root);
+    const cfg = readJson(cfgPath) || {};
+    console.log('');
+    console.log(`当前解析: ${resolved.mode}（来源 ${resolved.source}${resolved.model ? `，模型 ${resolved.model}` : ''}）`);
+    console.log(`配置文件: ${cfg.guard_mode ? `guard_mode=${cfg.guard_mode}（已固定）` : '未固定，走自动检测'}`);
+    if (!cfg.guard_mode) {
+      console.log('');
+      console.log('提示：自动检测依赖 transcript 尾部窗口或 codex 配置，两者都可能读不到。');
+      console.log('     长期工程建议显式固定：shk guard-mode strict|light');
+    }
+    console.log('');
+    console.log('  strict — 过程门禁硬阻断（PLAN 只读、spec 门、写次数限额）');
+    console.log('  light  — 不阻断，交付门禁由证据类检查承担；适合自带规划能力的新一代模型');
+  }
+  return 0;
+}
+
 function cmdTaskMigrate(rest, root) {
   const apply = rest.includes('--apply');
   const flag = (n) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
@@ -2430,6 +2472,7 @@ function main() {
     if (cmd === 'repair') return cmdInstall(args.slice(1), root, 'repair');
     if (cmd === 'skills') return cmdSkills(args.slice(1), root);
     if (cmd === 'consult') return cmdConsult(args.slice(1));
+    if (cmd === 'guard-mode') return cmdGuardMode(args.slice(1), root);
     if (cmd === 'task' && sub) return cmdTask(args.slice(1), root);
     if (cmd === 'lane') return cmdLane(args.slice(1), root);
     if (cmd === 'benchmark' && sub === 'run') return cmdBenchmark(rest);
