@@ -3,7 +3,7 @@
 
 /**
  * Guard Mode Resolver — strict/light 双模式解析 + 双轨模型检测
- * @version 0.3.0 (new-generation-agent: + gate-events 遥测落点 appendGateEvent)
+ * @version 0.4.0 (同 session 模式缓存 + Claude/Codex 检测环境隔离；避免模式在单 session 内跳变)
  *
  * 解析顺序（先命中先用）:
  *   0. 环境变量 HARNESS_GUARD_MODE=strict|light（最高优先级——测试确定性 + 用户临时覆盖）

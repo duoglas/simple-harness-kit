@@ -3,7 +3,7 @@
 
 /**
  * Harness Learn — 质量回路分析（gate-events + stage-history + observations）
- * @version 0.9.0 (new-generation-agent B2: 学习对象从"工具怎么用"换成"质量回路怎么转")
+ * @version 0.10.0 (新增任务状态漂移提示 C-AGENT-04；判据用时间而非文本匹配，语言无关)
  *
  * 纯本地分析，不调 AI，不启动后台进程。
  * 用法: node scripts/hooks/harness-learn.js [--report] [--periodic <days>]
