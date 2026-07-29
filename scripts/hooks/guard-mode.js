@@ -3,7 +3,7 @@
 
 /**
  * Guard Mode Resolver — strict/light 双模式解析 + 双轨模型检测
- * @version 0.3.0 (new-generation-agent: + gate-events 遥测落点 appendGateEvent)
+ * @version 0.4.0 (同 session 模式缓存 + Claude/Codex 检测环境隔离；避免模式在单 session 内跳变)
  *
  * 解析顺序（先命中先用）:
  *   0. 环境变量 HARNESS_GUARD_MODE=strict|light（最高优先级——测试确定性 + 用户临时覆盖）
@@ -121,6 +121,50 @@ function readHarnessConfig(root) {
   }
 }
 
+/**
+ * 同 session 的模式缓存。
+ *
+ * 模型检测有两条不稳定路径：Claude 侧靠 transcript 尾部 64KB 里恰好出现 "model" 字段
+ * （大工具输出会把它挤出窗口，且不是每个 hook 事件都传 transcript_path），
+ * Codex 侧靠 ~/.codex/config.toml 存在且顶层有 model 键。任一失败就回落 strict。
+ *
+ * 实测后果：同一个 session 内模式来回跳——5 个 session 都出现过 light/strict 混用，
+ * 于是同样的操作时而被拦时而放行，用户完全无法预期，还会误以为是"两个工具的差异"。
+ *
+ * 所以检测不到时先沿用本 session 上次成功的判定，而不是无脑回落 strict。
+ * 跨 session 不沿用（换 session 可能换了模型）。
+ */
+function modeCacheFile(root) {
+  return path.join(root, '.harness/guard-mode-notice.json');
+}
+
+function readSessionMode(root, input) {
+  const sessionId = String((input && input.session_id) || '');
+  if (!sessionId) return null;
+  try {
+    const prev = JSON.parse(fs.readFileSync(modeCacheFile(root), 'utf8'));
+    if (prev && prev.session_id === sessionId
+      && (prev.mode === 'strict' || prev.mode === 'light')) {
+      return { mode: prev.mode, model: prev.model || null };
+    }
+  } catch { /* 无缓存 */ }
+  return null;
+}
+
+function writeSessionMode(root, input, resolved) {
+  const sessionId = String((input && input.session_id) || '');
+  if (!sessionId) return;
+  try {
+    fs.writeFileSync(modeCacheFile(root), JSON.stringify({
+      session_id: sessionId,
+      model: resolved.model,
+      mode: resolved.mode,
+      source: resolved.source,
+      t: new Date().toISOString(),
+    }) + '\n');
+  } catch { /* 缓存写失败不影响主流程 */ }
+}
+
 function readExplicitMode(root) {
   const cfg = readHarnessConfig(root);
   if (cfg.guard_mode === 'strict' || cfg.guard_mode === 'light') {
@@ -143,15 +187,26 @@ function resolveGuardMode(input, root) {
   const explicit = readExplicitMode(root);
   if (explicit) return { mode: explicit, model: null, source: 'config' };
 
+  // transcript_path 只有 Claude Code 会传；据此区分运行环境。
+  // 此前无条件回落读 ~/.codex/config.toml —— 那会让 Claude session 用 Codex 的模型配置
+  // 决定自己的模式。两边模型代际不同时（Codex 配旧模型、Claude 跑新模型）判定直接是错的，
+  // 而且这个错误只在两边代际不一致时才显形，平时完全看不出来。
+  const isClaudeEnv = !!(input && input.transcript_path);
   const claudeModel = detectClaudeModel(input && input.transcript_path);
-  const model = claudeModel || detectCodexModel();
+  const model = claudeModel || (isClaudeEnv ? null : detectCodexModel());
   const verdict = isNewGenModel(model);
-  if (verdict === true) {
-    return { mode: 'light', model, source: claudeModel ? 'transcript' : 'codex-config' };
+  if (verdict === true || verdict === false) {
+    const resolved = {
+      mode: verdict ? 'light' : 'strict',
+      model,
+      source: claudeModel ? 'transcript' : 'codex-config',
+    };
+    writeSessionMode(root, input, resolved);
+    return resolved;
   }
-  if (verdict === false) {
-    return { mode: 'strict', model, source: claudeModel ? 'transcript' : 'codex-config' };
-  }
+  // 检测不到模型：沿用本 session 已确定的判定，避免模式在同一 session 内跳变
+  const cached = readSessionMode(root, input);
+  if (cached) return { mode: cached.mode, model: cached.model, source: 'session-cache' };
   return { mode: 'strict', model: model || null, source: 'default' };
 }
 
@@ -161,20 +216,16 @@ function resolveGuardMode(input, root) {
  */
 function onceNotice(resolved, input, root) {
   if (resolved.mode !== 'light' || resolved.source === 'config' || resolved.source === 'env') return null;
-  const noticeFile = path.join(root, '.harness/guard-mode-notice.json');
   const sessionId = String((input && input.session_id) || 'unknown');
+  // 判重与模式缓存共用一个文件：writeSessionMode 已在 resolve 时写过本 session 的判定，
+  // 这里只判断"是否已经提示过"，不再重复写（否则两处互相覆盖 source 字段）。
   try {
-    const prev = JSON.parse(fs.readFileSync(noticeFile, 'utf8'));
-    if (prev && prev.session_id === sessionId && prev.model === resolved.model) return null;
-  } catch {}
-  try {
-    fs.writeFileSync(noticeFile, JSON.stringify({
-      session_id: sessionId,
-      model: resolved.model,
-      mode: resolved.mode,
-      t: new Date().toISOString(),
-    }) + '\n');
-  } catch {}
+    const prev = JSON.parse(fs.readFileSync(modeCacheFile(root), 'utf8'));
+    if (prev && prev.session_id === sessionId && prev.model === resolved.model && prev.notified) return null;
+    if (prev && prev.session_id === sessionId) {
+      fs.writeFileSync(modeCacheFile(root), JSON.stringify({ ...prev, notified: true }) + '\n');
+    }
+  } catch { /* 无缓存则照常提示 */ }
   return `[Harness Guard Mode] 检测到新一代模型 ${resolved.model}，stage-guard 已切换 light 模式：\n` +
     `  - 阶段声明变为可选遥测（不再阻断工具调用）\n` +
     `  - 交付门禁由证据类检查承担（verify-evidence / delivery-gate / safety / branch-policy）\n` +
@@ -208,4 +259,6 @@ function appendGateEvent(root, ev) {
   } catch {}
 }
 
-module.exports = { resolveGuardMode, onceNotice, isNewGenModel, detectClaudeModel, detectCodexModel, readHarnessConfig, appendGateEvent };
+module.exports = {
+  readSessionMode,
+  writeSessionMode, resolveGuardMode, onceNotice, isNewGenModel, detectClaudeModel, detectCodexModel, readHarnessConfig, appendGateEvent };

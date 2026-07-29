@@ -6,6 +6,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const specQuality = require('./lib/spec-quality');
+const ledger = require('./lib/task-ledger');
+const verifyCache = require('./lib/verify-cache');
 
 const KIT_ROOT = path.resolve(__dirname, '..');
 const MANIFEST_PATH = path.join(KIT_ROOT, 'manifests/shk-profiles.json');
@@ -66,6 +68,7 @@ function usage() {
 
 Usage:
   shk verify --risk low|medium|high|release [--write-evidence]
+                [--round N | --incremental] [--seal]
   shk quality status --risk low|medium|high|release [--format human|json]
   shk doctor [--format human|json]
   shk status
@@ -84,6 +87,15 @@ Usage:
   shk skills list
   shk skills explain <name>
   shk consult <request>
+  shk task new <slug> --title "..." [--risk low|medium|high|release]
+  shk task current [--format human|json]
+  shk task switch <task-id>
+  shk task log "..." [--kind decision|deviation|finding|stage|blocker|handoff] [--stage <STAGE>]
+  shk task status [--format human|json]
+  shk task close [--outcome shipped|dropped|superseded]
+  shk task list [--open] [--format human|json]
+  shk task migrate [--apply] [--slug <slug>] [--title "..."]
+  shk guard-mode [strict|light|auto] [--show]
   shk lane create <name>
   shk lane list
   shk lane compare
@@ -379,7 +391,7 @@ function taskQualityContract(root, risk) {
 }
 
 function iterationSpecPath(root) {
-  return path.join(root, '.harness/iteration-spec.json');
+  return ledger.resolveArtifactPath(root, 'spec');
 }
 
 function loadIterationSpec(root) {
@@ -429,7 +441,7 @@ function specStatusData(root, risk) {
         irreversible_actions_present: 'FAIL',
         task_quality: 'FAIL',
       },
-      missing: ['.harness/iteration-spec.json'],
+      missing: [ledger.relFromRoot(root, iterationSpecPath(root))],
       spec: null,
       human_summary: '没有迭代 spec，就说不清楚这轮到底做什么、怎么做、怎么验收。当前不能准出。',
     };
@@ -1389,8 +1401,17 @@ function computeEvidenceOverall(checks, risk) {
   return failed ? (notSufficient ? 'NOT_SUFFICIENT' : 'NOT_READY') : 'READY';
 }
 
-function makeEvidence(root, risk) {
+function makeEvidence(root, risk, cache) {
   const started = new Date().toISOString();
+  // cache 为空时行为与改造前完全一致：每项都跑。
+  const runCached = (check, fn) => {
+    if (!cache) return fn();
+    if (!cache.shouldRun(check)) {
+      const hit = cache.cachedResult(check);
+      if (hit) return { ...hit, reason: `CACHED（第 ${hit.cached_from_round} 轮结论，输入指纹未变）` };
+    }
+    return cache.record(check, fn());
+  };
   const commands = detectCommands(root);
   const checks = {};
   for (const name of ALL_CHECKS) checks[name] = { status: 'SKIP', command: '', reason: 'not required or not configured' };
@@ -1398,7 +1419,7 @@ function makeEvidence(root, risk) {
   checks.quality_gate = qualityGateCheck(root, risk);
   for (const check of required) {
     if (check === 'quality_gate') continue;
-    if (check === 'security') checks.security = runSecurityScan(root);
+    if (check === 'security') checks.security = runCached('security', () => runSecurityScan(root));
     else if (check === 'diff') checks.diff = diffCheck(root);
     else if (check === 'clean_tree') checks.clean_tree = cleanTreeCheck(root);
     else if (check === 'upstream') checks.upstream = upstreamCheck(root);
@@ -1410,18 +1431,23 @@ function makeEvidence(root, risk) {
           ? releaseCommandTimeout(check)
         : 120000;
       if (check === 'e2e') {
-        const runToken = createRunToken();
-        checks[check] = runCommand(root, commands[check], checkTimeout, {
-          env: { SHK_E2E_RUN_TOKEN: runToken },
-          run_token: runToken,
+        checks[check] = runCached(check, () => {
+          const runToken = createRunToken();
+          return runCommand(root, commands[check], checkTimeout, {
+            env: { SHK_E2E_RUN_TOKEN: runToken },
+            run_token: runToken,
+          });
         });
       } else {
-        checks[check] = runCommand(root, commands[check], checkTimeout, {
+        checks[check] = runCached(check, () => runCommand(root, commands[check], checkTimeout, {
           env: risk === 'release' ? releaseCommandEnv(check) : {},
-        });
+        }));
       }
       if (risk === 'release' && ['runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
+        // 归一化必须在缓存落库之前生效，否则"打印 FAIL 但 exit 0"的检查会被记成 PASS，
+        // 连 previous-not-pass 重跑规则一起废掉（Santa F5/F8）。
         checks[check] = normalizeReleaseCommandResult(checks[check]);
+        if (cache && !checks[check].cached) cache.record(check, checks[check]);
       }
     }
     else if (check === 'spec') continue; // spec 消费下方 spec_status 的真实结果，不用占位符
@@ -1529,7 +1555,11 @@ function evidenceMarkdown(e) {
   lines.push('|---|---|---|');
   for (const [name, c] of Object.entries(e.checks || {})) {
     const detail = c.summary || c.command || c.reason || (c.findings !== undefined ? `${c.findings} findings` : c.files !== undefined ? `${c.files} files` : '');
-    lines.push(`| ${name} | ${c.status} | ${String(detail).replace(/\|/g, '/')} |`);
+    // 复用上轮结论的行必须显式标注：不标的话 `| tests | PASS | npm test |` 与真跑过
+    // 一模一样，读证据的人无从分辨本轮到底执行了什么（Santa F13）。
+    const status = c.cached ? `${c.status} (CACHED)` : c.status;
+    const suffix = c.cached ? ` — 复用第 ${c.cached_from_round} 轮结论，输入指纹未变` : '';
+    lines.push(`| ${name} | ${status} | ${String(detail + suffix).replace(/\|/g, '/')} |`);
   }
   if (Array.isArray(e.limitations) && e.limitations.length > 0) {
     lines.push('');
@@ -1544,12 +1574,15 @@ function evidenceMarkdown(e) {
 }
 
 function writeEvidence(root, evidence) {
-  const h = path.join(root, '.harness');
-  ensureDir(h);
+  const jsonPath = ledger.resolveArtifactPath(root, 'evidenceJson');
+  const mdPath = ledger.resolveArtifactPath(root, 'evidenceMd');
   ensureDir(path.join(root, 'docs'));
-  writeJson(path.join(h, 'verify-evidence.json'), evidence);
+  const taskId = ledger.currentTaskId(root);
+  if (taskId) evidence = { ...evidence, task: taskId };
+  writeJson(jsonPath, evidence);
   const md = evidenceMarkdown(evidence);
-  fs.writeFileSync(path.join(h, 'verify-evidence.md'), md, 'utf8');
+  ensureDir(path.dirname(mdPath));
+  fs.writeFileSync(mdPath, md, 'utf8');
   fs.writeFileSync(path.join(root, 'docs/verification-report.md'), md, 'utf8');
 }
 
@@ -1557,13 +1590,51 @@ function cmdVerify(args, root) {
   const riskIdx = args.indexOf('--risk');
   const risk = riskIdx >= 0 ? args[riskIdx + 1] : 'medium';
   if (!RISK_ORDER[risk]) throw new Error(`invalid risk: ${risk}`);
-  const evidence = makeEvidence(root, risk);
+  const roundIdx = args.indexOf('--round');
+  const seal = args.includes('--seal');
+  const incremental = seal || roundIdx >= 0 || args.includes('--incremental');
+  const cache = incremental
+    ? verifyCache.createContext(root, {
+      round: roundIdx >= 0 ? Number(args[roundIdx + 1]) : 1,
+      seal,
+      config: ledger.readHarnessConfig(root),
+    })
+    : null;
+  let evidence = makeEvidence(root, risk, cache);
+  if (cache) {
+    const sum = cache.summary();
+    cache.persist();
+    const spec = readJson(iterationSpecPath(root));
+    const sel = verifyCache.selectTests(spec, sum.changed_files ? cache.changedFiles : []);
+    evidence = {
+      ...evidence,
+      incremental: {
+        round: sum.round,
+        seal: sum.seal,
+        ran: sum.ran,
+        cached: sum.cached,
+        changed_files: sum.changed_files,
+        tests_selected: sel.declared ? sel.selected : 'all（test_plan 未声明 paths）',
+        uncovered_changes: sel.uncovered.slice(0, 20),
+      },
+    };
+    // 封盘护栏：增量轮里凡有复用结论，就不给 READY——那个绿只覆盖了本轮改动。
+    if (!seal && sum.cached.length && evidence.overall === 'READY') {
+      evidence = { ...evidence, overall: 'INCREMENTAL_GREEN', seal_required: true };
+    }
+  }
   if (args.includes('--write-evidence')) writeEvidence(root, evidence);
   console.log(evidenceMarkdown(evidence));
+  if (evidence.incremental) {
+    const i = evidence.incremental;
+    console.log(`\n增量验证 第 ${i.round} 轮${i.seal ? '（封盘）' : ''}：执行 ${i.ran.length} 项，复用 ${i.cached.length} 项${i.cached.length ? `（${i.cached.join(', ')}）` : ''}`);
+    if (i.uncovered_changes.length) console.log(`未被 test_plan paths 覆盖的变更 ${i.uncovered_changes.length} 个：${i.uncovered_changes.slice(0, 5).join(', ')}`);
+    if (evidence.seal_required) console.log('本轮为增量绿，交付前需跑一次 shk verify --seal 全量封盘。');
+  }
   return evidence.overall === 'READY' ? 0 : 1;
 }
 
-function latestEvidence(root) { return readJson(path.join(root, '.harness/verify-evidence.json')); }
+function latestEvidence(root) { return readJson(ledger.resolveArtifactPath(root, 'evidenceJson')); }
 function stageData(root) { return readJson(path.join(root, '.harness/current-stage.json')); }
 
 function settingsHasWiring(settings, wiring) {
@@ -1752,12 +1823,12 @@ function doctorReport(root) {
   });
 
   const evidence = latestEvidence(root);
-  if (!evidence) add('verify-evidence', 'WARN', '.harness/verify-evidence.json missing');
+  if (!evidence) add('verify-evidence', 'WARN', `${ledger.relFromRoot(root, ledger.resolveArtifactPath(root, 'evidenceJson'))} missing`);
   else if (evidence.overall !== 'READY') add('verify-evidence', 'FAIL', `overall=${evidence.overall}`, { risk: evidence.risk });
   else {
     let evidenceFresh = true;
     if (stageSince && !Number.isNaN(stageSince.getTime())) {
-      try { evidenceFresh = fs.statSync(path.join(root, '.harness/verify-evidence.json')).mtime >= stageSince; } catch { evidenceFresh = false; }
+      try { evidenceFresh = fs.statSync(ledger.resolveArtifactPath(root, 'evidenceJson')).mtime >= stageSince; } catch { evidenceFresh = false; }
     }
     add('verify-evidence', evidenceFresh ? 'PASS' : 'FAIL', evidenceFresh ? `READY risk=${evidence.risk}` : 'READY evidence is older than current stage since', { risk: evidence.risk });
   }
@@ -1997,6 +2068,331 @@ function cmdConsult(args) {
   [...new Set(rec.length ? rec : ['skill:harness-start', 'command:shk verify --risk low --write-evidence', 'profile:minimal'])].forEach(x => console.log(`- ${x}`));
   return 0;
 }
+// ── Task Ledger ────────────────────────────────────────────────────────────
+// 任务是第一类实体：产出落 <tasks_dir>/<TASK-ID>/（进 git），指针落 .harness/CURRENT（本机运行时）。
+
+function taskSummaryLines(root, id) {
+  const t = ledger.readTask(root, id) || {};
+  const spec = readJson(ledger.taskPaths(root, id).spec);
+  const report = spec ? specQuality.evaluateIterationSpec(spec) : null;
+  const journal = ledger.readJournal(root, id);
+  const lastHandoff = [...journal].reverse().find(e => e.kind === 'handoff');
+  const last = lastHandoff || journal[journal.length - 1];
+  const bits = [`spec ${report ? report.overall : 'MISSING'}`];
+  const ev = readJson(ledger.taskPaths(root, id).evidenceJson);
+  bits.push(`evidence ${ev ? ev.overall : 'NONE'}`);
+  if (last) bits.push(`最近${lastHandoff ? ' handoff' : ''}: ${String(last.text).slice(0, 70)}`);
+  return [
+    `[Task] ${id} · ${t.stage || 'PLAN'} · risk=${t.risk || 'medium'} · ${t.status || 'open'}`,
+    t.title || '(no title)',
+    bits.join(' · '),
+  ];
+}
+
+function dirtyCount(root) {
+  const r = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  return String(r.stdout || '').split('\n').filter(Boolean).length;
+}
+
+function writeTaskIndex(root) {
+  const rows = ledger.listTasks(root);
+  const open = rows.filter(r => (r.task.status || 'open') === 'open');
+  const closed = rows.filter(r => (r.task.status || 'open') === 'closed');
+  const fmt = r => `| ${r.id} | ${r.task.title || ''} | ${r.task.stage || ''} | ${r.task.risk || ''} | ${r.task.outcome || ''} |`;
+  const head = ['| ID | 标题 | 阶段 | 风险 | 结果 |', '|---|---|---|---|---|'];
+  const out = ['# Tasks', '', `> 由 \`shk task list\` 自动生成，不要手工编辑。`, '', '## Open', ''];
+  out.push(...(open.length ? head.concat(open.map(fmt)) : ['(none)']));
+  out.push('', '## Closed', '');
+  out.push(...(closed.length ? head.concat(closed.map(fmt)) : ['(none)']));
+  out.push('');
+  ledger.atomicWrite(path.join(ledger.tasksDir(root), 'INDEX.md'), out.join('\n'));
+}
+
+/**
+ * 把存量单例状态迁到任务态。默认 dry-run，--apply 才动文件。
+ * 原则：只复制不移动、不删除。存量项目的 .harness/iteration-spec.json 等原地保留，
+ * 迁移出错时用户还能退回去——这类一次性迁移不该是单向门。
+ */
+// ── guard mode ────────────────────────────────────────────────────────────
+// 让用户能自己固定/查看 guard 模式，而不是去手改 .harness/config.json。
+// 自动检测有两条不稳定路径（transcript 尾部窗口、codex config 存在性），
+// 长期跑同一个工程时，显式固定比每次重新检测可靠。
+function cmdGuardMode(args, root) {
+  const guardMode = require('./hooks/guard-mode');
+  const cfgPath = path.join(root, '.harness/config.json');
+  const target = args.find(a => ['strict', 'light', 'auto'].includes(a));
+  const show = !target || args.includes('--show');
+
+  if (target) {
+    const cfg = readJson(cfgPath) || {};
+    if (target === 'auto') {
+      delete cfg.guard_mode;
+      console.log('已恢复自动检测（移除 guard_mode）');
+    } else {
+      cfg.guard_mode = target;
+      console.log(`已固定 guard_mode = ${target}`);
+    }
+    writeJson(cfgPath, cfg);
+    console.log(`  写入 ${rel(root, cfgPath)}`);
+  }
+
+  if (show || target) {
+    const resolved = guardMode.resolveGuardMode({}, root);
+    const cfg = readJson(cfgPath) || {};
+    console.log('');
+    console.log(`当前解析: ${resolved.mode}（来源 ${resolved.source}${resolved.model ? `，模型 ${resolved.model}` : ''}）`);
+    console.log(`配置文件: ${cfg.guard_mode ? `guard_mode=${cfg.guard_mode}（已固定）` : '未固定，走自动检测'}`);
+    if (!cfg.guard_mode) {
+      console.log('');
+      console.log('提示：自动检测依赖 transcript 尾部窗口或 codex 配置，两者都可能读不到。');
+      console.log('     长期工程建议显式固定：shk guard-mode strict|light');
+    }
+    console.log('');
+    console.log('  strict — 过程门禁硬阻断（PLAN 只读、spec 门、写次数限额）');
+    console.log('  light  — 不阻断，交付门禁由证据类检查承担；适合自带规划能力的新一代模型');
+  }
+  return 0;
+}
+
+function cmdTaskMigrate(rest, root) {
+  const apply = rest.includes('--apply');
+  const flag = (n) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
+  const cur = ledger.currentTaskId(root);
+  if (cur) { console.log(`已是任务态：当前任务 ${cur}。无需迁移。`); return 0; }
+
+  const legacy = {
+    spec: path.join(root, '.harness/iteration-spec.json'),
+    plan: path.join(root, '.harness/current-plan.md'),
+    evidenceJson: path.join(root, '.harness/verify-evidence.json'),
+    evidenceMd: path.join(root, '.harness/verify-evidence.md'),
+  };
+  const found = Object.entries(legacy).filter(([, f]) => exists(f));
+  const stage = (readJson(path.join(root, '.harness/current-stage.json')) || {}).stage || 'PLAN';
+  const spec = readJson(legacy.spec);
+  const slug = flag('--slug') || 'migrated';
+  const id = ledger.newTaskId(slug);
+  const p = ledger.taskPaths(root, id);
+  const title = flag('--title') || (spec && spec.task) || `从 .harness 单例状态迁移（${stage}）`;
+
+  // 仓库根的接力日志：android-ops 那三件套。只报告不搬——它们可能被 gitignore 且体量大，
+  // 逐条拆分成任务是人的判断，工具不该猜。
+  const strays = ['task_plan.md', 'progress.md', 'findings.md', 'docs/progress.md']
+    .filter(f => exists(path.join(root, f)));
+
+  console.log(`${apply ? '执行' : '预演'}迁移 → ${id}`);
+  console.log(`  产出目录 ${ledger.relFromRoot(root, p.dir)}`);
+  found.forEach(([k, f]) => console.log(`  复制 ${rel(root, f)} → ${ledger.relFromRoot(root, p[k])}（原文件保留）`));
+  if (!found.length) console.log('  没有发现存量单例状态，将只创建空任务骨架');
+  if (strays.length) {
+    console.log(`  发现仓库根接力日志：${strays.join(', ')}`);
+    console.log('    这些不自动搬迁。建议人工判断后归档到 docs/archive/，只把仍在推进的内容写进新任务 plan.md');
+  }
+  if (exists(p.dir)) {
+    console.error(`目标任务目录已存在：${ledger.relFromRoot(root, p.dir)}`);
+    console.error('迁移不会覆盖已有任务的 spec/plan。换一个 --slug，或用 shk task switch 切到它。');
+    return 1;
+  }
+  if (!apply) { console.log('\n以上为预演。加 --apply 实际执行。'); return 0; }
+
+  ledger.ensureDir(p.evidenceDir);
+  ledger.ensureDir(p.reviewDir);
+  for (const [k, f] of found) {
+    ledger.ensureDir(path.dirname(p[k]));
+    fs.copyFileSync(f, p[k]);
+  }
+  if (!exists(p.plan)) fs.writeFileSync(p.plan, `# ${title}\n\n## 目标\n\n## 阶段\n\n## 验收标准\n`, 'utf8');
+  if (!exists(p.findings)) fs.writeFileSync(p.findings, `# Findings — ${id}\n\n`, 'utf8');
+  const now = new Date().toISOString();
+  ledger.writeTask(root, id, {
+    id, title, status: 'open', risk: (spec && spec.risk) || 'medium', stage,
+    created: now, started_at: now, closed: null, outcome: null, supersedes: null,
+    agents: [ledger.detectAgent()], commits: [], migrated_from: found.map(([, f]) => rel(root, f)),
+  });
+  ledger.setCurrentTaskId(root, id);
+  ledger.appendJournal(root, id, {
+    kind: 'stage', stage,
+    text: `从 .harness 单例状态迁移；来源：${found.map(([k]) => k).join(', ') || '（无）'}；原文件保留未删除`,
+  });
+  writeTaskIndex(root);
+  ensureLedgerGitignore(root);
+  console.log(`\n完成。当前任务 ${id}`);
+  console.log(`下一步：shk task status 看 spec 是否达标；仓库根接力日志自行归档。`);
+  return 0;
+}
+
+/**
+ * 产出侧要进 git、簿记侧不进。CURRENT 也不进——它是本机指针，
+ * 跨机同步会让两台机器互相覆盖"当前在做哪个任务"。
+ */
+function ensureLedgerGitignore(root) {
+  const gi = path.join(root, '.gitignore');
+  const marker = '# --- shk task ledger ---';
+  let cur = '';
+  try { cur = fs.readFileSync(gi, 'utf8'); } catch { cur = ''; }
+  if (cur.includes(marker)) return false;
+  const tasksRel = ledger.relFromRoot(root, ledger.tasksDir(root));
+
+  // git 不会递归进被排除的目录，所以父目录一旦被忽略，`!<tasks_dir>/` 是彻底无效的。
+  // 与其写一条无效规则再宣称"已保留"，不如先探测、再如实报告需要人工处理（Santa F6/F8）。
+  const probe = path.join(tasksRel, '.probe');
+  const ignored = spawnSync('git', ['check-ignore', '-q', probe], { cwd: root }).status === 0;
+
+  const block = [
+    '',
+    marker,
+    '# 工具簿记不进版本库；用 .harness/* 而不是 .harness/ ，否则下一行的取反不生效',
+    '.harness/*',
+    '!.harness/config.json',
+    '',
+  ];
+  fs.writeFileSync(gi, cur + block.join('\n'), 'utf8');
+  console.log('  已追加 .gitignore 规则（.harness/ 内容忽略，保留 config.json）');
+
+  if (ignored) {
+    console.error('');
+    console.error(`  警告：${tasksRel}/ 当前被已有的 .gitignore 规则排除。`);
+    console.error('  任务产出是跨机器接力的唯一载体，被忽略等于这套机制不成立。');
+    console.error('  git 无法用 `!` 重新包含父目录已排除的路径，必须改成逐层放行，例如：');
+    const parts = tasksRel.split('/');
+    parts.forEach((_, i) => {
+      const prefix = parts.slice(0, i + 1).join('/');
+      console.error(`    !${prefix}/${i === parts.length - 1 ? '' : ''}`);
+      if (i < parts.length - 1) console.error(`    ${prefix}/*`);
+    });
+    console.error('  这一步不自动改——取消你已有的忽略规则属于改变你的意图，需要你确认。');
+  }
+  return true;
+}
+
+function cmdTask(args, root) {
+  const sub = args[0];
+  const rest = args.slice(1);
+  const flag = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
+
+  if (sub === 'migrate') return cmdTaskMigrate(rest, root);
+
+  if (sub === 'new') {
+    const slug = rest[0];
+    if (!slug || slug.startsWith('--')) { console.error('usage: shk task new <slug> --title "..." [--risk medium]'); return 1; }
+    const id = ledger.newTaskId(slug);
+    const p = ledger.taskPaths(root, id);
+    if (exists(p.dir)) { console.error(`task already exists: ${ledger.relFromRoot(root, p.dir)}`); return 1; }
+    const risk = flag('--risk') || 'medium';
+    if (!RISK_ORDER[risk]) { console.error(`invalid risk: ${risk}`); return 1; }
+    ledger.ensureDir(p.evidenceDir);
+    ledger.ensureDir(p.reviewDir);
+    const now = new Date().toISOString();
+    ledger.writeTask(root, id, {
+      id,
+      title: flag('--title') || slug,
+      status: 'open',
+      risk,
+      stage: 'PLAN',
+      created: now,
+      started_at: now,
+      closed: null,
+      outcome: null,
+      supersedes: flag('--supersedes') || null,
+      agents: [ledger.detectAgent()],
+      commits: [],
+    });
+    fs.writeFileSync(p.plan, `# ${flag('--title') || slug}\n\n## 目标\n\n## 阶段\n\n## 边界与不可逆项\n\n## 验收标准\n`, 'utf8');
+    fs.writeFileSync(p.findings, `# Findings — ${id}\n\n`, 'utf8');
+    ledger.setCurrentTaskId(root, id);
+    ledger.appendJournal(root, id, { kind: 'stage', stage: 'PLAN', text: `任务创建：${flag('--title') || slug}` });
+    writeTaskIndex(root);
+    // 新建任务同样要保证产出能进 git、CURRENT 不进 git。migrate 有这一步而 new 没有，
+    // 等于主流程反而丢掉整个 ledger（复审 F-K/F-L）。
+    ensureLedgerGitignore(root);
+    console.log(`created ${id}`);
+    console.log(`  产出目录 ${ledger.relFromRoot(root, p.dir)}`);
+    console.log(`  下一步：写 ${ledger.relFromRoot(root, p.spec)}（需求/风险/流量路径/测试计划/验收），然后 shk task status`);
+    return 0;
+  }
+
+  if (sub === 'current') {
+    const id = ledger.currentTaskId(root);
+    if (!id) { console.log('no current task（shk task new <slug> 开始一个）'); return 1; }
+    if (parseFormat(rest) === 'json') {
+      console.log(JSON.stringify({ id, task: ledger.readTask(root, id), paths: ledger.taskPaths(root, id) }, null, 2));
+      return 0;
+    }
+    taskSummaryLines(root, id).forEach(l => console.log(l));
+    return 0;
+  }
+
+  if (sub === 'switch') {
+    const id = rest[0];
+    if (!ledger.isValidTaskId(id)) { console.error('usage: shk task switch T-YYYYMMDD-slug'); return 1; }
+    if (!exists(ledger.taskPaths(root, id).task)) { console.error(`no such task: ${id}`); return 1; }
+    ledger.setCurrentTaskId(root, id);
+    console.log(`switched to ${id}`);
+    return 0;
+  }
+
+  if (sub === 'log') {
+    const id = ledger.currentTaskId(root);
+    if (!id) { console.error('no current task'); return 1; }
+    const text = rest.filter((a, i) => !a.startsWith('--') && rest[i - 1] !== '--kind' && rest[i - 1] !== '--stage').join(' ');
+    if (!text.trim()) { console.error('usage: shk task log "..." [--kind decision|deviation|finding|stage|blocker|handoff] [--stage EXECUTE]'); return 1; }
+    ledger.appendJournal(root, id, { kind: flag('--kind'), stage: flag('--stage'), text });
+    console.log(`logged to ${ledger.relFromRoot(root, ledger.taskPaths(root, id).journal)}`);
+    return 0;
+  }
+
+  if (sub === 'status') {
+    const id = ledger.currentTaskId(root);
+    if (!id) { console.error('no current task'); return 1; }
+    const p = ledger.taskPaths(root, id);
+    const spec = readJson(p.spec);
+    const report = spec ? specQuality.evaluateIterationSpec(spec) : { overall: 'NOT_READY', missing: ['spec.json'], weak: [] };
+    const ev = readJson(p.evidenceJson);
+    const dirty = dirtyCount(root);
+    if (parseFormat(rest) === 'json') {
+      console.log(JSON.stringify({ id, spec: report, evidence: ev ? ev.overall : null, uncommitted: dirty }, null, 2));
+      return report.overall === 'READY' ? 0 : 1;
+    }
+    taskSummaryLines(root, id).forEach(l => console.log(l));
+    if (report.missing.length) console.log(`  spec 缺: ${report.missing.join(', ')}`);
+    report.weak.slice(0, 8).forEach(w => console.log(`  spec 弱: ${w}`));
+    if (dirty) console.log(`  未提交改动 ${dirty} 项（提示，不阻断）`);
+    return report.overall === 'READY' ? 0 : 1;
+  }
+
+  if (sub === 'close') {
+    const id = ledger.currentTaskId(root);
+    if (!id) { console.error('no current task'); return 1; }
+    const outcome = flag('--outcome') || 'shipped';
+    if (!['shipped', 'dropped', 'superseded'].includes(outcome)) { console.error(`invalid outcome: ${outcome}`); return 1; }
+    const t = ledger.readTask(root, id) || {};
+    const dirty = dirtyCount(root);
+    ledger.writeTask(root, id, { ...t, status: 'closed', outcome, closed: new Date().toISOString(), uncommitted_at_close: dirty });
+    ledger.appendJournal(root, id, { kind: 'stage', text: `任务关闭：${outcome}` });
+    ledger.clearCurrentTaskId(root);
+    writeTaskIndex(root);
+    console.log(`closed ${id} (${outcome})`);
+    if (dirty) console.log(`提示：关闭时仍有 ${dirty} 项未提交改动，已记入 task.json`);
+    console.log(`摘要可复制进 CHANGELOG：- ${t.title || id} (${outcome}) — ${ledger.relFromRoot(root, ledger.taskDir(root, id))}`);
+    return 0;
+  }
+
+  if (sub === 'list') {
+    const rows = ledger.listTasks(root);
+    const onlyOpen = rest.includes('--open');
+    const shown = onlyOpen ? rows.filter(r => (r.task.status || 'open') === 'open') : rows;
+    writeTaskIndex(root);
+    if (parseFormat(rest) === 'json') { console.log(JSON.stringify(shown, null, 2)); return 0; }
+    if (!shown.length) { console.log('No tasks'); return 0; }
+    const cur = ledger.currentTaskId(root);
+    shown.forEach(r => console.log(`${r.id === cur ? '*' : ' '} ${r.id}  ${r.task.status || 'open'}  ${r.task.title || ''}`));
+    return 0;
+  }
+
+  console.error('task supports new|current|switch|log|status|close|list|migrate');
+  return 1;
+}
+
 function cmdLane(args, root) {
   const sub = args[0];
   const lanesDir = path.join(root, '.claude/worktrees');
@@ -2010,7 +2406,9 @@ function cmdLane(args, root) {
     const res = spawnSync('git', ['worktree', 'add', '-b', branch, dst, 'HEAD'], { cwd: root, encoding: 'utf8' });
     if (res.status !== 0) { process.stderr.write(res.stderr || res.stdout || 'git worktree add failed\n'); return res.status || 1; }
     ensureDir(path.join(dst, '.harness'));
-    console.log(`created lane ${name}: ${rel(root, dst)} (${branch})`);
+    const laneTask = ledger.currentTaskId(root);
+    if (laneTask) ledger.setCurrentTaskId(dst, laneTask);
+    console.log(`created lane ${name}: ${rel(root, dst)} (${branch})${laneTask ? ` task=${laneTask}` : ''}`);
     return 0;
   }
   if (sub === 'list') {
@@ -2021,7 +2419,7 @@ function cmdLane(args, root) {
     if (!exists(lanesDir)) { console.log('No lanes'); return 0; }
     const rows = fs.readdirSync(lanesDir).map(n => {
       const laneRoot = path.join(lanesDir, n);
-      const e = readJson(path.join(laneRoot, '.harness/verify-evidence.json'));
+      const e = readJson(ledger.resolveArtifactPath(laneRoot, 'evidenceJson'));
       const diff = spawnSync('git', ['-C', laneRoot, 'diff', '--stat'], { encoding: 'utf8' });
       const files = String(diff.stdout || '').split('\n').filter(l => /\|/.test(l)).length;
       return { lane: n, overall: e && e.overall || 'NO_EVIDENCE', risk: e && e.risk || '-', files };
@@ -2043,7 +2441,7 @@ function cmdBenchmark(args) {
 }
 function cmdQa(root) {
   const e = latestEvidence(root);
-  if (!e) { console.error('No .harness/verify-evidence.json'); return 1; }
+  if (!e) { console.error(`No ${ledger.relFromRoot(root, ledger.resolveArtifactPath(root, 'evidenceJson'))}`); return 1; }
   console.log(evidenceMarkdown(e)); return e.overall === 'READY' ? 0 : 1;
 }
 function cmdStatus(root) { return cmdDoctor(['--format', 'human'], root); }
@@ -2074,6 +2472,8 @@ function main() {
     if (cmd === 'repair') return cmdInstall(args.slice(1), root, 'repair');
     if (cmd === 'skills') return cmdSkills(args.slice(1), root);
     if (cmd === 'consult') return cmdConsult(args.slice(1));
+    if (cmd === 'guard-mode') return cmdGuardMode(args.slice(1), root);
+    if (cmd === 'task' && sub) return cmdTask(args.slice(1), root);
     if (cmd === 'lane') return cmdLane(args.slice(1), root);
     if (cmd === 'benchmark' && sub === 'run') return cmdBenchmark(rest);
     usage(); return 1;

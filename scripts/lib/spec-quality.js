@@ -52,7 +52,10 @@ function specCoverageData(spec) {
   const irreversibleActions = asArray(spec && spec.irreversible_actions);
 
   const testIds = idSet(tests);
+  // must 集合用于"必须被测试覆盖"的强校验；全集用于引用存在性检查——
+  // acceptance 引用一条 should requirement 是合法的，不该报成"不存在"。
   const requirementIds = idSet(mustRequirements);
+  const allRequirementIds = idSet(requirements);
   const riskIds = idSet(risks);
   const flowIds = idSet(trafficFlows);
   const testCoversSet = coveredIds(tests, 'covers');
@@ -82,7 +85,7 @@ function specCoverageData(spec) {
       if (!testIds.has(testId)) missingAcceptance.push(`验收项 ${id} 关联了不存在的 test_plan：${testId}`);
     }
     for (const coverId of coversForItem) {
-      if (!requirementIds.has(coverId)) missingAcceptance.push(`验收项 ${id} 关联了不存在的 requirement：${coverId}`);
+      if (!allRequirementIds.has(coverId)) missingAcceptance.push(`验收项 ${id} 关联了不存在的 requirement：${coverId}`);
     }
   }
 

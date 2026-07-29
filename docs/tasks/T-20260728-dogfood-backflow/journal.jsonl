@@ -1,0 +1,8 @@
+{"t":"2026-07-28T09:01:03.412Z","agent":"claude","stage":"PLAN","kind":"stage","text":"任务创建：android-ops 经验回流 kit：16 条逐条判定后的落地"}
+{"t":"2026-07-28T09:01:37.819Z","agent":"claude","stage":"PLAN","kind":"decision","text":"16 条逐条判定完成：14 条采纳、1 条降级为方法论、1 条跳过。分 A-E 五组执行"}
+{"t":"2026-07-28T09:21:04.414Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"A 组完成：context-monitor 0.8.1→0.9.0 按上下文深度度量（跨天/时长/累计写入/次数四维），C-GATE-18 阈值 100/200→1000/2500 按实测 P90 重定"}
+{"t":"2026-07-28T10:47:55.392Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"B 组：run-guarded 四文件移植（自检 9/9）+ update.sh 同步 .py 与执行器 + 新增 AGENT 区域与 C-AGENT-01/02/03 + workbench 熔断规则回流模板"}
+{"t":"2026-07-28T21:44:23.618Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"C 组：review 前冻结被审对象 + reviewer 边界纪律与固定维度 + Deployer 角色与权限隔离维度 + review 进 PLAN 清单"}
+{"t":"2026-07-28T21:53:25.696Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"D 组：shell 铁律 L1-L4 + 静态检查脚本（变异验证有效，首跑抓到自己写的 E2E 里两处静默死隐患）+ 行为断言/变异靶子 + 测量有效性 + 覆盖面声明（方法论）"}
+{"t":"2026-07-28T22:06:44.153Z","agent":"claude","stage":"EXECUTE","kind":"decision","text":"E 组：阻断汇总（两轮阈值）+ READY_TO_DEPLOY 双授权 + C-AGENT-04 归因隔离 + harness-learn 漂移提示（第一版用文本匹配对中文失效，改时间判据）+ F2 产物 diff"}
+{"t":"2026-07-28T22:12:53.407Z","agent":"claude","stage":"REVIEW","kind":"handoff","text":"五组全部完成并推送。过程中两个新写的闸门第一版都是假的（glob 太宽、中文分词失效），均靠变异发现"}

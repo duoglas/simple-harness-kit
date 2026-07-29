@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
- * @version 0.13.0 (new-generation-agent: + gate-events 遥测)
+ * @version 0.14.1 (task-ledger: 产出路径按任务解析 + PLAN 白名单放开到任务目录 + REVIEW 强制结构化证据 + lib require 降级；并入 terminal apply_patch 兼容)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -47,7 +47,49 @@ const fs = require('fs');
 const path = require('path');
 const { isLegitimateHarnessRoot } = require('./find-root');
 const findRoot = require('./find-root');
-const specQuality = require('../lib/spec-quality');
+// 与下面的 task-ledger 同理：两个 lib 走同一个 update.sh 同步循环，共享升级窗口。
+// 裸 require 失败会让 hook 退出 1，所有门禁在每次工具调用上一起静默失效（复审 N3）。
+let specQuality;
+try {
+  specQuality = require('../lib/spec-quality');
+} catch {
+  // 降级：无法评估 spec 质量时不阻断，但明确标注为未知而不是伪装成通过。
+  specQuality = {
+    evaluateIterationSpec: () => ({
+      overall: 'UNKNOWN',
+      missing: ['scripts/lib/spec-quality.js 缺失，spec 质量未经评估'],
+      weak: [],
+      coverage: {},
+    }),
+  };
+}
+// lib 可能处在"hooks 已更新、lib 未同步"的升级窗口。裸 require 失败会让 hook 退出 1，
+// 于是 plan-readonly / spec 门 / REVIEW 门在每次工具调用上一起静默失效——
+// 守门 hook 崩溃等于守门消失，必须降级而不是崩（复审 F-C）。
+let ledger;
+try {
+  ledger = require('../lib/task-ledger');
+} catch {
+  const legacy = {
+    spec: '.harness/iteration-spec.json',
+    plan: '.harness/current-plan.md',
+    evidenceJson: '.harness/verify-evidence.json',
+    evidenceMd: '.harness/verify-evidence.md',
+  };
+  ledger = {
+    currentTaskId: () => null,
+    currentTaskPaths: () => null,
+    resolveArtifactPath: (root, key) => path.join(root, legacy[key] || legacy.spec),
+    structuredEvidencePath: root => path.join(root, legacy.evidenceJson),
+    evidenceSearchPaths: root => [
+      path.join(root, legacy.evidenceJson),
+      path.join(root, 'docs/verification-report.md'),
+      path.join(root, '.harness/last-verification.json'),
+      path.join(root, legacy.evidenceMd),
+    ],
+    relFromRoot: (root, abs) => path.relative(root, abs).split(path.sep).join('/'),
+  };
+}
 const guardMode = require('./guard-mode');
 const ROOT_RAW = findRoot();
 // macOS /tmp → /private/tmp symlink 导致 path.resolve 和 Claude Code 的绝对路径不一致。
@@ -110,8 +152,29 @@ const STAGES = ['PLAN', 'SETUP', 'EXECUTE', 'VERIFY', 'REVIEW', 'FEEDBACK'];
 let LIGHT = false;
 const LAST_DIRECTIVE_FILE = path.join(ROOT, '.harness/last-directive.json');
 const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
-const PLAN_FILE = path.join(ROOT, '.harness/current-plan.md');
-const ITERATION_SPEC_FILE = path.join(ROOT, '.harness/iteration-spec.json');
+// 产出类路径随当前任务解析；无 .harness/CURRENT 时回落 .harness/ 单例（存量项目行为不变）。
+function planFile() { return ledger.resolveArtifactPath(ROOT, 'plan'); }
+function iterationSpecFile() { return ledger.resolveArtifactPath(ROOT, 'spec'); }
+function specDisplayPath() { return ledger.relFromRoot(ROOT, iterationSpecFile()); }
+
+/** 路径是否落在当前任务目录内——PLAN 阶段整个任务目录可写。 */
+function isInsideCurrentTaskDir(p) {
+  const cur = ledger.currentTaskPaths(ROOT);
+  if (!cur || !p) return false;
+  const abs = path.resolve(p);
+  const dir = path.resolve(cur.dir);
+  return abs === dir || abs.startsWith(dir + path.sep);
+}
+
+function patchTouchesOnlyCurrentTaskDir(input) {
+  const refs = patchFileRefs(input);
+  if (!refs.length) return false;
+  return refs.every(r => {
+    const ref = String(r || '').replace(/^["']|["']$/g, '').trim();
+    if (!ref) return false;
+    return isInsideCurrentTaskDir(path.isAbsolute(ref) ? ref : path.resolve(ROOT, ref));
+  });
+}
 const SPEC_GATE_CACHE_FILE = path.join(ROOT, '.harness/spec-gate-cache.json');
 const TOOL_COUNT_FILE = path.join(ROOT, '.harness/tool-count.json');
 const STAGE_HISTORY_FILE = path.join(ROOT, '.harness/stage-history.jsonl');
@@ -119,12 +182,8 @@ const PRETOOL_OBS_FILE = path.join(ROOT, '.harness/pretool-observations.jsonl');
 const INFRA_TIER_FILE = path.join(ROOT, '.harness/infra-tier.json');
 
 // 验证证据文件——至少一个存在才算 VERIFY 做过
-const VERIFY_EVIDENCE = [
-  path.join(ROOT, '.harness/verify-evidence.json'),
-  path.join(ROOT, 'docs/verification-report.md'),
-  path.join(ROOT, '.harness/last-verification.json'),
-  path.join(ROOT, '.harness/verify-evidence.md'),
-];
+// 证据路径随当前任务解析；任务模式下只认任务目录内的证据（Santa F2）。
+function verifyEvidenceList() { return ledger.evidenceSearchPaths(ROOT); }
 
 // 阶段切换到 REVIEW 时的 Gate 检查
 const REVIEW_GATE_BLOCK = `[Harness Stage Guard] 切换到 REVIEW 被阻止（C-GATE-01）。
@@ -271,6 +330,36 @@ function isPatchTool(toolName) {
   return toolName === 'apply_patch' || toolName === 'functions.apply_patch';
 }
 
+// Codex/IDE hosts do not always expose apply_patch as a native tool. Some only
+// provide a terminal executor, so the same patch arrives as one Bash command.
+// Accept only a single, bare apply_patch heredoc. Reject prefixes, suffixes,
+// pipelines and chained commands so this compatibility path cannot become a
+// general PLAN-stage shell escape hatch.
+function terminalApplyPatchPayload(input) {
+  const toolName = input && input.tool_name;
+  if (!['Bash', 'exec_command', 'functions.exec_command'].includes(toolName)) return null;
+  const command = String(input.tool_input?.command || input.tool_input?.cmd || '');
+  const match = command.match(
+    /^\s*apply_patch[ \t]+<<[ \t]*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))[ \t]*\r?\n([\s\S]*?)\r?\n([A-Za-z_][A-Za-z0-9_]*)[ \t]*$/
+  );
+  if (!match) return null;
+  const opener = match[1] || match[2] || match[3];
+  if (opener !== match[5]) return null;
+  const patch = match[4];
+  if (!patch.startsWith('*** Begin Patch\n') || !patch.endsWith('\n*** End Patch')) return null;
+  return patch + '\n';
+}
+
+function normalizeTerminalApplyPatch(input) {
+  const patch = terminalApplyPatchPayload(input);
+  if (!patch) return input;
+  return {
+    ...input,
+    tool_name: 'apply_patch',
+    tool_input: { patch },
+  };
+}
+
 function patchFileRefs(input) {
   const txt = patchPayloadText(input);
   const fileRefs = [...txt.matchAll(/(?:\*\*\*\s+(?:Add|Update|Delete) File:|file_path[\"']?\s*[:=])\s*[\"']?([^\"'\n\r]+)/g)]
@@ -288,7 +377,7 @@ function patchRefMatches(fileRef, targetPath) {
   if (!ref) return false;
   const target = path.resolve(targetPath);
   if (ref === '.harness/current-stage.json' && target === path.resolve(STAGE_FILE)) return true;
-  if (ref === '.harness/current-plan.md' && target === path.resolve(PLAN_FILE)) return true;
+  if (ref === '.harness/current-plan.md' && target === path.resolve(planFile())) return true;
   const resolved = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(ROOT, ref);
   return resolved === target;
 }
@@ -304,12 +393,12 @@ function patchTouchesOnlyHarnessStage(input) {
 
 function patchTouchesOnlyHarnessPlan(input) {
   const refs = patchFileRefs(input);
-  return refs.length > 0 && refs.every(p => patchRefMatches(p, PLAN_FILE));
+  return refs.length > 0 && refs.every(p => patchRefMatches(p, planFile()));
 }
 
 function patchTouchesOnlyIterationSpec(input) {
   const refs = patchFileRefs(input);
-  return refs.length > 0 && refs.every(p => patchRefMatches(p, ITERATION_SPEC_FILE));
+  return refs.length > 0 && refs.every(p => patchRefMatches(p, iterationSpecFile()));
 }
 
 // gate-events 遥测上下文（stdin 解析后填充）与统一发射口（v0.13.0 B1）
@@ -360,14 +449,21 @@ function readCurrentStageValue() {
   }
 }
 
-// C-GATE-18 阈值（v0.12.1 可配置）。默认 warn=100 / block=200；
-// config.json 显式设 0（或负数）= 关闭对应行为。非法值回退默认。
+// C-GATE-18 阈值。config.json 显式设 0（或负数）= 关闭对应行为，非法值回退默认。
+//
+// 默认值按真实工作形态实测重定（此前 warn=100 / block=200）：
+// 长跑工程的 harness-learn 报告显示单 session EXECUTE 写操作 **P90 约 2200、峰值约 2700**，
+// 而当时阈值 200 的响应良性率只有 3/54——报告自己的判断是"模型在绕行而不是配合"。
+// 一个绝大多数正常工作都会撞上的阈值，产出的不是节制而是噪音和绕行动作。
+//
+// 重定为 warn=1000 / block=2500：warn 落在 P90 之下、能对真正跑偏的轮次先出声；
+// block 落在实测峰值之上、只拦真正失控的情况。项目可按自己的 learn-report 覆盖。
 function executeWriteThresholds() {
   const cfg = guardMode.readHarnessConfig(ROOT);
   const num = (v, dflt) => (typeof v === 'number' && Number.isFinite(v)) ? Math.floor(v) : dflt;
   return {
-    warn: num(cfg.execute_writes_warn, 100),
-    block: num(cfg.execute_writes_block, 200),
+    warn: num(cfg.execute_writes_warn, 1000),
+    block: num(cfg.execute_writes_block, 2500),
   };
 }
 
@@ -402,6 +498,9 @@ function injectDirectiveOnChange(stage, task) {
   if (state.lastStage === stage) return;
   state.lastStage = stage;
   state.hints = state.hints || {};
+  // 每进一次 PLAN 就重置暂停提醒：它要在本轮真正动手时再响一次，
+  // 而不是整个 session 只响一次（session 长了，第一次的提醒早滚出视野了）。
+  if (stage === 'PLAN') delete state.hints['plan-pause-reminder'];
   writeDirectiveState(state);
   process.stderr.write(
     `[Harness ON][light] 进入阶段: ${stage}` + (task ? ` — ${task}` : '') + '\n'
@@ -441,7 +540,7 @@ const STAGE_DIRECTIVES = {
 只允许：读文件了解现状、与用户对齐需求。
 
 必须完成以下步骤再继续：
-1. 写/更新 .harness/iteration-spec.json：需求、方案、风险、流量路径、测试计划、验收标准
+1. 写/更新 iteration spec（有当前任务则在任务目录 spec.json，否则 .harness/iteration-spec.json）：需求、方案、风险、流量路径、测试计划、验收标准
 2. 按 spec 拆任务——每个任务 ≤15 分钟可独立验证
 3. 定义每个任务的 done 条件，并关联 spec 中的 requirement / risk / traffic_flow
 4. 识别任务间依赖关系
@@ -624,21 +723,21 @@ function missingFrom(requiredSet, coveredSet) {
 }
 
 function evaluateIterationSpecForExecute() {
-  if (!safeFileExists(ITERATION_SPEC_FILE)) {
+  if (!safeFileExists(iterationSpecFile())) {
     return {
       overall: 'NOT_READY',
-      missing: ['.harness/iteration-spec.json'],
+      missing: [specDisplayPath()],
       weak: [],
     };
   }
 
   let spec = null;
   try {
-    spec = JSON.parse(safeReadFileSync(ITERATION_SPEC_FILE) || 'null');
+    spec = JSON.parse(safeReadFileSync(iterationSpecFile()) || 'null');
   } catch {
     return {
       overall: 'NOT_READY',
-      missing: ['.harness/iteration-spec.json 不是合法 JSON'],
+      missing: [`${specDisplayPath()} 不是合法 JSON`],
       weak: [],
     };
   }
@@ -648,7 +747,7 @@ function evaluateIterationSpecForExecute() {
 
 function iterationSpecRegularStat() {
   try {
-    const st = fs.lstatSync(ITERATION_SPEC_FILE);
+    const st = fs.lstatSync(iterationSpecFile());
     if (st.isSymbolicLink() || !st.isFile()) return null;
     return { mtimeMs: st.mtimeMs, size: st.size };
   } catch {
@@ -733,10 +832,12 @@ function isWriteToHarnessPlanningFile(input) {
   const writePath = String(input.tool_input?.file_path || '');
   if (toolName === 'Write') {
     const resolvedWrite = resolvedPathMaybe(writePath);
-    return [PLAN_FILE, ITERATION_SPEC_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f));
+    return [planFile(), iterationSpecFile(), STAGE_FILE].some(f => resolvedWrite === path.resolve(f))
+      || isInsideCurrentTaskDir(resolvedWrite);
   }
   return isPatchTool(toolName)
-    && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input) || patchTouchesOnlyHarnessStage(input));
+    && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input)
+      || patchTouchesOnlyHarnessStage(input) || patchTouchesOnlyCurrentTaskDir(input));
 }
 
 function shouldRecheckSpecDuringExecute(data, input) {
@@ -854,7 +955,7 @@ function recordStageHistory(stage) {
 
 
 function readStructuredVerifyEvidence() {
-  const jsonPath = path.join(ROOT, '.harness/verify-evidence.json');
+  const jsonPath = ledger.structuredEvidencePath(ROOT);
   try {
     const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     if (data && data.schema_version && data.overall) return data;
@@ -959,12 +1060,18 @@ function enforceReviewGateIfNeeded(newData, input) {
   if (!history.includes('VERIFY')) gateErrors.push('未经过 VERIFY 阶段');
 
   // 检查 2: 验证证据文件
-  const hasEvidence = VERIFY_EVIDENCE.some(p => {
+  const hasEvidence = verifyEvidenceList().some(p => {
     try { return fs.statSync(p).isFile(); } catch { return false; }
   });
-  if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + VERIFY_EVIDENCE.join(' / ') + '）');
+  if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + verifyEvidenceList().join(' / ') + '）');
 
   const structured = readStructuredVerifyEvidence();
+  // 任务模式下没有结构化证据必须报错，不能因为存在一个 markdown 报告就当作验证过。
+  // 否则下面所有实质检查（READY / DEGRADED / e2e 充分性）被 if (structured) 整体跳过，
+  // REVIEW 门禁退化成"某个文件存在"——复审 F-D，上一轮完全没碰。
+  if (!structured && ledger.currentTaskId(ROOT)) {
+    gateErrors.push(`当前任务缺少结构化验证证据（需要 ${ledger.relFromRoot(ROOT, ledger.structuredEvidencePath(ROOT))}）`);
+  }
   if (structured) {
     if (structured.overall !== 'READY') gateErrors.push(`结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}`);
     if (hasDegradedRequiredCheck(structured)) gateErrors.push('结构化验证证据包含 DEGRADED 检查，不能进入 REVIEW');
@@ -1014,7 +1121,9 @@ process.stdin.on('end', () => {
   let shouldBlock = false;
 
   try {
-    const input = JSON.parse(raw);
+    let input = JSON.parse(raw);
+
+    input = normalizeTerminalApplyPatch(input);
 
     // ── guard_mode 解析（strict/light 双模式）──
     const resolved = guardMode.resolveGuardMode(input, ROOT);
@@ -1174,6 +1283,21 @@ process.stdin.on('end', () => {
               `不确定时返回 NEEDS_CONTEXT、Agent prompt 中包含验收标准。\n`
             );
           }
+          // PLAN 暂停是给用户的确认点，不是过程门禁 —— 它跟模型能力无关，
+          // 不该跟着 PLAN 只读门禁一起被 light 降级掉。此前 light 下完全零提示：
+          // 阶段 directive 只在切换时注入一次，session 一长就滚出视野，
+          // 于是"产出清单后暂停等确认"这条约定事实上失效了。
+          // 只在真正要动手写时提醒（纯只读探索不打扰），每个 PLAN 周期一次。
+          if (data.stage === 'PLAN'
+            && !READ_TOOLS.includes(toolName)
+            && !TASK_TOOLS.includes(toolName)
+            && !(toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command))) {
+            hintOnce('plan-pause-reminder',
+              '[Harness Stage Guard] PLAN 阶段要动手写了。\n'
+              + '→ 先确认任务清单已产出、且用户点过头，再进入 EXECUTE。\n'
+              + '（light 不阻断写操作，但这个确认点依然有效：它是给用户看计划的机会，不是过程门禁）\n');
+          }
+
           // C-GATE-18 写操作计数保留为遥测 + 周期性提醒（无 deny）。
           // 提醒间隔 = execute_writes_warn（默认 100；<=0 关闭提醒）。
           if (data.stage === 'EXECUTE' && !READ_TOOLS.includes(toolName) && !TASK_TOOLS.includes(toolName)) {
@@ -1199,10 +1323,18 @@ process.stdin.on('end', () => {
           const isReadOnlyBash = toolName === 'Bash' && isPlanReadOnlyBash(input.tool_input?.command);
           // 精确匹配：realpathSync 后比对, 跟随 symlink 确保 /tmp ↔ /private/tmp 一致
           const resolvedWrite = (() => { try { return fs.realpathSync(path.resolve(writePath)); } catch { return path.resolve(writePath); } })();
+          // PLAN 阶段可写：阶段声明 + 当前任务目录内任意产出（spec/plan/findings/证据草稿）。
+          // 白名单从三个硬编码路径放开到任务目录——PLAN 本来就该自由记录，只是不该改产品代码。
           const isAllowedWrite = (toolName === 'Write' &&
-            [PLAN_FILE, ITERATION_SPEC_FILE, STAGE_FILE].some(f => resolvedWrite === path.resolve(f))) ||
-            (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input) || patchTouchesOnlyHarnessStage(input)));
+            ([planFile(), iterationSpecFile(), STAGE_FILE].some(f => resolvedWrite === path.resolve(f))
+              || isInsideCurrentTaskDir(resolvedWrite))) ||
+            (isPatchTool(toolName) && (patchTouchesOnlyHarnessPlan(input) || patchTouchesOnlyIterationSpec(input)
+              || patchTouchesOnlyHarnessStage(input) || patchTouchesOnlyCurrentTaskDir(input)));
 
+          // light 模式下 PLAN 只读门禁被移除（新一代模型自带规划能力，不需要硬拦），
+          // 但"产出任务清单后暂停等用户确认"**不是过程门禁，是给用户的确认点**，
+          // 与模型能力无关。此前它跟着过程门禁一起被降级成零提示，于是 light 下
+          // 完全没有任何机制提醒——阶段 directive 只在切换时注入一次，session 一长就滚出视野。
           if (isReadTool || isReadOnlyBash) {
             // 读操作 / 只读 Bash 放行，注入 directive
             process.stderr.write(STAGE_DIRECTIVES.PLAN);

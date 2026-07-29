@@ -113,6 +113,20 @@ extract_version() {
   fi
 }
 
+# 从 "0.13.2(kit 0.13.0 ...)" 这类版本串里取出前导的 x.y.z 数字部分
+version_core() {
+  printf '%s' "$1" | sed -n 's/^\([0-9][0-9]*\(\.[0-9][0-9]*\)*\).*/\1/p'
+}
+
+# 比较两个版本：0=相等 1=第一个更大 2=第二个更大。无法解析时返回 3。
+version_cmp() {
+  local a b
+  a="$(version_core "$1")"; b="$(version_core "$2")"
+  [ -n "$a" ] && [ -n "$b" ] || { echo 3; return; }
+  [ "$a" = "$b" ] && { echo 0; return; }
+  if [ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | head -1)" = "$a" ]; then echo 2; else echo 1; fi
+}
+
 if [ -n "$PROJECT_DIR" ]; then
   echo ""
   echo "更新 Hook 脚本: $PROJECT_DIR/scripts/hooks/"
@@ -130,6 +144,7 @@ if [ -n "$PROJECT_DIR" ]; then
   up_to_date=0
   locally_modified=0
   new_hooks=0
+  newer_local=0
 
   for hook in "$HOOKS_SRC"/*.js; do
     if [ -f "$hook" ]; then
@@ -155,6 +170,12 @@ if [ -n "$PROJECT_DIR" ]; then
         elif [ -z "$tgt_ver" ]; then
           echo "  本地已修改: $name (无版本号)"
           locally_modified=$((locally_modified + 1))
+        elif [ "$(version_cmp "$tgt_ver" "$src_ver")" = "1" ]; then
+          # 目标版本比 kit 新——多半是该工程带了尚未回流 kit 的本地修复。
+          # 覆盖它就是静默降级，会丢掉那个修复；此前只比较版本"是否相等"，
+          # 于是 0.13.2 -> 0.13.0 被当成"需要更新"直接覆盖。
+          echo "  [跳过] $name: 目标版本更新 ($tgt_ver > $src_ver)，可能含未回流的本地修复"
+          newer_local=$((newer_local + 1))
         else
           echo "  需要更新: $name ($tgt_ver -> $src_ver)"
           needs_update=$((needs_update + 1))
@@ -164,7 +185,7 @@ if [ -n "$PROJECT_DIR" ]; then
   done
 
   echo ""
-  echo "  统计: $needs_update 需更新, $locally_modified 本地已修改, $new_hooks 新增, $up_to_date 已最新"
+  echo "  统计: $needs_update 需更新, $locally_modified 本地已修改, $newer_local 目标更新(跳过), $new_hooks 新增, $up_to_date 已最新"
 
   if $DRY_RUN; then
     echo ""
@@ -184,7 +205,13 @@ if [ -n "$PROJECT_DIR" ]; then
         elif ! diff -q "$hook" "$target" &>/dev/null; then
           tgt_ver=$(extract_version "$target")
           src_ver=$(extract_version "$hook")
-          if [ -n "$tgt_ver" ] && [ "$src_ver" = "$tgt_ver" ]; then
+          if [ -n "$tgt_ver" ] && [ "$(version_cmp "$tgt_ver" "$src_ver")" = "1" ]; then
+            echo "  [跳过] $name: 目标 $tgt_ver 比 kit $src_ver 新，不降级"
+            echo "         要强制覆盖: SHK_FORCE_DOWNGRADE=1；先把本地修复回流 kit 更好"
+            if [ "${SHK_FORCE_DOWNGRADE:-0}" != "1" ]; then
+              continue
+            fi
+          elif [ -n "$tgt_ver" ] && [ "$src_ver" = "$tgt_ver" ]; then
             echo "  [警告] 覆盖本地修改: $name (可用 git diff 查看被覆盖内容)"
           fi
           cp "$hook" "$target"
@@ -206,7 +233,7 @@ if [ -n "$PROJECT_DIR" ]; then
       mkdir -p "$PROJECT_DIR/scripts/lib"
       lib_synced=0
       lib_installed=0
-      for lib in "$LIB_SRC"/*.js; do
+      for lib in "$LIB_SRC"/*.js "$LIB_SRC"/*.py; do
         if [ -f "$lib" ]; then
           name=$(basename "$lib")
           target="$PROJECT_DIR/scripts/lib/$name"
@@ -223,6 +250,32 @@ if [ -n "$PROJECT_DIR" ]; then
       done
       if [ $lib_synced -eq 0 ] && [ $lib_installed -eq 0 ]; then
         echo "  Hook 共享库已是最新版。"
+      fi
+    fi
+
+    # run-guarded 执行器（超时治理，C-AGENT-01 的工具面）。与 lib/*.py 配套，
+    # 不同步过去的话目标工程只有规则没有工具。
+    if [ -f "$SCRIPT_DIR/scripts/run-guarded.sh" ]; then
+      if [ ! -f "$PROJECT_DIR/scripts/run-guarded.sh" ] \
+        || ! diff -q "$SCRIPT_DIR/scripts/run-guarded.sh" "$PROJECT_DIR/scripts/run-guarded.sh" &>/dev/null; then
+        cp "$SCRIPT_DIR/scripts/run-guarded.sh" "$PROJECT_DIR/scripts/run-guarded.sh"
+        chmod +x "$PROJECT_DIR/scripts/run-guarded.sh" 2>/dev/null || true
+        echo "  同步执行器: scripts/run-guarded.sh"
+      fi
+    fi
+
+    # shk CLI 本体。此前只同步 hooks 和 lib，导致升级后的工程拿不到 `shk task`
+    # ——而 upgrade.sh 却在提示用户跑 `node scripts/shk.js task migrate`，那条命令必然失败。
+    if [ -f "$SCRIPT_DIR/scripts/shk.js" ]; then
+      mkdir -p "$PROJECT_DIR/scripts"
+      if [ ! -f "$PROJECT_DIR/scripts/shk.js" ]; then
+        cp "$SCRIPT_DIR/scripts/shk.js" "$PROJECT_DIR/scripts/shk.js"
+        echo "  新增 CLI: scripts/shk.js"
+      elif ! diff -q "$SCRIPT_DIR/scripts/shk.js" "$PROJECT_DIR/scripts/shk.js" &>/dev/null; then
+        cp "$SCRIPT_DIR/scripts/shk.js" "$PROJECT_DIR/scripts/shk.js"
+        echo "  更新 CLI: scripts/shk.js"
+      else
+        echo "  shk CLI 已是最新版。"
       fi
     fi
 

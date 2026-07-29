@@ -277,6 +277,36 @@ function runScenario(scenario) {
 
     const expect = scenario.expect || {};
 
+    // expect 键白名单校验。
+    // 三轮 Santa 审查连续死在同一个机制上——「绿灯没有约束力」。最直接的一次实例是
+    // 有人写了 `"stdout": ["deny"]`，而 stdout 只接受字符串字面量，数组被静默忽略，
+    // 那条场景实质上只断言了 exitCode，却看起来是绿的。断言拼错、用了不存在的键、
+    // 或类型不对，都必须当场失败而不是悄悄跳过——否则测试的存在本身就是误导。
+    const EXPECT_KEYS = {
+      exitCode: 'number',
+      stderr: 'array',
+      stderrNot: 'array',
+      stdout: 'string',
+      stdoutContains: 'array',
+      stdoutNot: 'array',
+      files: 'object',
+      dirs: 'object',
+    };
+    for (const [key, value] of Object.entries(expect)) {
+      const want = EXPECT_KEYS[key];
+      if (!want) {
+        errors.push(`expect 含未知键 "${key}"（可用: ${Object.keys(EXPECT_KEYS).join(', ')}）`);
+        continue;
+      }
+      const actual = Array.isArray(value) ? 'array' : typeof value;
+      if (actual !== want) {
+        errors.push(`expect.${key} 类型应为 ${want}，实际 ${actual}`);
+      }
+    }
+    if (typeof expect.stdout === 'string' && !['empty', 'passthrough'].includes(expect.stdout)) {
+      errors.push(`expect.stdout 只接受 "empty" 或 "passthrough"；要匹配内容请用 stdoutContains`);
+    }
+
     // 检查 exit code
     if (expect.exitCode !== undefined && exitCode !== expect.exitCode) {
       errors.push(`exit code: 期望 ${expect.exitCode}, 实际 ${exitCode}`);
@@ -561,6 +591,35 @@ try {
   console.log(`  Quality Gate Suite FAIL: ${e.message}\n`);
 }
 
+// ── Task Ledger / Verify Cache Unit Tests ──
+// 覆盖 scripts/lib/task-ledger.js 与 scripts/lib/verify-cache.js：任务态路径解析、
+// legacy 回落、tasks_dir 边界、journal、增量验证指纹与缓存、selectTests。
+// 每个用例自建独立 git 仓库夹具，不依赖 hook runtime。详见 tests/task-ledger.test.js。
+let ledgerFailed = 0;
+let ledgerTotal = 0;
+try {
+  const ledgerScript = path.resolve(__dirname, 'task-ledger.test.js');
+  if (fs.existsSync(ledgerScript)) {
+    console.log('  Task Ledger / Verify Cache Tests\n');
+    const res = require('child_process').spawnSync(process.execPath, [ledgerScript], {
+      stdio: 'inherit',
+      timeout: 3 * 60 * 1000,
+    });
+    ledgerTotal = 1;
+    if (res.status !== 0) {
+      ledgerFailed = 1;
+      console.log(`\n  Task Ledger Suite FAIL (exit ${res.status})\n`);
+    } else {
+      console.log(`\n  Task Ledger Suite PASS\n`);
+    }
+  } else {
+    console.log(`  Task Ledger Suite SKIP (脚本不存在: ${ledgerScript})\n`);
+  }
+} catch (e) {
+  ledgerFailed = 1;
+  console.log(`  Task Ledger Suite FAIL: ${e.message}\n`);
+}
+
 // ── Scripted Test Matrix (tests/scripts/run-all.sh) ──
 // 维度 1-7 install/update/skill-path/e2e/invariant/mutation/pathstyle/scope
 // 纯 shell 测试, 不依赖 Node 测试框架. 结果作为 run.js 总 exit code 的一部分.
@@ -675,9 +734,9 @@ try {
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
-const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + scriptedFailed + smokeFailed + initSmokeFailed;
-const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
 console.log(`  ══════════════════════════════`);
-console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
+console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (ledgerTotal - ledgerFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
 
 process.exit(totalFailed > 0 ? 1 : 0);

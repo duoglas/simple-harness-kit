@@ -254,7 +254,8 @@ NODE
   done
 
   local commands_compact
-  commands_compact="$(cat "$commands_json")"
+  commands_compact="$(cat "$commands_json" 2>/dev/null || true)"
+  [ -n "$commands_compact" ] || { echo "  [18-upstream] 读取 $commands_json 失败或为空" >&2; return 1; }
   node - "$out_json" "$name" "$kind" "$source_url" "$tarball" "$install_cmd" "$install_log" "$install_rc" "$commands_json" <<'NODE'
 const fs = require('fs');
 const [out, name, kind, sourceUrl, tarball, installCommand, installLog, installRc, commandsPath] = process.argv.slice(2);

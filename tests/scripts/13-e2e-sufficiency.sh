@@ -7,6 +7,7 @@
 # - 再跑 14-app-e2e-bootstrap-mutation.sh，证明新应用工程 E2E bootstrap 能抓住真实业务 mutation；
 # - 最后跑 15-ai-harness-app-workflow.sh，证明 SHK 是装进目标应用的 AI Harness，不是用户手敲 JS CLI。
 # - 追加跑 16-spec-driven-target-app-acceptance.sh，证明交付流程依赖 spec 前置输入，不是事后总结。
+# - 最后跑 20-task-ledger-e2e.sh，证明任务态四条流量路径（新任务/接续/存量兼容/多轮）端到端可用。
 #
 # 这样 `shk e2e assess` 看到 E2E PASS 时，不只是“流程跑过”，而是有正向链路和阻断链路。
 
@@ -120,4 +121,10 @@ echo "  [13-e2e-sufficiency] traffic flow FLOW-1 covered: target project spec st
 echo "  [13-e2e-sufficiency] traffic flow FLOW-2 covered: target project test effectiveness flow"
 echo "  [13-e2e-sufficiency] traffic flow FLOW-3 covered: verify delivery gate aggregation flow"
 echo "  [13-e2e-sufficiency] traffic flow FLOW-4 covered: execute stage spec gate flow"
+# 20 必须在本脚本自己的 e2e-result.json 写入之后跑：它以合并方式追加任务态的流量路径证据，
+# 放在前面会被上面那段自验 node 的覆盖式写入冲掉。
+bash "$SCRIPT_DIR/23-shell-gate-lint.sh"
+bash "$SCRIPT_DIR/22-run-guarded-selftest.sh"
+bash "$SCRIPT_DIR/20-task-ledger-e2e.sh"
+
 echo "  [13-e2e-sufficiency] PASS: install/init E2E + quality gate blocking contract + app E2E bootstrap mutation + AI Harness target-app workflow + spec-driven target-app acceptance"

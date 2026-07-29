@@ -45,7 +45,7 @@ AI 会自动扫描项目（package.json、技术栈、目录结构），不需�
 ### 生成顺序（必须遵守，防半安装 hook 自爆）
 
 1. 先创建目录：`.claude/rules`、`scripts/hooks`、`scripts/lib`、`docs`、`.harness`，需要 Codex 时再创建 `.codex`。
-2. 读取 `tests/required-wiring.json` 的 `required_files`，先复制其中所有 `scripts/hooks/*.js` 和 `scripts/lib/*.js` 到目标项目；不得只复制旧的 6 个 hook。
+2. 读取 `tests/required-wiring.json` 的 `required_files`，先复制其中所有 `scripts/hooks/*.js` 和 `scripts/lib/*.js` 和 `scripts/shk.js` 到目标项目；不得只复制旧的 6 个 hook。
 3. 必须在写 `.claude/settings.json` 前确认 `scripts/lib/spec-quality.js` 已存在。`harness-stage-guard.js` 会 `require('../lib/spec-quality')`；Claude Code 写入 settings 后，同一轮后续工具调用就可能立即触发该 hook。
 4. 再生成 rules、`docs/constraints.md`、`CLAUDE.md`、`AGENTS.md` 等非 runtime 配置。
 5. 最后写 `.claude/settings.json`；如适用，再由它生成 `.codex/hooks.json`。

@@ -3,7 +3,7 @@
 
 /**
  * Verification Gate Hook — commit/push 前的阶段和证据检查
- * @version 0.12.0 (new-generation-agent: + gate-events 遥测)
+ * @version 0.13.0 (task-ledger: 证据路径按任务解析 + 任务模式强制结构化证据)
  * 触发: PreToolUse:Bash
  *
  * 五重检查（[过程] 检查在 light 模式降级为提示；[证据] 检查两种模式一致保留）:
@@ -37,12 +37,22 @@ const MAX_STDIN = 1024 * 1024;
 const STAGE_FILE = path.join(ROOT, '.harness/current-stage.json');
 const COMMIT_ALLOWED_STAGES = ['VERIFY', 'REVIEW', 'FEEDBACK'];
 const PUSH_ALLOWED_STAGES = ['REVIEW'];
-const REPORT_PATHS = [
-  path.join(ROOT, '.harness/verify-evidence.json'),
-  path.join(ROOT, 'docs/verification-report.md'),
-  path.join(ROOT, '.harness/last-verification.json'),
-  path.join(ROOT, '.harness/verify-evidence.md'),
-];
+// lib 可能在升级窗口内尚未同步到目标工程；require 失败时降级为 legacy 单例路径，
+// 保持旧行为而不是让 hook 崩掉（崩掉会让所有工具调用失败）。
+let ledger = null;
+try { ledger = require('../lib/task-ledger'); } catch { ledger = null; }
+function evidenceJsonPath() {
+  return ledger ? ledger.structuredEvidencePath(ROOT) : path.join(ROOT, '.harness/verify-evidence.json');
+}
+function evidencePathList() {
+  return ledger ? ledger.evidenceSearchPaths(ROOT) : [
+    path.join(ROOT, '.harness/verify-evidence.json'),
+    path.join(ROOT, 'docs/verification-report.md'),
+    path.join(ROOT, '.harness/last-verification.json'),
+    path.join(ROOT, '.harness/verify-evidence.md'),
+  ];
+}
+
 const RISK_ORDER = { low: 1, medium: 2, high: 3, release: 4 };
 
 // ── C-GATE-07: kit-only 守门 ──
@@ -163,7 +173,7 @@ process.stdin.on('end', () => {
 
       // ── 验证证据检查 ──
       let freshReport = null;
-      for (const p of REPORT_PATHS) {
+      for (const p of evidencePathList()) {
         try {
           const stat = fs.statSync(p);
           if (stat.isFile()) {
@@ -178,7 +188,7 @@ process.stdin.on('end', () => {
         process.stderr.write(
           '[Verification Gate] 未找到验证报告。\n' +
           '→ 请先完成 QA 验证，产出证据文件。\n' +
-          '→ 验证报告应在: ' + REPORT_PATHS.join(' 或 ') + '\n'
+          '→ 验证报告应在: ' + evidencePathList().join(' 或 ') + '\n'
         );
         process.exit(2);
       }
@@ -197,6 +207,22 @@ process.stdin.on('end', () => {
 
       // ── 结构化 evidence 检查 ──
       const structured = readStructuredEvidence(freshReport.path);
+      // 任务模式下"没有结构化证据"必须当作"没有证据"，不能因为存在一个 markdown 报告就放行。
+      // 复审 F-A：writeEvidence 每轮都会无条件写 docs/verification-report.md，它一旦成为
+      // 胜出候选，readStructuredEvidence 返回 null，overall/e2e/风险档检查全部跳过——
+      // 于是 shk task new 之后（新任务尚无证据）提交直接放行，Critical 换个门又回来了。
+      // 存量模式保持原有宽松行为不变，只对新特性收紧。
+      if (!structured && ledger && ledger.currentTaskId(ROOT)) {
+        const want = evidenceJsonPath();
+        emitGate('deny', 'vg-no-structured-evidence', { path: freshReport.path });
+        process.stderr.write(
+          '[Verification Gate] 当前任务缺少结构化验证证据。\n' +
+          `→ 找到的是弱证据: ${freshReport.path}（只能证明验证跑过，不含 overall/checks）\n` +
+          `→ 需要: ${want}\n` +
+          '→ 生成: node scripts/shk.js verify --risk <档位> --write-evidence\n'
+        );
+        process.exit(2);
+      }
       if (structured) {
         if (structured.overall !== 'READY') {
           emitGate('deny', 'vg-not-ready', { overall: structured.overall });
@@ -297,7 +323,7 @@ function readStructuredEvidence(filePath) {
 
 function readAllEvidenceText() {
   let out = '';
-  for (const p of REPORT_PATHS) {
+  for (const p of evidencePathList()) {
     try {
       if (fs.statSync(p).isFile()) out += '\n' + fs.readFileSync(p, 'utf8');
     } catch {}

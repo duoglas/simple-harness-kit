@@ -203,6 +203,73 @@
     }
   },
   {
+    "name": "stage-guard: PLAN + Bash terminal apply_patch current-plan → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: .harness/current-plan.md\n@@\n-old plan\n+new plan\n*** End Patch\nPATCH"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/current-plan.md": "old plan\n",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "PLAN 阶段：允许写入"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + Bash terminal apply_patch current-stage OFF → 放行",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: .harness/current-stage.json\n@@\n-{\"stage\":\"PLAN\",\"since\":\"old\",\"task\":\"test\"}\n+{\"stage\":\"OFF\",\"since\":\"now\",\"reason\":\"纯文档记录\"}\n*** End Patch\nPATCH"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "阶段切换：允许通过 apply_patch"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + Bash terminal apply_patch 夹带命令 → 阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: .harness/current-plan.md\n@@\n-old plan\n+new plan\n*** End Patch\nPATCH\nnpm test"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/current-plan.md": "old plan\n",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ]
+    }
+  },
+  {
     "name": "stage-guard: Codex JSON deny + Bash npm install",
     "hook": "harness-stage-guard.js",
     "stdin": {
@@ -1510,7 +1577,7 @@
     }
   },
   {
-    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到默认 200 次阈值 → 阻止",
+    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到默认 2500 次阈值 → 阻止",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "Bash",
@@ -1521,7 +1588,7 @@
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}",
-      ".harness/execute-write-count.json": "{\"count\":199}"
+      ".harness/execute-write-count.json": "{\"count\": 2499}"
     },
     "expect": {
       "exitCode": 2,
@@ -1535,7 +1602,7 @@
           "contains": [
             "C-GATE-18",
             "\"action\":\"deny\"",
-            "\"threshold\":200"
+            "\"threshold\":2500"
           ]
         }
       }
@@ -1563,7 +1630,7 @@
     }
   },
   {
-    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到默认 100 次 → 警告不阻止",
+    "name": "stage-guard (C-GATE-18): EXECUTE 写操作达到默认 1000 次 → 警告不阻止",
     "hook": "harness-stage-guard.js",
     "stdin": {
       "tool_name": "Bash",
@@ -1574,7 +1641,7 @@
     "setup": {
       ".harness/current-stage.json": "{\"stage\":\"EXECUTE\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}",
-      ".harness/execute-write-count.json": "{\"count\":99}"
+      ".harness/execute-write-count.json": "{\"count\": 999}"
     },
     "expect": {
       "exitCode": 0,

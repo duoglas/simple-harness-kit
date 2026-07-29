@@ -18,7 +18,13 @@
     "scripts/hooks/session-end.js",
     "scripts/hooks/stage-since-autofill.js",
     "docs/constraints.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "scripts/lib/task-ledger.js",
+    "scripts/lib/verify-cache.js",
+    "scripts/shk.js",
+    "scripts/run-guarded.sh",
+    "scripts/lib/run_guarded.py",
+    "scripts/lib/timeout_exec.py"
   ],
   "wirings": [
     {

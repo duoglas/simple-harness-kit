@@ -1,0 +1,485 @@
+{
+  "task": "Task Ledger：把任务提升为第一类实体，产出与簿记分层",
+  "risk": "high",
+  "design": {
+    "summary": "harness 状态此前建模成「一个仓库一份当前状态」（.harness/iteration-spec.json 等单例），实际工作是一个仓库上串行/并发跑很多任务、跨多个 agent、跨 Claude 和 Codex，于是两端各自长出一套状态文件、互不读取。本轮引入任务实体：工程产出落 <tasks_dir>/<TASK-ID>/（task.json/spec.json/plan.md/journal.jsonl/findings.md/evidence/review，进 git、进 PR diff），工具簿记留 .harness/（CURRENT 指针、config.json、runs/<TASK-ID>/ 原始日志、遥测）。分层判据是「卸载 harness 之后这个文件还该不该留」。CURRENT 刻意留在簿记侧且不跨机同步——它回答的是本机在做哪个任务。spec schema 与 spec-quality.js 校验逻辑原样复用，改的只是路径解析层与生命周期；无 CURRENT 时全部回落 legacy 单例路径，存量项目行为不变。 第二部分解决交付内多轮验证的成本：RISK_CHECKS 此前按风险档固定跑 4/9/10 项，与本次改了什么无关，detectChangedAreas 已存在却只用来加要求不用来减工作，导致 Fix Cycle 每轮全量重跑。本轮引入检查项级指纹缓存（输入未变标 CACHED 不重跑）、按 spec test_plan 的 covers 映射选测、以及多轮策略（第 N 轮只跑上轮 FAIL 加本轮指纹变化项，全绿后一次全量封盘）。验证状态一律外置到任务目录的 evidence，不依赖 session 记忆——长 session 幻觉加剧时，这是唯一可信的判据。",
+    "risk_points": [
+      {
+        "id": "RK1",
+        "text": "存量项目升级后 spec/evidence 路径漂移，导致 stage-guard 与 verification-gate 找不到证据而误判 NOT_READY"
+      },
+      {
+        "id": "RK2",
+        "text": "tasks_dir 配置成绝对路径或 ../ 逃逸，任务产出写到仓库外"
+      },
+      {
+        "id": "RK3",
+        "text": "CURRENT 若被跨机器同步（本仓库随 Dropbox 同步），两台机器会互相覆盖当前任务指针"
+      },
+      {
+        "id": "RK4",
+        "text": "多 agent 并发写 journal 导致行损坏或顺序错乱"
+      },
+      {
+        "id": "RK5",
+        "text": "迁移脚本误删或覆盖存量的 iteration-spec/current-plan，造成不可恢复的状态丢失"
+      },
+      {
+        "id": "RK6",
+        "text": "指纹缓存判定过宽会跳过本该重跑的检查，把回归放行到交付"
+      },
+      {
+        "id": "RK7",
+        "text": "按 covers 选测若 spec 映射不全，会漏掉未被任何 test 覆盖的变更面"
+      },
+      {
+        "id": "RK8",
+        "text": "多轮增量若不做全量封盘，最后一轮的 READY 不代表全量绿"
+      }
+    ]
+  },
+  "traffic_flows": [
+    {
+      "id": "F1",
+      "name": "新任务全流程",
+      "entrypoint": "shk task new → 写 spec.json → shk task status → EXECUTE → verify → shk task close"
+    },
+    {
+      "id": "F2",
+      "name": "跨 session 接续",
+      "entrypoint": "新 session 读 .harness/CURRENT → 取 task 摘要与最近 handoff → 直接继续工作"
+    },
+    {
+      "id": "F3",
+      "name": "存量项目兼容路径",
+      "entrypoint": "无 .harness/CURRENT 的项目调用 shk verify / stage-guard，全部回落 .harness/ 单例路径"
+    },
+    {
+      "id": "F4",
+      "name": "多轮修复",
+      "entrypoint": "verify 第1轮全量 → 修 → 第N轮增量（FAIL+指纹变化）→ 全绿 → 全量封盘"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "R1",
+      "priority": "must",
+      "text": "任务产出目录 <tasks_dir>/<TASK-ID>/ 承载 task.json/spec.json/plan.md/journal.jsonl/findings.md/evidence/review，TASK-ID 形如 T-YYYYMMDD-slug"
+    },
+    {
+      "id": "R2",
+      "priority": "must",
+      "text": "shk task 提供 new/current/switch/log/status/close/list 七个子命令，current 输出可直接用作接续摘要"
+    },
+    {
+      "id": "R3",
+      "priority": "must",
+      "text": "stage-guard 的 spec/plan 路径改为任务解析，PLAN 阶段写入白名单放开到整个当前任务目录"
+    },
+    {
+      "id": "R4",
+      "priority": "must",
+      "text": "无 .harness/CURRENT 时，spec/plan/evidence 全部回落 legacy 单例路径，存量项目行为与升级前一致"
+    },
+    {
+      "id": "R5",
+      "priority": "must",
+      "text": "tasks_dir 由 .harness/config.json 配置，默认 docs/tasks，非法值（绝对路径/逃逸）安全回退到默认"
+    },
+    {
+      "id": "R6",
+      "priority": "must",
+      "text": "提供一键升级安装脚本，可把任意已装 harness 的工程升级到任务态并迁移存量状态，且不删除原文件"
+    },
+    {
+      "id": "R7",
+      "priority": "should",
+      "text": "journal 每条自带 agent 标识，支持并发同工作树时区分改动归属"
+    },
+    {
+      "id": "R8",
+      "priority": "must",
+      "text": "每项检查记录输入指纹，指纹未变时标 CACHED 并复用上轮结论，不重复执行"
+    },
+    {
+      "id": "R9",
+      "priority": "should",
+      "text": "按 spec test_plan 的 paths 声明识别与本轮变更相关的测试，并报告未被任何 paths 覆盖的变更文件；当前只产出覆盖缺口报告（uncovered），不裁剪实际执行的测试命令——裁剪依赖各项目测试框架的过滤参数，尚未实现，不得声称已按变更选测",
+      "status": "partial"
+    },
+    {
+      "id": "R10",
+      "priority": "must",
+      "text": "Fix Cycle 第 N 轮只跑上轮 FAIL 项加本轮指纹变化项；全绿后必须跑一次全量封盘才可判 READY"
+    },
+    {
+      "id": "R11",
+      "priority": "must",
+      "text": "验证状态外置到任务目录 evidence，任何一轮都可从文件重建，不依赖 session 上下文"
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "T1",
+      "scenario": "task new 建目录骨架并置 CURRENT；current/status 输出摘要；close 后 CURRENT 被清除",
+      "covers": [
+        "R1",
+        "R2"
+      ],
+      "risks": [],
+      "traffic_flows": [
+        "F1"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "task.json/plan.md/findings.md/evidence/review 全部创建",
+        "CURRENT 内容等于新建的 TASK-ID",
+        "重复 new 同一 slug 同一天返回非零并提示已存在",
+        "close 后 shk task current 返回非零"
+      ]
+    },
+    {
+      "id": "T2",
+      "scenario": "无 CURRENT 的存量项目，spec/evidence 解析回落 .harness/ 单例路径",
+      "covers": [
+        "R4"
+      ],
+      "risks": [
+        "RK1"
+      ],
+      "traffic_flows": [
+        "F3"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "resolveArtifactPath(root,'spec') 等于 .harness/iteration-spec.json",
+        "写入 CURRENT 后同一调用切换到任务目录",
+        "CURRENT 内容非法（格式不匹配）时同样回落 legacy"
+      ]
+    },
+    {
+      "id": "T3",
+      "scenario": "tasks_dir 配置边界：默认值、自定义值、绝对路径、../ 逃逸",
+      "covers": [
+        "R5"
+      ],
+      "risks": [
+        "RK2"
+      ],
+      "traffic_flows": [
+        "F3"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "无 config.json 时取 docs/tasks",
+        "config 指定 tasks 时取 <root>/tasks",
+        "绝对路径回退默认",
+        "../outside 回退默认"
+      ]
+    },
+    {
+      "id": "T4",
+      "scenario": "PLAN 阶段写入当前任务目录内文件放行，写业务代码仍被拦",
+      "covers": [
+        "R3"
+      ],
+      "risks": [
+        "RK1"
+      ],
+      "traffic_flows": [
+        "F1"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "PLAN 写 <tasks_dir>/<CURRENT>/findings.md 放行",
+        "PLAN 写 src/app.js 仍触发 plan-readonly deny",
+        "无 CURRENT 时 PLAN 写 .harness/iteration-spec.json 仍放行"
+      ]
+    },
+    {
+      "id": "T5",
+      "scenario": "journal 并发追加与 agent 标识",
+      "covers": [
+        "R7"
+      ],
+      "risks": [
+        "RK4"
+      ],
+      "traffic_flows": [
+        "F2"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "并发追加 50 条后行数为 50 且每行可解析",
+        "每条含 t/agent/kind 字段",
+        "非法 kind 归一化为 decision"
+      ]
+    },
+    {
+      "id": "T6",
+      "scenario": "升级脚本对存量项目幂等执行，不删除原文件",
+      "covers": [
+        "R6"
+      ],
+      "risks": [
+        "RK5",
+        "RK3"
+      ],
+      "traffic_flows": [
+        "F3"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "迁移后 .harness/iteration-spec.json 原文件仍在",
+        "重复执行不产生第二个任务目录",
+        "生成的 .gitignore 规则包含 .harness/ 且不排除 tasks_dir",
+        "CURRENT 被写入 .gitignore（不跨机同步）"
+      ]
+    },
+    {
+      "id": "T7",
+      "scenario": "指纹缓存：输入未变复用、输入变更重跑、缓存缺失回落全量",
+      "covers": [
+        "R8"
+      ],
+      "risks": [
+        "RK6"
+      ],
+      "traffic_flows": [
+        "F4"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "同一工作树连跑两次，第二次相关检查标 CACHED",
+        "改动源码后对应检查重新执行且不再 CACHED",
+        "无缓存文件时全部执行且不报错",
+        "CACHED 项不得使 overall 从 FAIL 变 READY"
+      ]
+    },
+    {
+      "id": "T8",
+      "scenario": "按 covers 选测与多轮收敛，末轮全量封盘",
+      "covers": [
+        "R9",
+        "R10",
+        "R11"
+      ],
+      "risks": [
+        "RK7",
+        "RK8"
+      ],
+      "traffic_flows": [
+        "F4"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "上轮 FAIL 项在下轮必被重跑",
+        "未被任何 test 覆盖的变更面必须报 uncovered 而不是静默通过",
+        "增量轮不得直接判 READY，需全量封盘轮",
+        "evidence 中记录 round 与 selected/cached 明细",
+        "selectTests 报告 uncovered 变更文件；确认它不改变实际执行的测试命令（当前为报告-only）"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "任务目录约定与 CLI 可用",
+      "covers": [
+        "R1",
+        "R2"
+      ],
+      "tests": [
+        "T1"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A2",
+      "text": "存量项目零破坏",
+      "covers": [
+        "R4"
+      ],
+      "tests": [
+        "T2"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A3",
+      "text": "配置边界安全",
+      "covers": [
+        "R5"
+      ],
+      "tests": [
+        "T3"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A4",
+      "text": "PLAN 白名单按任务目录放行",
+      "covers": [
+        "R3"
+      ],
+      "tests": [
+        "T4"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A5",
+      "text": "journal 并发安全且带归属",
+      "covers": [
+        "R7"
+      ],
+      "tests": [
+        "T5"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A6",
+      "text": "一键升级可用且幂等",
+      "covers": [
+        "R6"
+      ],
+      "tests": [
+        "T6"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A7",
+      "text": "指纹缓存正确且不放行回归",
+      "covers": [
+        "R8"
+      ],
+      "tests": [
+        "T7"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A8",
+      "text": "多轮收敛与末轮全量封盘；选测部分仅验收覆盖缺口报告，不验收实际裁剪",
+      "covers": [
+        "R9",
+        "R10",
+        "R11"
+      ],
+      "tests": [
+        "T8"
+      ],
+      "must_have_evidence": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "K1",
+      "title": "task-ledger 核心库",
+      "stage": "EXECUTE",
+      "covers": [
+        "R1",
+        "R4",
+        "R5",
+        "R7"
+      ],
+      "risk": "high",
+      "done": "scripts/lib/task-ledger.js 导出路径解析与读写 API，node -e require 通过"
+    },
+    {
+      "id": "K2",
+      "title": "shk task CLI 七个子命令",
+      "stage": "EXECUTE",
+      "covers": [
+        "R2"
+      ],
+      "risk": "medium",
+      "done": "shk task new/current/status/list 在本仓库实跑成功并生成 INDEX.md"
+    },
+    {
+      "id": "K3",
+      "title": "shk.js 产出类路径接任务解析",
+      "stage": "EXECUTE",
+      "covers": [
+        "R4"
+      ],
+      "risk": "high",
+      "done": "shk.js 内无 .harness/iteration-spec.json 与 .harness/verify-evidence.json 硬编码残留"
+    },
+    {
+      "id": "K4",
+      "title": "stage-guard 路径与 PLAN 白名单改造",
+      "stage": "EXECUTE",
+      "covers": [
+        "R3"
+      ],
+      "risk": "high",
+      "done": "PLAN 写任务目录放行、写业务代码被拦，hook-scenarios 用例通过"
+    },
+    {
+      "id": "K5",
+      "title": "测试补齐",
+      "stage": "EXECUTE",
+      "covers": [
+        "R1",
+        "R3",
+        "R4",
+        "R5",
+        "R7"
+      ],
+      "risk": "medium",
+      "done": "node tests/run.js 全绿，含 task-ledger 专项用例"
+    },
+    {
+      "id": "K6",
+      "title": "一键升级安装脚本",
+      "stage": "EXECUTE",
+      "covers": [
+        "R6"
+      ],
+      "risk": "medium",
+      "done": "在 android-ops 副本上干跑迁移成功且原文件未被删除"
+    },
+    {
+      "id": "K7",
+      "title": "verify-cache 指纹与选测库",
+      "stage": "EXECUTE",
+      "covers": [
+        "R8",
+        "R9",
+        "R11"
+      ],
+      "risk": "high",
+      "done": "scripts/lib/verify-cache.js 提供指纹计算与检查项裁剪，连跑两次第二次出现 CACHED"
+    },
+    {
+      "id": "K8",
+      "title": "verify 多轮收敛与封盘",
+      "stage": "EXECUTE",
+      "covers": [
+        "R10"
+      ],
+      "risk": "high",
+      "done": "shk verify --round N 增量执行，末轮 --seal 全量，evidence 记录 round/selected/cached"
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "id": "I1",
+      "text": "向 GitHub 推送 feat/task-ledger 分支与 rc tag",
+      "needs_confirmation": true
+    },
+    {
+      "id": "I2",
+      "text": "在 android-ops 真实仓库执行迁移（移动 progress/task_plan/findings 到归档目录）",
+      "needs_confirmation": true
+    },
+    {
+      "id": "I3",
+      "text": "修改宿主工程 .gitignore",
+      "needs_confirmation": true
+    }
+  ]
+}

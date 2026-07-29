@@ -179,3 +179,11 @@ stage-guard 对所有匹配的工具都会执行统一流程：
 - `.claude/settings.json` — 使用方工作区（如 harness-dogfood dogfooding workspace）配置，仅当改动对该工作区有效时同步
 - `init-prompt.md` — **最小配置示例**，仅同步"必选"级别的 hook；可选 hook 不必出现
 - `methodology/05-hook-enforcement.md` — 方法论文档，settings.json 示例建议只保留精简版并显式指向本矩阵和模板，避免三份竞争性真实源
+
+## 覆盖矩阵的用途不止于 hook
+
+这份矩阵回答的是"哪些行为被哪个 hook 管住了"。同样的提问方式适用于任何绿灯：
+**它覆盖了哪些消费方？有没有消费方在它之外？**
+
+答不上来的地方就是缺口。详见 `21-quality-gate-suite.md` 的「绿灯要声明自己覆盖了什么」。
+
