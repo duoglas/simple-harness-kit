@@ -154,7 +154,16 @@ function runCommand(root, command, timeout = 120000, options = {}) {
 function detectCommands(root) {
   const pkg = readJson(path.join(root, 'package.json'));
   const scripts = pkg && pkg.scripts || {};
-  return {
+  // .harness/config.json 的 commands 可覆盖自动探测结果。
+  // 动机：verify 的 tests 有 6 分钟超时，而项目的完整套件可能远超（kit 自己就超过
+  // 10 分钟，撞上就是 exit 124 —— 表现成"测试失败"而实际只是被砍断，
+  // 且这会让该项目永远无法通过自己的 verify）。
+  // 正确的切法是让 tests 只跑快速反馈层、把重的留给 e2e 检查，而"哪个命令是快速层"
+  // 只有项目自己知道，探测不出来。
+  const override = (ledger.readHarnessConfig(root).commands) || {};
+  const pick = (key, detected) => (typeof override[key] === 'string' && override[key].trim())
+    ? override[key].trim() : detected;
+  const detected = {
     build: scripts.build ? 'npm run build' : '',
     types: scripts.typecheck ? 'npm run typecheck' : scripts.types ? 'npm run types' : '',
     lint: scripts.lint ? 'npm run lint' : '',
@@ -167,6 +176,9 @@ function detectCommands(root) {
     upstream_dogfood: exists(path.join(root, 'tests/scripts/18-upstream-ci-dogfood.sh')) ? 'bash tests/scripts/18-upstream-ci-dogfood.sh' : '',
     browser_e2e_dogfood: exists(path.join(root, 'tests/scripts/19-browser-e2e-dogfood.sh')) ? 'bash tests/scripts/19-browser-e2e-dogfood.sh' : '',
   };
+  const out = {};
+  for (const [key, value] of Object.entries(detected)) out[key] = pick(key, value);
+  return out;
 }
 
 function scanFiles(root, options = {}) {

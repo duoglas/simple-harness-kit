@@ -1,0 +1,436 @@
+{
+  "task": "android-ops 经验回流 kit：16 条逐条判定后的落地",
+  "risk": "high",
+  "note": "本 spec 为事后补写。任务实际按 plan.md 的 16 条判定表推进，完成后跑 verify 才发现缺 spec —— 这本身是一条教训（见 R6/RK6），如实记录而不是假装它一开始就存在。下面所有 test_plan 条目对应的都是真实执行过的验证，没有为凑覆盖率编造。",
+  "design": {
+    "summary": "长跑 dogfood 工程（android-ops）积累了一批 kit 主线没有的工程经验。全量扫描出 16 条候选，用「把该工程整个删掉这条还成立吗」逐条过判据，用户交互式确认后 15 条采纳、1 条跳过。落地分五组：A 修 kit 自己测错的量（context-monitor 按写次数计数而真实自变量是上下文深度；C-GATE-18 阈值 200 而实测 P90 2200）、B 时间治理（移植 run-guarded 执行器 + 新增 AGENT 约束区域）、C review 与角色（冻结被审对象、Deployer 角色与权限隔离维度、review 进 PLAN 清单）、D 测试与门禁（shell 四条铁律与静态检查、行为断言与变异靶子、测量有效性、覆盖面声明）、E 流程与归因（阻断汇总、READY_TO_DEPLOY 双授权、归因隔离与漂移提示、回归先做产物 diff）。回流一律中性化，删除源工程的领域专名。",
+    "risk_points": [
+      {
+        "id": "RK1",
+        "text": "回流内容夹带源工程专名（adb / BeanShell / 微信 / 装配体 / routeCommand 等），使 kit 不再通用"
+      },
+      {
+        "id": "RK2",
+        "text": "新增的检查本身是假的——写了但抓不到它该抓的东西，制造覆盖假象"
+      },
+      {
+        "id": "RK3",
+        "text": "改 hook 行为却不升 @version，导致 update.sh 判定失明并对用户打假警告"
+      },
+      {
+        "id": "RK4",
+        "text": "required_files 登记了新文件但 init/e2e 的复制点没同步，新装项目缺文件"
+      },
+      {
+        "id": "RK5",
+        "text": "阈值按单一工程实测重定后，对其他工作形态过松或过紧"
+      },
+      {
+        "id": "RK6",
+        "text": "用任务态管理本次工作却只写 plan 不写 spec，验收链断裂（本任务实际发生）"
+      }
+    ]
+  },
+  "traffic_flows": [
+    {
+      "id": "F1",
+      "name": "kit 自检链路",
+      "entrypoint": "node tests/run.js —— 全量套件含 hook 场景、单测、脚本矩阵"
+    },
+    {
+      "id": "F2",
+      "name": "新增门禁的有效性验证",
+      "entrypoint": "对生产代码注入变异 → 确认对应检查变红 → 还原并确认工作树干净"
+    },
+    {
+      "id": "F3",
+      "name": "目标工程升级链路",
+      "entrypoint": "update.sh --hooks-only <工程> → 同步 hooks/lib/CLI/执行器 → 干跑判定语义正确"
+    },
+    {
+      "id": "F4",
+      "name": "发版门控链路",
+      "entrypoint": "tests/pre-release-check.sh —— 含三个真实 dogfood（OSS 变异 / upstream CI / 浏览器 E2E）"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "R1",
+      "priority": "must",
+      "text": "A 组：context-monitor 改为按上下文深度度量（跨天/时长/累计写入/次数四维，每维每 session 只提醒一次）；C-GATE-18 默认阈值按实测 P90 重定为 1000/2500"
+    },
+    {
+      "id": "R2",
+      "priority": "must",
+      "text": "B 组：移植 run-guarded 执行器（含自检）并新增 AGENT 约束区域 C-AGENT-01/02/03；update.sh 同步 .py 与执行器；workbench 熔断规则回流模板"
+    },
+    {
+      "id": "R3",
+      "priority": "must",
+      "text": "C 组：派 review 前必须冻结被审对象并交付版本标识；新增 Deployer 角色与权限隔离维度；独立 review 进 PLAN 任务清单"
+    },
+    {
+      "id": "R4",
+      "priority": "must",
+      "text": "D 组：shell 门禁四条铁律入方法论，其中 L1/L2 由静态检查脚本覆盖；行为断言与变异靶子义务入 qa-standards；覆盖面声明入方法论（按判定不立约束）"
+    },
+    {
+      "id": "R5",
+      "priority": "must",
+      "text": "E 组：阻断汇总（同一阻塞连续两轮无进展才停）与 READY_TO_DEPLOY 双授权点入 role-constraints；新增 C-AGENT-04 归因隔离并给 harness-learn 加任务漂移提示；回归先做产物 diff 入 F2 流程"
+    },
+    {
+      "id": "R6",
+      "priority": "must",
+      "text": "所有回流内容中性化，不得含源工程领域专名；新增的每个检查必须经变异验证证明能变红"
+    },
+    {
+      "id": "R7",
+      "priority": "should",
+      "text": "hook 内容变更时 @version 必须同步升，并由检查强制而非依赖记忆"
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "T1",
+      "scenario": "全量套件在每组落地后回归，确认既有行为未被破坏",
+      "covers": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5"
+      ],
+      "risks": [
+        "RK4"
+      ],
+      "traffic_flows": [
+        "F1"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "A 组后 251/251、B 组后 252/252、C 组后 252/252、D 组后 252/252、E 组后 252/252",
+        "合入 terminal apply_patch 后 255/255，加 @version 检查后 256/256",
+        "任一组出现 FAIL 必须定位修复后才继续下一组（D 组的 resources 镜像漂移即此路径）"
+      ]
+    },
+    {
+      "id": "T2",
+      "scenario": "对新增检查注入变异，确认它们真的会红而不是形同虚设",
+      "covers": [
+        "R6",
+        "R7"
+      ],
+      "risks": [
+        "RK2"
+      ],
+      "traffic_flows": [
+        "F2"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "required_files 比对：塞一个绝不会被复制的条目 → 必须 FAIL（第一版 glob 过宽未抓到，收紧后抓到）",
+        "@version 检查：改 hook 内容不升版本 → 必须 FAIL 并点名文件与当前版本；改内容且升版本 → 不误报",
+        "shell lint：故意写 `cmd | tail` 后取 $? 与 pipefail 下裸读文件 → 两条都必须命中；正常写法不误报",
+        "每次变异后还原并用 git diff --stat 确认工作树干净"
+      ]
+    },
+    {
+      "id": "T3",
+      "scenario": "run-guarded 执行器自检：超时、预算、子进程清理、自身被中断",
+      "covers": [
+        "R2"
+      ],
+      "risks": [
+        "RK1"
+      ],
+      "traffic_flows": [
+        "F2"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "9 个场景全通过：立即成功/失败、静默 idle 超时(124)、有输出但硬超时(125)、预算超限(3)",
+        "子进程被清理、runner 自身被 TERM 转 INTERRUPTED(130)、取证后恢复",
+        "源文件零源工程专名（grep adb/微信/红包/Magisk/Xposed/BeanShell 命中数为 0）"
+      ]
+    },
+    {
+      "id": "T4",
+      "scenario": "行为改动的直接验证：context-monitor 四维、guard-mode 检测链、PLAN 提醒、漂移检测",
+      "covers": [
+        "R1",
+        "R5"
+      ],
+      "risks": [
+        "RK5"
+      ],
+      "traffic_flows": [
+        "F2"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "context-monitor：正常调用静默、累计写入超限提醒一次、同维度不重复、换 session 重置、伪造 30 小时前状态触发跨天强提示",
+        "guard-mode：检测到模型走 transcript、同 session 检测不到走 session-cache、跨 session 回落 default、Codex 环境仍读 codex config",
+        "PLAN 提醒：light 下首次写操作提醒、第二次不刷屏、只读不触发",
+        "漂移检测：stage 旧且写操作多则提示；stage 新不提示；写操作少不提示"
+      ]
+    },
+    {
+      "id": "T5",
+      "scenario": "目标工程升级链路：判定语义正确且不丢本地修复",
+      "covers": [
+        "R2",
+        "R7"
+      ],
+      "risks": [
+        "RK3",
+        "RK4"
+      ],
+      "traffic_flows": [
+        "F3"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "update.sh 同步 hooks、lib/*.js、lib/*.py、shk.js、run-guarded.sh 到空工程后 task 命令可用",
+        "目标版本比 kit 新时跳过而非降级覆盖（version_cmp 边界：0.13.2>0.13.0、0.9.0<0.10.0、rc 后缀、非数字文本）",
+        "补齐 @version 后干跑从「本地已修改」变为「需要更新」，假警告消失"
+      ]
+    },
+    {
+      "id": "T6",
+      "scenario": "发版门控全链路，含三个真实 dogfood",
+      "covers": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5"
+      ],
+      "risks": [
+        "RK2",
+        "RK5"
+      ],
+      "traffic_flows": [
+        "F4"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "OSS dogfood 抓到真实开源项目的前端与 API 变异",
+        "upstream CI dogfood 完成 npm install 与原始 CI",
+        "真实浏览器 E2E 抓到 TodoMVC 变异",
+        "public 泄漏扫描零命中",
+        "环境缺失时门控必须 FAIL 而不是静默跳过（三个 dogfood 初次即为此路径）"
+      ]
+    },
+    {
+      "id": "T7",
+      "scenario": "任务自身的验收链完整性：spec 存在且达标，不是只有 plan 就算数",
+      "covers": [
+        "R6"
+      ],
+      "risks": [
+        "RK6"
+      ],
+      "traffic_flows": [
+        "F1"
+      ],
+      "negative_or_boundary": true,
+      "assertions": [
+        "shk task status 对本任务报 spec READY（此前报 MISSING —— RK6 的实际发生，本条即为其闭环）",
+        "shk verify --write-evidence 能产出结构化证据到任务目录的 evidence/",
+        "缺 spec 时 verify 的 spec 与 test_effectiveness 两项必须 FAIL 而不是放行（已实测：正是这条把问题暴露出来的）",
+        "plan.md 存在但 spec.json 缺失时，任务不得被判为可准出"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "五组回流内容全部落地且全量套件绿",
+      "covers": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5"
+      ],
+      "tests": [
+        "T1"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A2",
+      "text": "新增检查经变异验证确认有约束力",
+      "covers": [
+        "R6",
+        "R7"
+      ],
+      "tests": [
+        "T2"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A3",
+      "text": "run-guarded 自检全通过且内容中性",
+      "covers": [
+        "R2"
+      ],
+      "tests": [
+        "T3"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A4",
+      "text": "行为改动经直接场景验证，正反两侧都覆盖",
+      "covers": [
+        "R1",
+        "R5"
+      ],
+      "tests": [
+        "T4"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A5",
+      "text": "升级链路判定语义正确，不丢目标工程的本地修复",
+      "covers": [
+        "R2",
+        "R7"
+      ],
+      "tests": [
+        "T5"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A6",
+      "text": "发版门控除环境准备外全 PASS",
+      "covers": [
+        "R3",
+        "R4"
+      ],
+      "tests": [
+        "T6"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "A7",
+      "text": "任务自身的验收链完整（spec 达标 + 证据落任务目录）",
+      "covers": [
+        "R6"
+      ],
+      "tests": [
+        "T7"
+      ],
+      "must_have_evidence": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "K1",
+      "title": "A 组：修 kit 自己测错的量",
+      "stage": "EXECUTE",
+      "covers": [
+        "R1"
+      ],
+      "risk": "medium",
+      "done": "context-monitor 四维度实测通过，C-GATE-18 阈值与 constraints 表述同步，全量 251/251"
+    },
+    {
+      "id": "K2",
+      "title": "B 组：时间治理包",
+      "stage": "EXECUTE",
+      "covers": [
+        "R2"
+      ],
+      "risk": "high",
+      "done": "run-guarded 自检 9/9，update.sh 能把执行器同步进空工程，AGENT 区域三条约束落库"
+    },
+    {
+      "id": "K3",
+      "title": "C 组：review 与角色",
+      "stage": "EXECUTE",
+      "covers": [
+        "R3"
+      ],
+      "risk": "medium",
+      "done": "agent-dispatch 含冻结与固定维度，02-roles 有 Deployer，06-agent-isolation 有权限隔离维度"
+    },
+    {
+      "id": "K4",
+      "title": "D 组：测试与门禁",
+      "stage": "EXECUTE",
+      "covers": [
+        "R4",
+        "R6"
+      ],
+      "risk": "high",
+      "done": "shell lint 变异验证通过且首跑抓到三处真实隐患，qa-standards 含行为断言与变异靶子"
+    },
+    {
+      "id": "K5",
+      "title": "E 组：流程与归因",
+      "stage": "EXECUTE",
+      "covers": [
+        "R5"
+      ],
+      "risk": "medium",
+      "done": "C-AGENT-04 落库，漂移检测正反三场景通过（含中文任务名场景）"
+    },
+    {
+      "id": "K6",
+      "title": "@version 同步检查",
+      "stage": "EXECUTE",
+      "covers": [
+        "R7"
+      ],
+      "risk": "low",
+      "done": "改内容不升版本必红、升了版本不误报，全量 256/256"
+    },
+    {
+      "id": "K7",
+      "title": "合并与发版",
+      "stage": "REVIEW",
+      "covers": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5"
+      ],
+      "risk": "high",
+      "done": "master 合入并推送、v0.15.0-rc.1 tag 已推、DEFAULT_REF 契约三项 PASS"
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "id": "I1",
+      "text": "合并 feat/task-ledger 到 master 并推送",
+      "needs_confirmation": true,
+      "status": "已执行（用户授权）"
+    },
+    {
+      "id": "I2",
+      "text": "创建并推送 v0.15.0-rc.1 tag",
+      "needs_confirmation": true,
+      "status": "已执行（用户授权）"
+    },
+    {
+      "id": "I3",
+      "text": "下载外部开源项目 tarball 与安装 playwright chromium（均落 /private/tmp，不写入仓库或 HOME）",
+      "needs_confirmation": false,
+      "status": "已执行"
+    },
+    {
+      "id": "I4",
+      "text": "对目标业务工程执行升级或迁移",
+      "needs_confirmation": true,
+      "status": "未执行——按用户要求只提供命令，不代为操作业务目录"
+    }
+  ]
+}

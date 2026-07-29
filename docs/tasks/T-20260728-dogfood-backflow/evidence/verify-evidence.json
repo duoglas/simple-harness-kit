@@ -1,0 +1,237 @@
+{
+  "schema_version": "1.0",
+  "task_id": "simple-harness-kit",
+  "risk": "high",
+  "stage": "VERIFY",
+  "started_at": "2026-07-29T12:00:19.823Z",
+  "completed_at": "2026-07-29T12:04:33.649Z",
+  "checks": {
+    "quality_gate": {
+      "status": "PASS",
+      "command": "shk quality status --risk high",
+      "risk": "high",
+      "missing": [],
+      "summary": "这次按 high 风险做准出检查。已找到测试入口：node tests/run.js --unit。已找到 E2E 入口：bash tests/scripts/13-e2e-sufficiency.sh。当前准出入口状态：READY。这只是能力快照，还没有跑测试；最终能不能交付要看 `shk verify --write-evidence` 的 fresh evidence。"
+    },
+    "build": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "types": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "lint": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "tests": {
+      "status": "PASS",
+      "command": "node tests/run.js --unit",
+      "exit_code": 0,
+      "stdout_tail": "UpdateHooksReportsCodexGenerationFailure\nPASS testDoctorReportsCodexEntryBannerWiring\nPASS testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence\nPASS testDoctorWarnsWhenCodexExactProjectTrustMissing\nPASS testDoctorPassesWhenCodexExactProjectTrustExists\n68/68 quality suite tests passed\n\n  Quality Gate Suite PASS\n\n  Task Ledger / Verify Cache Tests\n\nPASS testNewTaskIdShape\nPASS testNewTaskIdNormalizesSlug\nPASS testIsValidTaskId\nPASS testCurrentTaskIdRoundTrip\nPASS testSetCurrentTaskIdRejectsInvalidId\nPASS testCurrentTaskIdNullOnMissingEmptyOrInvalid\nPASS testTaskPathsLayout\nPASS testResolveArtifactPathFallsBackToLegacy\nPASS testResolveArtifactPathUsesTaskDirWhenCurrentSet\nPASS testResolveArtifactPathFallsBackWhenCurrentCorrupt\nPASS testTasksDirDefault\nPASS testTasksDirHonorsRelativeConfig\nPASS testTasksDirRejectsAbsoluteAndEscapingPaths\nPASS testJournalAppendAndRead\nPASS testJournalNormalizesUnknownKind\nPASS testJournalAppendsAreLineOriented\nPASS testChangedFilesParsesPorcelainStatuses\nPASS testChangedFilesHandlesStagedModificationAndRename\nPASS testChangedFilesExcludesLedgerNoise\nPASS testFingerprintStabilityAndSensitivity\nPASS testCreateContextFirstRunThenCaches\nPASS testCreateContextSealIgnoresCache\nPASS testCreateContextRerunsPreviousNonPass\nPASS testPersistKeepsUntouchedCheckEntries\nPASS testSelectTestsWithoutTestPlan\nPASS testSelectTestsWithoutPathDeclarations\nPASS testSelectTestsWithPartialPathDeclarations\nPASS testStructuredEvidencePathSwitchesWithCurrent\nPASS testEvidenceSearchPathsTaskModeExcludesLegacy\nPASS testEvidenceSearchPathsLegacyModeOrder\nPASS testEvidencePathsFallBackOnCorruptCurrent\nPASS testTaskNewWritesWorkingGitignoreRules\n32/32 task ledger tests passed\n\n  Task Ledger Suite PASS\n\n  Scripted Test Matrix SKIP (--unit；由 e2e 检查覆盖)\n\n  Codex Runtime Smoke SKIP (--unit；由 verify 的 runtime 检查覆盖)\n\n  Codex Init E2E Smoke (C-GATE-04 skill 入口)\n\n\n  Codex Init Smoke PASS / SKIP\n\n  ══════════════════════════════\n  总计: 253 passed, 0 failed, 253 total\n\n",
+      "stderr_tail": "[codex-init-smoke] SKIP: opt-in 测试 (设 CODEX_INIT_SMOKE=1 启用)。\n",
+      "started_at_ms": 1785326419857,
+      "completed_at_ms": 1785326464664,
+      "run_token": ""
+    },
+    "coverage": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "e2e": {
+      "status": "PASS",
+      "command": "bash tests/scripts/13-e2e-sufficiency.sh",
+      "exit_code": 0,
+      "stdout_tail": "ffectiveness flow\n  [13-e2e-sufficiency] traffic flow FLOW-3 covered: verify delivery gate aggregation flow\n  [13-e2e-sufficiency] traffic flow FLOW-4 covered: execute stage spec gate flow\n[23-shell-gate-lint] 扫描门禁脚本...\n[23-shell-gate-lint] 检查了 31 个脚本，发现 0 处\n[23-shell-gate-lint] PASS（L1/L2 无命中；另两条铁律需人工 review，见方法论）\n[PASS] immediate-success\n[PASS] immediate-failure\n[PASS] silent-idle\n[PASS] output-hard\n[PASS] budget-exceeded\n[PASS] descendant-cleanup\n[PASS] descendant process removed\n[PASS] runner TERM becomes INTERRUPTED\n[PASS] diagnose-recovers\n----\nrun-guarded selftest: 9 passed, 0 failed\n[20-task-ledger-e2e] F1 新任务全流程\n  PASS  F1 task new 建出 task.json\n  PASS  F1 CURRENT 指向新任务且格式合法\n  PASS  F1 骨架文件齐备（plan/findings/evidence/review）\n  PASS  F1 阻断：spec 缺失时 status 返回非零\n  PASS  F1 阻断：重复创建同名任务被拒\n  PASS  F1 spec 达标后 status 返回零\n  PASS  F1 close 后 CURRENT 被清除\n  PASS  F1 close 后 task.json 标记 closed\n  PASS  F1 close 后任务目录仍在（归档不删除）\n[20-task-ledger-e2e] F2 跨 session 接续\n  PASS  F2 新进程只凭 CURRENT 就拿到任务 ID\n  PASS  F2 摘要含最近一条 handoff 内容\n  PASS  F2 摘要标注 handoff 类型\n  PASS  F2 journal 每行可解析且带 agent 标识\n  PASS  F2 阻断：CURRENT 内容非法时 current 返回非零\n[20-task-ledger-e2e] F3 存量项目兼容\n  PASS  F3 无 CURRENT 时 spec 路径回落 legacy\n  PASS  F3 无 CURRENT 时 evidence 路径回落 legacy\n  PASS  F3 存量项目 PLAN 阶段仍放行 legacy spec\n  PASS  F3 阻断：存量项目 PLAN 阶段仍拦业务代码\n  PASS  F3 迁移后原 iteration-spec.json 仍在（只复制不删除）\n  PASS  F3 迁移后 spec 路径切到任务目录\n  PASS  F3 迁移后 PLAN 放行任务目录内文件\n  PASS  F3 阻断：迁移后 PLAN 仍拦业务代码\n  PASS  F3 阻断：迁移幂等，重跑不产生第二个任务\n[20-task-ledger-e2e] F4 多轮修复\n  PASS  F4 第二轮无改动时出现 CACHED 复用\n  PASS  F4 增量轮不判 READY，提示需封盘\n  PASS  F4 阻断：源码变更后源码类检查不再复用\n  PASS  F4 封盘轮全量执行、零复用\n  PASS  F4 封盘轮不再提示需要封盘\n  PASS  F4 缓存文件落在簿记侧不污染产出\n\n[20-task-ledger-e2e] 断言 29 通过 / 0 失败，覆盖流量路径: F1 F2 F3 F4\n[20-task-ledger-e2e] traffic_flows 证据已合并: F1, F2, F3, F4\n[20-task-ledger-e2e] PASS\n  [13-e2e-sufficiency] PASS: install/init E2E + quality gate blocking contract + app E2E bootstrap mutation + AI Harness target-app workflow + spec-driven target-app acceptance\n",
+      "stderr_tail": "",
+      "started_at_ms": 1785326464877,
+      "completed_at_ms": 1785326568783,
+      "run_token": "shk-1785326464877-bec763498ab42"
+    },
+    "security": {
+      "status": "PASS",
+      "findings": 0,
+      "details": [],
+      "sections": {
+        "secrets": {
+          "status": "PASS",
+          "findings": 0,
+          "details": [],
+          "configured": true
+        },
+        "public_leaks": {
+          "status": "PASS",
+          "findings": 0,
+          "details": [],
+          "configured": false
+        },
+        "config_risks": {
+          "status": "PASS",
+          "findings": 0,
+          "details": []
+        }
+      }
+    },
+    "diff": {
+      "status": "PASS",
+      "files": 4,
+      "summary": "scripts/shk.js | 14 +++++++++++++-\n tests/run.js   | 13 +++++++++++--\n 2 files changed, 24 insertions(+), 3 deletions(-)"
+    },
+    "spec": {
+      "status": "PASS",
+      "command": "node scripts/shk.js spec status --risk high",
+      "overall": "READY",
+      "summary": "迭代 spec 是有效的：需求、方案、风险、测试计划、流量路径和验收标准都有明确映射。"
+    },
+    "santa": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "santa requires agent/human review",
+      "agent_review_required": true
+    },
+    "runtime": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "runtime_selftest": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "doctor": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "dogfood_oss": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "upstream_dogfood": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "browser_e2e_dogfood": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "clean_tree": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "upstream": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "e2e_sufficiency": {
+      "status": "PASS",
+      "overall": "READY",
+      "command": "bash tests/scripts/13-e2e-sufficiency.sh",
+      "e2e_status": "PASS",
+      "coverage": {
+        "covers_changed_area": "PASS",
+        "has_real_assertions": "PASS",
+        "has_positive_path": "PASS",
+        "has_negative_or_blocking_path": "PASS",
+        "writes_structured_evidence": "PASS",
+        "not_smoke_only": "PASS",
+        "has_task_quality_contract": "PASS"
+      },
+      "missing": [],
+      "summary": "E2E 不只是跑过了，也覆盖了本次风险、正向路径、阻断路径和结构化证据。"
+    },
+    "spec_status": {
+      "status": "PASS",
+      "overall": "READY",
+      "dimensions": {
+        "spec_exists": "PASS",
+        "requirements_present": "PASS",
+        "design_present": "PASS",
+        "traffic_flows_present": "PASS",
+        "test_plan_present": "PASS",
+        "acceptance_present": "PASS",
+        "tasks_present": "PASS",
+        "irreversible_actions_present": "PASS",
+        "requirements_covered": "PASS",
+        "risks_covered": "PASS",
+        "traffic_flows_covered": "PASS",
+        "test_plan_semantic": "PASS",
+        "acceptance_evidence": "PASS",
+        "task_quality": "PASS"
+      },
+      "missing": [],
+      "summary": "迭代 spec 是有效的：需求、方案、风险、测试计划、流量路径和验收标准都有明确映射。"
+    },
+    "test_effectiveness": {
+      "status": "PASS",
+      "overall": "READY",
+      "dimensions": {
+        "spec_exists": "PASS",
+        "requirements_covered": "PASS",
+        "risks_covered": "PASS",
+        "traffic_coverage": "PASS",
+        "assertion_quality": "PASS",
+        "positive_path": "PASS",
+        "negative_or_boundary_path": "PASS",
+        "mutation_sensitivity": "PASS",
+        "runtime_realism": "PARTIAL",
+        "fresh_evidence": "PASS"
+      },
+      "missing": [],
+      "summary": "测试有效性足够：它不是只证明“跑过”，而是映射到了 spec 的需求、风险、流量路径、断言、负向场景和 mutation/fault 证据。运行真实性是 PARTIAL。"
+    }
+  },
+  "limitations": [
+    {
+      "check": "coverage",
+      "status": "SKIP",
+      "claims_ready": false,
+      "reason": "not configured",
+      "summary": "Coverage is not configured; this run does not claim an 80% line/branch coverage proof."
+    },
+    {
+      "check": "runtime",
+      "status": "SKIP",
+      "claims_ready": false,
+      "reason": "not required or not configured",
+      "summary": "Runtime/Codex smoke was not required for this risk level and is not counted as runtime PASS evidence."
+    },
+    {
+      "check": "santa",
+      "status": "SKIP",
+      "claims_ready": false,
+      "reason": "santa requires agent/human review",
+      "summary": "Santa adversarial review requires agent/human review; this run does not claim santa PASS evidence."
+    }
+  ],
+  "overall": "READY",
+  "incremental": {
+    "round": 1,
+    "seal": true,
+    "ran": [
+      "build",
+      "tests",
+      "security",
+      "types",
+      "lint",
+      "coverage",
+      "e2e"
+    ],
+    "cached": [],
+    "changed_files": 3,
+    "tests_selected": "all（test_plan 未声明 paths）",
+    "uncovered_changes": []
+  },
+  "task": "T-20260728-dogfood-backflow"
+}

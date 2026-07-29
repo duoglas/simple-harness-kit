@@ -54,6 +54,10 @@ const SCENARIOS_DIR = path.join(__dirname, 'hook-scenarios');
 // ── 解析参数 ──
 
 const args = process.argv.slice(2);
+// --unit: 只跑轻量段（场景/单测/完整性/质量套件），跳过脚本矩阵与 Codex smoke。
+// 供 shk verify 的 tests 检查使用——那一项有 6 分钟超时，而全量套件已超过 10 分钟，
+// 撞上就是 exit 124，表现成"测试失败"而实际只是被砍断。重的部分由 e2e 检查覆盖。
+const UNIT_ONLY = args.includes('--unit');
 const filterIdx = args.indexOf('--filter');
 const filter = filterIdx !== -1 ? args[filterIdx + 1] : null;
 
@@ -621,6 +625,7 @@ try {
 }
 
 // ── Scripted Test Matrix (tests/scripts/run-all.sh) ──
+// --unit 下跳过：它与 e2e 检查（13-e2e-sufficiency）内容重叠，且是耗时主因。
 // 维度 1-7 install/update/skill-path/e2e/invariant/mutation/pathstyle/scope
 // 纯 shell 测试, 不依赖 Node 测试框架. 结果作为 run.js 总 exit code 的一部分.
 //
@@ -631,7 +636,9 @@ let scriptedFailed = 0;
 let scriptedTotal = 0;
 try {
   const scriptsRunner = path.resolve(__dirname, 'scripts', 'run-all.sh');
-  if (fs.existsSync(scriptsRunner)) {
+  if (UNIT_ONLY) {
+    console.log('  Scripted Test Matrix SKIP (--unit；由 e2e 检查覆盖)\n');
+  } else if (fs.existsSync(scriptsRunner)) {
     console.log('  Scripted Test Matrix (tests/scripts/run-all.sh)\n');
     const res = require('child_process').spawnSync('bash', [scriptsRunner], {
       stdio: 'inherit',
@@ -663,7 +670,9 @@ let smokeTotal = 0;
 try {
   const smokeScript = path.resolve(__dirname, 'codex-smoke.sh');
   const selftestScript = path.resolve(__dirname, 'codex-smoke-selftest.sh');
-  if (fs.existsSync(smokeScript)) {
+  if (UNIT_ONLY) {
+    console.log('  Codex Runtime Smoke SKIP (--unit；由 verify 的 runtime 检查覆盖)\n');
+  } else if (fs.existsSync(smokeScript)) {
     console.log('  Codex Runtime Smoke (C-GATE-08)\n');
     const env = { ...process.env };
     // run.js 里默认不升级；CI 通过 CODEX_REQUIRED=1 外部注入
