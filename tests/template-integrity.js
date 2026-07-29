@@ -18,6 +18,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const KIT_ROOT = path.resolve(__dirname, '..');
 const TMPL_SETTINGS = path.join(KIT_ROOT, 'templates', 'settings-json.tmpl');
@@ -201,6 +202,45 @@ function runTemplateIntegrityTests() {
     if (missing.length > 0) {
       return `required_files 声明了但 03-full-e2e.sh 不复制: ${missing.join(', ')}`
         + '（新装项目会缺这些文件，e2e-acceptance-validate 会报 missing）';
+    }
+  });
+
+  // ── hook 内容变了必须升 @version ──
+  // 这个疏漏在两轮之内犯了两次：stage-guard/verification-gate/delivery-gate 一次，
+  // guard-mode/harness-learn 一次。后果不是文案不准 —— update.sh 靠 @version 判断
+  // "该更新"还是"用户改过"，也靠它做降级保护。不升版本号会让升级机制对该文件失明，
+  // 并对用户打出"[警告] 覆盖本地修改"的**假警告**。假警告比没警告更糟，它让人对真警告脱敏。
+  //
+  // 基线取最近一个 tag：发布之后所有人都从 tag 起步，版本号必须随内容变。
+  // 无 git / 无 tag / 文件是新增的 → 跳过，不把环境问题报成失败。
+  check('hooks: 内容相对最近 tag 有变更时 @version 必须同步升', () => {
+    const git = (args) => {
+      const r = spawnSync('git', args, { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
+      return r.status === 0 ? r.stdout : null;
+    };
+    const base = (git(['describe', '--tags', '--abbrev=0']) || '').trim();
+    if (!base) return; // 无 tag，跳过
+    const verOf = (text) => {
+      const m = String(text || '').match(/@version\s+([^\n*]+)/);
+      return m ? m[1].trim() : null;
+    };
+    const hooksDir = path.join(__dirname, '..', 'scripts', 'hooks');
+    let names = [];
+    try { names = fs.readdirSync(hooksDir).filter(n => n.endsWith('.js')); } catch { return; }
+    const stale = [];
+    for (const name of names) {
+      const rel = `scripts/hooks/${name}`;
+      const baseText = git(['show', `${base}:${rel}`]);
+      if (baseText === null) continue; // tag 里没有 = 新增文件
+      const curText = fs.readFileSync(path.join(hooksDir, name), 'utf8');
+      if (baseText === curText) continue; // 内容没变
+      const bv = verOf(baseText);
+      const cv = verOf(curText);
+      if (bv && cv && bv === cv) stale.push(`${name}（仍是 ${cv}）`);
+    }
+    if (stale.length > 0) {
+      return `相对 ${base} 内容已变但 @version 未升: ${stale.join('、')}`
+        + '。update.sh 会把它判成"本地已修改"并打假警告，降级保护也会失效。';
     }
   });
 
