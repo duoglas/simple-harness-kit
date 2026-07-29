@@ -1,13 +1,13 @@
 {
   "id": "T-20260728-dogfood-backflow",
   "title": "android-ops 经验回流 kit：16 条逐条判定后的落地",
-  "status": "open",
+  "status": "closed",
   "risk": "high",
   "stage": "REVIEW",
   "created": "2026-07-28T09:01:03.405Z",
   "started_at": "2026-07-28T09:01:03.405Z",
-  "closed": null,
-  "outcome": null,
+  "closed": "2026-07-29T12:52:42.867Z",
+  "outcome": "shipped",
   "supersedes": null,
   "agents": [
     "claude"
@@ -18,5 +18,6 @@
     "de210fe",
     "d4e2ed1",
     "5d112b8"
-  ]
+  ],
+  "uncommitted_at_close": 1
 }
