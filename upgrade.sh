@@ -25,7 +25,7 @@ set -euo pipefail
 #
 # 打 tag 的顺序：先在本 commit 里把 DEFAULT_REF 指向即将创建的 tag，再让 tag 指向本
 # commit——这样 tag 内的 upgrade.sh 是自洽的，避免"必须先有 tag 才能改 ref"的死循环。
-DEFAULT_REF="v0.14.0-rc.1"
+DEFAULT_REF="v0.15.0-rc.1"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 
