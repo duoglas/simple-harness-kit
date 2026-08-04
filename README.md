@@ -202,6 +202,7 @@ Useful backend probes include:
 
 ```bash
 node scripts/shk.js verify --risk medium --write-evidence
+node scripts/shk.js evidence verify --current-git --require-clean --require-mode full
 node scripts/shk.js spec status --format json
 node scripts/shk.js e2e inspect --format json
 node scripts/shk.js e2e bootstrap --risk medium --format json
@@ -210,7 +211,7 @@ node scripts/shk.js test effectiveness --risk medium --format json
 node scripts/shk.js security scan
 ```
 
-`verify` writes `.harness/verify-evidence.json` and a human-readable report. Commit/tag hooks read that evidence before allowing delivery-sensitive actions.
+`verify` writes attested `.harness/verify-evidence.json` plus a human-readable report. The evidence binds Git commit/tree/dirty state and execution mode with a canonical SHA-256 digest. Commit/tag hooks reject digest-invalid evidence before delivery-sensitive actions. See [Evidence Attestation](docs/evidence-attestation.md).
 
 ## Presets for teams
 

@@ -6,6 +6,7 @@ Quality Gate Suite 把 SHK 的测试、准出、Infra Tier、E2E quickstart、se
 
 ```bash
 node scripts/shk.js verify --risk medium --write-evidence
+node scripts/shk.js evidence verify --current-git --require-clean --require-mode full
 node scripts/shk.js doctor --format json
 node scripts/shk.js security scan
 node scripts/shk.js test-infra assess
@@ -18,6 +19,8 @@ node scripts/shk.js qa report
 - `.harness/verify-evidence.json` — 机器准出源
 - `.harness/verify-evidence.md` — 当前任务摘要
 - `docs/verification-report.md` — 人类可读报告
+
+JSON evidence 同时携带 Git commit/tree/dirty、执行模式、issuer/trust 和 canonical SHA-256 digest。`shk evidence verify` 可按候选 commit/tree、clean、mode 和最小 trust 做校验。摘要只能检测未伴随新 attestation 的生成后改写；本地 issuer 仍可重新签发，所以本地 CLI 产物必须诚实标成 `local-self`。更高 trust 必须由签名/controller 等外部认证边界确认，不能靠 JSON 自声明。完整契约见 `docs/evidence-attestation.md`。
 
 ## Risk level
 
@@ -37,7 +40,9 @@ node scripts/shk.js qa report
 1. evidence 必须晚于当前 stage 的 `since`。
 2. `overall` 必须是 `READY`。
 3. `git tag` 要求 `risk=release`。
-4. 旧 Markdown evidence 仍兼容，但不能表达 `overall` 和 risk level。
+4. attestation 存在时 format/digest/trust authentication 必须有效；损坏或未认证高 trust 的 `READY` evidence 一律拒绝。
+5. verifier 模块不可用时，只允许“无 attestation 且未启用 strict”的 legacy evidence 兼容；attested evidence 或 `evidence.require_attestation=true` 必须 fail-closed。
+6. 旧 Markdown/legacy JSON evidence 仍可在上述窗口兼容，但不能表达完整 provenance；项目应明确兼容截止条件。
 
 ## PreToolUse enforce 观测
 
@@ -136,4 +141,3 @@ kit 自己就吃过这个亏：`required_files` 是声明、`03-full-e2e.sh` 的
 
 `23-shell-gate-lint.sh` 只覆盖 L1/L2。**它全绿不代表 L3/L4 也合格**——
 这条提醒本身就是本文档反复强调的那件事：绿灯必须声明自己覆盖了什么。
-

@@ -111,7 +111,7 @@ description: 为当前项目初始化完整的 Harness Engineering 配置（Rule
 
 1. 创建目标目录：`.claude/rules`、`scripts/hooks`、`scripts/lib`、`docs`、`.harness`，需要 Codex 时再创建 `.codex`。
 2. 读取 `./resources/required-wiring.json` 的 `required_files`。
-3. 先复制 `required_files` 里的所有 `scripts/hooks/*.js`、`scripts/lib/*.js` 和 `scripts/shk.js` 到目标项目。不要只复制旧的 6 个 hook；必须包含 `scripts/hooks/harness-entry-banner.js`、`scripts/hooks/stage-since-autofill.js`、`scripts/lib/spec-quality.js`、`scripts/lib/task-ledger.js`、`scripts/lib/verify-cache.js`，以及 CLI 本体 `scripts/shk.js`（`shk task` / `shk verify` 都在它里面；不复制它，任务态与增量验证在目标项目里就是不可用的）、超时治理执行器 `scripts/run-guarded.sh` 与配套的 `scripts/lib/*.py`（C-AGENT-01 的工具面）。**以 `required_files` 为准逐项核对，不要凭记忆列清单** —— 这个清单已经因为漏项咬过三次。
+3. 先复制 `required_files` 里的所有 `scripts/hooks/*.js`、`scripts/lib/*.js` 和 `scripts/shk.js` 到目标项目。不要只复制旧的 6 个 hook；必须包含 `scripts/hooks/harness-entry-banner.js`、`scripts/hooks/stage-since-autofill.js`、`scripts/lib/spec-quality.js`、`scripts/lib/task-ledger.js`、`scripts/lib/verify-cache.js`、`scripts/lib/evidence-attestation.js`，以及 CLI 本体 `scripts/shk.js`（`shk task` / `shk verify` 都在它里面；不复制它，任务态与增量验证在目标项目里就是不可用的）、超时治理执行器 `scripts/run-guarded.sh` 与配套的 `scripts/lib/*.py`（C-AGENT-01 的工具面）。**以 `required_files` 为准逐项核对，不要凭记忆列清单** —— 这个清单已经因为漏项咬过三次。
 4. 再复制 rule 模板和 `docs/constraints.md` / `CLAUDE.md` / `AGENTS.md` 等非 runtime 配置。
 5. 最后写 `.claude/settings.json`，然后如适用再由 `.claude/settings.json` 派生 `.codex/hooks.json`。
 

@@ -193,6 +193,7 @@ Phase 2 接入了：
 - `shk e2e inspect/bootstrap/assess`
 - `shk test effectiveness`
 - `shk verify`
+- `shk evidence verify`（校验证据摘要、候选 commit/tree、clean、mode 与 trust）
 - `auto-harness-loop-fix`
 - QA / review / santa / feedback / project templates
 

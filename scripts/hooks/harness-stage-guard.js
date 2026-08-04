@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
- * @version 0.14.1 (task-ledger: 产出路径按任务解析 + PLAN 白名单放开到任务目录 + REVIEW 强制结构化证据 + lib require 降级；并入 terminal apply_patch 兼容)
+ * @version 0.15.0 (evidence-attestation: REVIEW 拒绝摘要损坏或 strict legacy 证据)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -90,6 +90,8 @@ try {
     relFromRoot: (root, abs) => path.relative(root, abs).split(path.sep).join('/'),
   };
 }
+let evidenceAttestation = null;
+try { evidenceAttestation = require('../lib/evidence-attestation'); } catch { evidenceAttestation = null; }
 const guardMode = require('./guard-mode');
 const ROOT_RAW = findRoot();
 // macOS /tmp → /private/tmp symlink 导致 path.resolve 和 Claude Code 的绝对路径不一致。
@@ -963,6 +965,28 @@ function readStructuredVerifyEvidence() {
   return null;
 }
 
+function structuredEvidenceAttestationProblem(evidence) {
+  let config = {};
+  try { config = typeof ledger.readHarnessConfig === 'function' ? ledger.readHarnessConfig(ROOT) : JSON.parse(fs.readFileSync(path.join(ROOT, '.harness/config.json'), 'utf8')); } catch {}
+  const required = Boolean(config && config.evidence && config.evidence.require_attestation === true);
+  if (!evidence) return null;
+  const hasAttestation = Boolean(evidence.attestation && typeof evidence.attestation === 'object');
+  if (!evidenceAttestation) {
+    if (hasAttestation || required) {
+      return {
+        code: 'ATTESTATION_VERIFIER_UNAVAILABLE',
+        message: 'attestation verifier module is unavailable while attested or strict evidence is being consumed',
+      };
+    }
+    return null;
+  }
+  const result = evidenceAttestation.verifyEvidence(evidence, {
+    require_attestation: required,
+    allow_legacy: !required,
+  });
+  return result.status === 'PASS' ? null : result.failures[0];
+}
+
 function hasDegradedRequiredCheck(evidence) {
   const checks = evidence && evidence.checks || {};
   return Object.values(checks).some(c => c && (c.status === 'DEGRADED' || c.degraded === true));
@@ -1073,6 +1097,8 @@ function enforceReviewGateIfNeeded(newData, input) {
     gateErrors.push(`当前任务缺少结构化验证证据（需要 ${ledger.relFromRoot(ROOT, ledger.structuredEvidencePath(ROOT))}）`);
   }
   if (structured) {
+    const attestationProblem = structuredEvidenceAttestationProblem(structured);
+    if (attestationProblem) gateErrors.push(`验证证据 attestation 无效 (${attestationProblem.code}): ${attestationProblem.message}`);
     if (structured.overall !== 'READY') gateErrors.push(`结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}`);
     if (hasDegradedRequiredCheck(structured)) gateErrors.push('结构化验证证据包含 DEGRADED 检查，不能进入 REVIEW');
     const sufficiencyBlockers = e2eSufficiencyEvidenceBlockers(structured);

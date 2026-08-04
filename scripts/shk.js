@@ -5,9 +5,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const crypto = require('crypto');
 const specQuality = require('./lib/spec-quality');
 const ledger = require('./lib/task-ledger');
 const verifyCache = require('./lib/verify-cache');
+const evidenceAttestation = require('./lib/evidence-attestation');
 
 const KIT_ROOT = path.resolve(__dirname, '..');
 const MANIFEST_PATH = path.join(KIT_ROOT, 'manifests/shk-profiles.json');
@@ -69,6 +71,10 @@ function usage() {
 Usage:
   shk verify --risk low|medium|high|release [--write-evidence]
                 [--round N | --incremental] [--seal]
+  shk evidence verify [--file <path>] [--current-git]
+                [--expected-commit <sha>] [--expected-tree <sha>] [--require-clean]
+                [--require-mode full|incremental|seal] [--min-trust <level>]
+                [--allow-legacy] [--format human|json]
   shk quality status --risk low|medium|high|release [--format human|json]
   shk doctor [--format human|json]
   shk status
@@ -117,6 +123,12 @@ function projectRoot(start = process.cwd()) {
 function ensureDir(p) { fs.mkdirSync(p, { recursive: true }); }
 function readJson(p) { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } }
 function writeJson(p, data) { ensureDir(path.dirname(p)); fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n'); }
+function writeJsonAtomic(p, data) {
+  ensureDir(path.dirname(p));
+  const tmp = `${p}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
+  fs.renameSync(tmp, p);
+}
 function exists(p) { try { return fs.existsSync(p); } catch { return false; } }
 function rel(root, p) { return path.relative(root, p).replace(/\\/g, '/') || '.'; }
 function readText(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } }
@@ -563,9 +575,9 @@ function mutationEvidenceData(root, e2eText) {
   };
 }
 
-function testEffectivenessData(root, risk) {
+function testEffectivenessData(root, risk, existingE2ERun = null) {
   const specStatus = specStatusData(root, risk);
-  const e2e = e2eSufficiencyAssess(root, risk);
+  const e2e = e2eSufficiencyAssess(root, risk, existingE2ERun);
   const spec = specStatus.spec;
   const c = spec ? specCoverageData(spec) : null;
   const e2eText = e2eSourceText(root, e2e.e2e_command || detectCommands(root).e2e);
@@ -1345,10 +1357,24 @@ function releaseCommandEnv(check) {
   return {};
 }
 
+function finitePositiveTimeout(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function releaseCommandTimeout(check) {
-  if (check === 'dogfood_oss') return Number(process.env.SHK_DOGFOOD_OSS_TIMEOUT_MS || 900000);
-  if (check === 'upstream_dogfood') return Number(process.env.SHK_UPSTREAM_DOGFOOD_TIMEOUT_MS || 900000);
-  if (check === 'browser_e2e_dogfood') return Number(process.env.SHK_BROWSER_E2E_DOGFOOD_TIMEOUT_MS || 900000);
+  if (check === 'dogfood_oss') return finitePositiveTimeout(process.env.SHK_DOGFOOD_OSS_TIMEOUT_MS, 900000);
+  if (check === 'upstream_dogfood') return finitePositiveTimeout(process.env.SHK_UPSTREAM_DOGFOOD_TIMEOUT_MS, 900000);
+  if (check === 'browser_e2e_dogfood') return finitePositiveTimeout(process.env.SHK_BROWSER_E2E_DOGFOOD_TIMEOUT_MS, 900000);
+  return 120000;
+}
+
+function verificationCheckTimeout(check) {
+  if (check === 'tests') return finitePositiveTimeout(process.env.SHK_VERIFY_TEST_TIMEOUT_MS, 360000);
+  if (check === 'e2e') return finitePositiveTimeout(process.env.SHK_VERIFY_E2E_TIMEOUT_MS, 600000);
+  if (['dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
+    return releaseCommandTimeout(check);
+  }
   return 120000;
 }
 
@@ -1437,11 +1463,7 @@ function makeEvidence(root, risk, cache) {
     else if (check === 'upstream') checks.upstream = upstreamCheck(root);
     else if (check === 'doctor') checks.doctor = doctorEvidenceCheck(root);
     else if (['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)) {
-      const checkTimeout = check === 'tests'
-        ? Number(process.env.SHK_VERIFY_TEST_TIMEOUT_MS || 360000)
-        : ['dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check)
-          ? releaseCommandTimeout(check)
-        : 120000;
+      const checkTimeout = verificationCheckTimeout(check);
       if (check === 'e2e') {
         checks[check] = runCached(check, () => {
           const runToken = createRunToken();
@@ -1486,7 +1508,7 @@ function makeEvidence(root, risk, cache) {
       missing: specStatus.missing,
       summary: specStatus.human_summary,
     };
-    const effectiveness = testEffectivenessData(root, risk);
+    const effectiveness = testEffectivenessData(root, risk, checks.e2e);
     checks.test_effectiveness = {
       status: effectiveness.overall === 'READY' ? 'PASS' : 'FAIL',
       overall: effectiveness.overall,
@@ -1562,6 +1584,19 @@ function evidenceMarkdown(e) {
   lines.push(`- risk: ${e.risk}`);
   lines.push(`- overall: ${e.overall}`);
   lines.push(`- completed_at: ${e.completed_at}`);
+  if (e.run_id) lines.push(`- run_id: ${e.run_id}`);
+  if (e.provenance) {
+    lines.push(`- mode: ${e.provenance.mode || 'unknown'}`);
+    if (e.provenance.git) {
+      lines.push(`- git_commit: ${e.provenance.git.commit || 'unavailable'}`);
+      lines.push(`- git_tree: ${e.provenance.git.tree || 'unavailable'}`);
+      lines.push(`- git_dirty: ${e.provenance.git.dirty === null ? 'unknown' : String(e.provenance.git.dirty)}`);
+    }
+  }
+  if (e.attestation) {
+    lines.push(`- attestation_trust: ${e.attestation.trust_level || 'unknown'}`);
+    lines.push(`- attestation_digest: ${e.attestation.digest || 'missing'}`);
+  }
   lines.push('');
   lines.push('| Check | Status | Command / Detail |');
   lines.push('|---|---|---|');
@@ -1585,17 +1620,31 @@ function evidenceMarkdown(e) {
   return lines.join('\n');
 }
 
-function writeEvidence(root, evidence) {
+function writeEvidence(root, evidence, options = {}) {
   const jsonPath = ledger.resolveArtifactPath(root, 'evidenceJson');
   const mdPath = ledger.resolveArtifactPath(root, 'evidenceMd');
   ensureDir(path.join(root, 'docs'));
   const taskId = ledger.currentTaskId(root);
   if (taskId) evidence = { ...evidence, task: taskId };
-  writeJson(jsonPath, evidence);
+  evidence = {
+    ...evidence,
+    run_id: evidence.run_id || `run-${crypto.randomUUID()}`,
+    provenance: {
+      git: evidenceAttestation.readGitIdentity(root),
+      mode: options.mode || 'full',
+    },
+  };
+  evidence = evidenceAttestation.attestEvidence(evidence, {
+    issuer: { type: 'shk-cli', name: 'local' },
+    // A local process can prove consistency, not independent authenticity.
+    trust_level: 'local-self',
+  });
+  writeJsonAtomic(jsonPath, evidence);
   const md = evidenceMarkdown(evidence);
   ensureDir(path.dirname(mdPath));
   fs.writeFileSync(mdPath, md, 'utf8');
   fs.writeFileSync(path.join(root, 'docs/verification-report.md'), md, 'utf8');
+  return evidence;
 }
 
 function cmdVerify(args, root) {
@@ -1635,7 +1684,10 @@ function cmdVerify(args, root) {
       evidence = { ...evidence, overall: 'INCREMENTAL_GREEN', seal_required: true };
     }
   }
-  if (args.includes('--write-evidence')) writeEvidence(root, evidence);
+  if (args.includes('--write-evidence')) {
+    const mode = seal ? 'seal' : (incremental ? 'incremental' : 'full');
+    evidence = writeEvidence(root, evidence, { mode });
+  }
   console.log(evidenceMarkdown(evidence));
   if (evidence.incremental) {
     const i = evidence.incremental;
@@ -1644,6 +1696,106 @@ function cmdVerify(args, root) {
     if (evidence.seal_required) console.log('本轮为增量绿，交付前需跑一次 shk verify --seal 全量封盘。');
   }
   return evidence.overall === 'READY' ? 0 : 1;
+}
+
+function optionValue(args, name) {
+  const idx = args.indexOf(name);
+  return idx >= 0 ? args[idx + 1] : undefined;
+}
+
+function validateEvidenceVerifyArgs(args) {
+  const valueOptions = new Set(['--file', '--expected-commit', '--expected-tree', '--require-mode', '--min-trust', '--format']);
+  const booleanOptions = new Set(['--current-git', '--require-clean', '--allow-legacy']);
+  const seen = new Set();
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (seen.has(arg)) throw new Error(`duplicate evidence verify option: ${arg}`);
+    seen.add(arg);
+    if (booleanOptions.has(arg)) continue;
+    if (valueOptions.has(arg)) {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new Error(`missing value for evidence verify option: ${arg}`);
+      i += 1;
+      continue;
+    }
+    throw new Error(`unknown evidence verify option: ${arg}`);
+  }
+}
+
+function cmdEvidence(args, root) {
+  const sub = args[0];
+  if (sub !== 'verify') { usage(); return 1; }
+  const rest = args.slice(1);
+  validateEvidenceVerifyArgs(rest);
+  const format = parseFormat(rest);
+  if (!['human', 'json'].includes(format)) throw new Error(`invalid evidence verify format: ${format}`);
+  const fileArg = optionValue(rest, '--file');
+  const filePath = fileArg
+    ? path.resolve(process.cwd(), fileArg)
+    : ledger.resolveArtifactPath(root, 'evidenceJson');
+  const allowLegacy = rest.includes('--allow-legacy');
+  const policy = {
+    require_attestation: !allowLegacy,
+    allow_legacy: allowLegacy,
+    require_clean: rest.includes('--require-clean'),
+  };
+  const expectedCommit = optionValue(rest, '--expected-commit');
+  const expectedTree = optionValue(rest, '--expected-tree');
+  const requiredMode = optionValue(rest, '--require-mode');
+  const minTrust = optionValue(rest, '--min-trust');
+  if (expectedCommit !== undefined) policy.expected_commit = expectedCommit;
+  if (expectedTree !== undefined) policy.expected_tree = expectedTree;
+  if (requiredMode !== undefined) policy.require_mode = requiredMode;
+  if (minTrust !== undefined) policy.min_trust = minTrust;
+
+  let currentGit = null;
+  if (rest.includes('--current-git')) {
+    currentGit = evidenceAttestation.readGitIdentity(root);
+    if (currentGit.available) {
+      policy.expected_commit = currentGit.commit;
+      policy.expected_tree = currentGit.tree;
+    }
+  }
+
+  const result = evidenceAttestation.verifyEvidenceFile(filePath, policy);
+  if (rest.includes('--current-git') && (!currentGit || !currentGit.available)) {
+    result.status = 'FAIL';
+    result.failures.push({ code: 'GIT_IDENTITY_UNAVAILABLE', message: 'current Git commit/tree could not be resolved' });
+    result.checks.push({ code: 'GIT_IDENTITY_UNAVAILABLE', status: 'FAIL', message: 'current Git commit/tree could not be resolved' });
+  }
+  result.policy = {
+    require_attestation: policy.require_attestation,
+    allow_legacy: policy.allow_legacy,
+    expected_commit: policy.expected_commit || null,
+    expected_tree: policy.expected_tree || null,
+    require_clean: policy.require_clean,
+    require_mode: policy.require_mode || null,
+    min_trust: policy.min_trust || null,
+  };
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`Evidence verification: ${result.status}`);
+    console.log(`file: ${filePath}`);
+    console.log(`attested: ${result.attested ? 'yes' : 'no'}${result.legacy ? ' (legacy)' : ''}`);
+    if (result.trust_level) console.log(`trust: ${result.trust_level}`);
+    for (const check of result.checks || []) {
+      console.log(`- ${check.status} ${check.code}: ${check.message}`);
+    }
+  }
+  return result.status === 'PASS' ? 0 : 1;
+}
+
+function evidenceConsumerAttestationProblem(root, evidence) {
+  if (!evidence) return null;
+  const config = ledger.readHarnessConfig(root);
+  const required = Boolean(config && config.evidence && config.evidence.require_attestation === true);
+  const result = evidenceAttestation.verifyEvidence(evidence, {
+    require_attestation: required,
+    allow_legacy: !required,
+  });
+  return result.status === 'PASS' ? null : result.failures[0];
 }
 
 function latestEvidence(root) { return readJson(ledger.resolveArtifactPath(root, 'evidenceJson')); }
@@ -1838,11 +1990,16 @@ function doctorReport(root) {
   if (!evidence) add('verify-evidence', 'WARN', `${ledger.relFromRoot(root, ledger.resolveArtifactPath(root, 'evidenceJson'))} missing`);
   else if (evidence.overall !== 'READY') add('verify-evidence', 'FAIL', `overall=${evidence.overall}`, { risk: evidence.risk });
   else {
-    let evidenceFresh = true;
-    if (stageSince && !Number.isNaN(stageSince.getTime())) {
-      try { evidenceFresh = fs.statSync(ledger.resolveArtifactPath(root, 'evidenceJson')).mtime >= stageSince; } catch { evidenceFresh = false; }
+    const problem = evidenceConsumerAttestationProblem(root, evidence);
+    if (problem) {
+      add('verify-evidence', 'FAIL', `attestation invalid: ${problem.code} (${problem.message})`, { risk: evidence.risk, attestation_code: problem.code });
+    } else {
+      let evidenceFresh = true;
+      if (stageSince && !Number.isNaN(stageSince.getTime())) {
+        try { evidenceFresh = fs.statSync(ledger.resolveArtifactPath(root, 'evidenceJson')).mtime >= stageSince; } catch { evidenceFresh = false; }
+      }
+      add('verify-evidence', evidenceFresh ? 'PASS' : 'FAIL', evidenceFresh ? `READY risk=${evidence.risk}` : 'READY evidence is older than current stage since', { risk: evidence.risk });
     }
-    add('verify-evidence', evidenceFresh ? 'PASS' : 'FAIL', evidenceFresh ? `READY risk=${evidence.risk}` : 'READY evidence is older than current stage since', { risk: evidence.risk });
   }
 
   const obs = readText(path.join(root, '.harness/observations.jsonl'));
@@ -2465,6 +2622,7 @@ function main() {
     const [cmd, sub, ...rest] = args;
     if (!cmd || cmd === '--help' || cmd === '-h') { usage(); return 0; }
     if (cmd === 'verify') return cmdVerify(args.slice(1), root);
+    if (cmd === 'evidence') return cmdEvidence(args.slice(1), root);
     if (cmd === 'quality') return cmdQuality(args.slice(1), root);
     if (cmd === 'doctor') return cmdDoctor(args.slice(1), root);
     if (cmd === 'status') return cmdStatus(root);
@@ -2501,6 +2659,7 @@ module.exports = {
   makeEvidence,
   computeEvidenceOverall,
   normalizeReleaseCommandResult,
+  verificationCheckTimeout,
   doctorReport,
   expandProfile,
   runSecurityScan,

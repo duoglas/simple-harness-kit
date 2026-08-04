@@ -3,7 +3,7 @@
 
 /**
  * Verification Gate Hook — commit/push 前的阶段和证据检查
- * @version 0.13.0 (task-ledger: 证据路径按任务解析 + 任务模式强制结构化证据)
+ * @version 0.14.0 (evidence-attestation: commit/push 拒绝摘要损坏或 strict legacy 证据)
  * 触发: PreToolUse:Bash
  *
  * 五重检查（[过程] 检查在 light 模式降级为提示；[证据] 检查两种模式一致保留）:
@@ -37,10 +37,12 @@ const MAX_STDIN = 1024 * 1024;
 const STAGE_FILE = path.join(ROOT, '.harness/current-stage.json');
 const COMMIT_ALLOWED_STAGES = ['VERIFY', 'REVIEW', 'FEEDBACK'];
 const PUSH_ALLOWED_STAGES = ['REVIEW'];
-// lib 可能在升级窗口内尚未同步到目标工程；require 失败时降级为 legacy 单例路径，
-// 保持旧行为而不是让 hook 崩掉（崩掉会让所有工具调用失败）。
+// lib 可能在升级窗口内尚未同步到目标工程。只有“无 attestation 且未启用 strict”
+// 的 legacy evidence 可兼容；已 attested 或 strict policy 必须 fail-closed。
 let ledger = null;
 try { ledger = require('../lib/task-ledger'); } catch { ledger = null; }
+let evidenceAttestation = null;
+try { evidenceAttestation = require('../lib/evidence-attestation'); } catch { evidenceAttestation = null; }
 function evidenceJsonPath() {
   return ledger ? ledger.structuredEvidencePath(ROOT) : path.join(ROOT, '.harness/verify-evidence.json');
 }
@@ -224,6 +226,16 @@ process.stdin.on('end', () => {
         process.exit(2);
       }
       if (structured) {
+        const attestationProblem = structuredEvidenceAttestationProblem(structured);
+        if (attestationProblem) {
+          emitGate('deny', 'vg-evidence-attestation', { code: attestationProblem.code });
+          process.stderr.write(
+            `[Verification Gate] 验证证据 attestation 无效 (${attestationProblem.code})。\n` +
+            `→ ${attestationProblem.message}\n` +
+            '→ 重新运行 shk verify --write-evidence 后再提交。\n'
+          );
+          process.exit(2);
+        }
         if (structured.overall !== 'READY') {
           emitGate('deny', 'vg-not-ready', { overall: structured.overall });
           process.stderr.write(
@@ -319,6 +331,28 @@ function readStructuredEvidence(filePath) {
     if (data && data.schema_version && data.checks && data.overall) return data;
   } catch {}
   return null;
+}
+
+function structuredEvidenceAttestationProblem(evidence) {
+  let config = {};
+  try { config = ledger ? ledger.readHarnessConfig(ROOT) : JSON.parse(fs.readFileSync(path.join(ROOT, '.harness/config.json'), 'utf8')); } catch {}
+  const required = Boolean(config && config.evidence && config.evidence.require_attestation === true);
+  if (!evidence) return null;
+  const hasAttestation = Boolean(evidence.attestation && typeof evidence.attestation === 'object');
+  if (!evidenceAttestation) {
+    if (hasAttestation || required) {
+      return {
+        code: 'ATTESTATION_VERIFIER_UNAVAILABLE',
+        message: 'attestation verifier module is unavailable while attested or strict evidence is being consumed',
+      };
+    }
+    return null;
+  }
+  const result = evidenceAttestation.verifyEvidence(evidence, {
+    require_attestation: required,
+    allow_legacy: !required,
+  });
+  return result.status === 'PASS' ? null : result.failures[0];
 }
 
 function readAllEvidenceText() {
