@@ -15,6 +15,7 @@ const STAGE_GUARD = path.join(KIT_ROOT, 'scripts/hooks/harness-stage-guard.js');
 const DELIVERY_GATE = path.join(KIT_ROOT, 'scripts/hooks/delivery-gate.js');
 const ENTRY_BANNER = path.join(KIT_ROOT, 'scripts/hooks/harness-entry-banner.js');
 const PRE_RELEASE_CHECK = path.join(KIT_ROOT, 'tests/pre-release-check.sh');
+const evidenceAttestation = require(path.join(KIT_ROOT, 'scripts/lib/evidence-attestation.js'));
 
 function tmpProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-quality-'));
@@ -134,6 +135,12 @@ fs.writeFileSync('.harness/e2e-result.json', JSON.stringify({
     const evidence = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     assert.strictEqual(evidence.schema_version, '1.0');
     assert.strictEqual(evidence.risk, 'medium');
+    assert.ok(evidence.run_id && evidence.run_id.startsWith('run-'), 'run_id should be present');
+    assert.ok(evidence.provenance && evidence.provenance.git, 'Git provenance should be present');
+    assert.strictEqual(evidence.provenance.mode, 'full');
+    assert.strictEqual(evidence.attestation.trust_level, 'local-self');
+    assert.match(evidence.attestation.digest, /^sha256:[a-f0-9]{64}$/);
+    assert.strictEqual(evidenceAttestation.verifyEvidence(evidence, { require_attestation: true }).status, 'PASS');
     assert.ok(evidence.checks.build, 'build check exists');
     assert.ok(evidence.checks.tests, 'tests check exists');
     assert.ok(['READY', 'NOT_READY'].includes(evidence.overall));
@@ -1003,6 +1010,232 @@ function testSkillTextsRequireAIWorkflowQualityE2ELoop() {
   }
 }
 
+function readyAttestedEvidence() {
+  return evidenceAttestation.attestEvidence({
+    schema_version: '1.0', risk: 'low', stage: 'VERIFY', overall: 'READY',
+    started_at: new Date(Date.now() - 2000).toISOString(),
+    completed_at: new Date(Date.now() - 1000).toISOString(),
+    checks: {
+      build: { status: 'PASS' }, tests: { status: 'PASS' },
+      diff: { status: 'PASS' }, security: { status: 'PASS' }
+    },
+    provenance: {
+      git: { available: false, commit: null, tree: null, dirty: null },
+      mode: 'full'
+    }
+  }, { issuer: { type: 'shk-cli', name: 'quality-test' }, trust_level: 'local-self' });
+}
+
+function writeTamperedReadyEvidence(dir) {
+  const evidence = readyAttestedEvidence();
+  evidence.tampered_after_attestation = true;
+  fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+}
+
+function verifierUnavailableEnv(dir) {
+  const preloader = path.join(dir, 'block-evidence-attestation.js');
+  fs.writeFileSync(preloader, `
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function(request, parent, isMain) {
+  if (request === '../lib/evidence-attestation') {
+    const err = new Error("Cannot find module '../lib/evidence-attestation'");
+    err.code = 'MODULE_NOT_FOUND';
+    throw err;
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+`);
+  return {
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preloader}`].filter(Boolean).join(' '),
+  };
+}
+
+function testDeliveryGateRejectsTamperedReadyEvidence() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'attestation delivery test'
+    }) + '\n');
+    writeTamperedReadyEvidence(dir);
+    const res = runNode(DELIVERY_GATE, [], {
+      cwd: dir,
+      input: JSON.stringify({ last_assistant_message: '已完成，交付给你。' })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('ATTESTATION_DIGEST_INVALID'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateRejectsTamperedReadyEvidence() {
+  const dir = tmpProject();
+  try {
+    writeStage(dir, new Date(Date.now() - 5000).toISOString());
+    writeTamperedReadyEvidence(dir);
+    const res = runNode(VERIFY_GATE, [], {
+      cwd: dir,
+      input: JSON.stringify({ tool_input: { command: 'git commit -m attestation' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('ATTESTATION_DIGEST_INVALID'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testStageGuardRejectsTamperedReadyEvidence() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'VERIFY', since: new Date(Date.now() - 5000).toISOString(), task: 'attestation stage test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/stage-history.jsonl'),
+      JSON.stringify({ stage: 'EXECUTE', t: new Date().toISOString() }) + '\n' +
+      JSON.stringify({ stage: 'VERIFY', t: new Date().toISOString() }) + '\n');
+    writeTamperedReadyEvidence(dir);
+    const input = JSON.stringify({
+      hook_event_name: 'PreToolUse', tool_name: 'Write',
+      tool_input: {
+        file_path: path.join(dir, '.harness/current-stage.json'),
+        content: JSON.stringify({ stage: 'REVIEW', since: 'now', task: 'attestation stage test' })
+      }
+    });
+    const res = runNode(STAGE_GUARD, [], { cwd: dir, input });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const out = JSON.parse(res.stdout);
+    const reason = out.hookSpecificOutput && out.hookSpecificOutput.permissionDecisionReason || '';
+    assert.strictEqual(out.hookSpecificOutput.permissionDecision, 'deny');
+    assert.ok(reason.includes('ATTESTATION_DIGEST_INVALID'), reason);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testDoctorRejectsTamperedReadyEvidence() {
+  const dir = tmpProject();
+  try {
+    writeStage(dir, new Date(Date.now() - 5000).toISOString());
+    writeTamperedReadyEvidence(dir);
+    const res = runNode(SHK, ['doctor', '--format', 'json'], { cwd: dir });
+    const report = JSON.parse(res.stdout);
+    const check = report.checks.find(item => item.id === 'verify-evidence');
+    assert.ok(check, 'doctor should report verify-evidence');
+    assert.strictEqual(check.status, 'FAIL');
+    assert.strictEqual(check.attestation_code, 'ATTESTATION_DIGEST_INVALID');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testDeliveryGateFailsClosedWhenAttestationRequired() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'required attestation test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/config.json'), JSON.stringify({ evidence: { require_attestation: true } }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
+      schema_version: '1.0', risk: 'low', overall: 'READY', checks: { tests: { status: 'PASS' } }
+    }) + '\n');
+    const res = runNode(DELIVERY_GATE, [], {
+      cwd: dir,
+      input: JSON.stringify({ last_assistant_message: '修改完成，请验收。' })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('ATTESTATION_MISSING'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testDeliveryGateFailsClosedWhenVerifierUnavailable() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'missing verifier delivery test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(), null, 2) + '\n');
+    const res = runNode(DELIVERY_GATE, [], {
+      cwd: dir,
+      env: verifierUnavailableEnv(dir),
+      input: JSON.stringify({ last_assistant_message: '修改完成，请验收。' })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('ATTESTATION_VERIFIER_UNAVAILABLE'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateFailsClosedWhenVerifierUnavailable() {
+  const dir = tmpProject();
+  try {
+    writeStage(dir, new Date(Date.now() - 5000).toISOString());
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(), null, 2) + '\n');
+    const res = runNode(VERIFY_GATE, [], {
+      cwd: dir,
+      env: verifierUnavailableEnv(dir),
+      input: JSON.stringify({ tool_input: { command: 'git commit -m attestation' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('ATTESTATION_VERIFIER_UNAVAILABLE'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testStageGuardFailsClosedWhenVerifierUnavailable() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'VERIFY', since: new Date(Date.now() - 5000).toISOString(), task: 'missing verifier stage test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/stage-history.jsonl'),
+      JSON.stringify({ stage: 'EXECUTE', t: new Date().toISOString() }) + '\n' +
+      JSON.stringify({ stage: 'VERIFY', t: new Date().toISOString() }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(), null, 2) + '\n');
+    const input = JSON.stringify({
+      hook_event_name: 'PreToolUse', tool_name: 'Write',
+      tool_input: {
+        file_path: path.join(dir, '.harness/current-stage.json'),
+        content: JSON.stringify({ stage: 'REVIEW', since: 'now', task: 'missing verifier stage test' })
+      }
+    });
+    const res = runNode(STAGE_GUARD, [], { cwd: dir, env: verifierUnavailableEnv(dir), input });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const out = JSON.parse(res.stdout);
+    const reason = out.hookSpecificOutput && out.hookSpecificOutput.permissionDecisionReason || '';
+    assert.strictEqual(out.hookSpecificOutput.permissionDecision, 'deny');
+    assert.ok(reason.includes('ATTESTATION_VERIFIER_UNAVAILABLE'), reason);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testDeliveryGateRequiresVerifierForStrictLegacyEvidence() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 1000).toISOString(), task: 'strict missing verifier test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/config.json'), JSON.stringify({ evidence: { require_attestation: true } }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
+      schema_version: '1.0', risk: 'low', overall: 'READY', checks: { tests: { status: 'PASS' } }
+    }) + '\n');
+    const res = runNode(DELIVERY_GATE, [], {
+      cwd: dir,
+      env: verifierUnavailableEnv(dir),
+      input: JSON.stringify({ last_assistant_message: '修改完成，请验收。' })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('ATTESTATION_VERIFIER_UNAVAILABLE'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testDeliveryGateKeepsNonStrictLegacyCompatibilityWithoutVerifier() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 1000).toISOString(), task: 'legacy missing verifier test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
+      schema_version: '1.0', risk: 'low', overall: 'READY', checks: { tests: { status: 'PASS' } }
+    }) + '\n');
+    const res = runNode(DELIVERY_GATE, [], {
+      cwd: dir,
+      env: verifierUnavailableEnv(dir),
+      input: JSON.stringify({ last_assistant_message: '修改完成，请验收。' })
+    });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 function testDeliveryGateRejectsNotReadyEvidenceEvenInReview() {
   const dir = tmpProject();
   try {
@@ -1435,6 +1668,8 @@ function writeEffectiveE2EProject(dir) {
   fs.writeFileSync(path.join(dir, 'tests/e2e/health.e2e.js'), `
 const assert = require('assert');
 const fs = require('fs');
+fs.mkdirSync('.harness', { recursive: true });
+fs.appendFileSync('.harness/e2e-run-count', '1\\n');
 assert.strictEqual(200, 200);
 assert.ok('ok'.includes('ok'));
 assert.notStrictEqual('broken health response', 'ok');
@@ -1847,8 +2082,38 @@ function testVerifyAggregatesSpecStatusAndTestEffectiveness() {
     assert.ok(evidence.checks.spec_status, 'verify must include spec_status');
     assert.ok(evidence.checks.test_effectiveness, 'verify must include test_effectiveness');
     assert.strictEqual(evidence.checks.test_effectiveness.overall, 'READY');
+    const e2eRuns = fs.readFileSync(path.join(dir, '.harness/e2e-run-count'), 'utf8').trim().split(/\r?\n/).filter(Boolean);
+    assert.strictEqual(e2eRuns.length, 1, 'verify must reuse the same E2E run for sufficiency and effectiveness');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testVerifyUsesIndependentFiniteE2ETimeout() {
+  const previousE2E = process.env.SHK_VERIFY_E2E_TIMEOUT_MS;
+  const previousTests = process.env.SHK_VERIFY_TEST_TIMEOUT_MS;
+  try {
+    delete process.env.SHK_VERIFY_E2E_TIMEOUT_MS;
+    delete process.env.SHK_VERIFY_TEST_TIMEOUT_MS;
+    const { verificationCheckTimeout } = require(SHK);
+    assert.strictEqual(verificationCheckTimeout('e2e'), 600000);
+    assert.strictEqual(verificationCheckTimeout('tests'), 360000);
+    assert.strictEqual(verificationCheckTimeout('lint'), 120000);
+
+    process.env.SHK_VERIFY_E2E_TIMEOUT_MS = '765432';
+    process.env.SHK_VERIFY_TEST_TIMEOUT_MS = '234567';
+    assert.strictEqual(verificationCheckTimeout('e2e'), 765432);
+    assert.strictEqual(verificationCheckTimeout('tests'), 234567);
+
+    process.env.SHK_VERIFY_E2E_TIMEOUT_MS = '0';
+    assert.strictEqual(verificationCheckTimeout('e2e'), 600000, 'zero must not disable the hard timeout');
+    process.env.SHK_VERIFY_E2E_TIMEOUT_MS = 'not-a-number';
+    assert.strictEqual(verificationCheckTimeout('e2e'), 600000, 'invalid values must retain the finite default');
+  } finally {
+    if (previousE2E === undefined) delete process.env.SHK_VERIFY_E2E_TIMEOUT_MS;
+    else process.env.SHK_VERIFY_E2E_TIMEOUT_MS = previousE2E;
+    if (previousTests === undefined) delete process.env.SHK_VERIFY_TEST_TIMEOUT_MS;
+    else process.env.SHK_VERIFY_TEST_TIMEOUT_MS = previousTests;
   }
 }
 
@@ -1890,6 +2155,7 @@ const tests = [
   testStageGuardRechecksSpecDuringExecuteBeforeCodeWrite,
   testTestEffectivenessReadyWithSpecTrafficAssertionsAndMutation,
   testVerifyAggregatesSpecStatusAndTestEffectiveness,
+  testVerifyUsesIndependentFiniteE2ETimeout,
   testVerifyReportsCoverageAndRuntimeSkipsAsLimitations,
   testQualityStatusReleaseRequiresE2EInAIWorkflow,
   testQualityStatusMediumRequiresE2EForDelivery,
@@ -1907,6 +2173,16 @@ const tests = [
   testVerifySurfacesNotSufficientE2E,
   testLoopStateDescribesBoundedAutoRepairForAI,
   testSkillTextsRequireAIWorkflowQualityE2ELoop,
+  testDeliveryGateRejectsTamperedReadyEvidence,
+  testVerificationGateRejectsTamperedReadyEvidence,
+  testStageGuardRejectsTamperedReadyEvidence,
+  testDoctorRejectsTamperedReadyEvidence,
+  testDeliveryGateFailsClosedWhenAttestationRequired,
+  testDeliveryGateFailsClosedWhenVerifierUnavailable,
+  testVerificationGateFailsClosedWhenVerifierUnavailable,
+  testStageGuardFailsClosedWhenVerifierUnavailable,
+  testDeliveryGateRequiresVerifierForStrictLegacyEvidence,
+  testDeliveryGateKeepsNonStrictLegacyCompatibilityWithoutVerifier,
   testDeliveryGateRejectsNotReadyEvidenceEvenInReview,
   testDeliveryGateRejectsMissingReadyEvidenceEvenInReview,
   testDeliveryGateRejectsStaleReadyEvidenceEvenInReview,

@@ -595,6 +595,32 @@ try {
   console.log(`  Quality Gate Suite FAIL: ${e.message}\n`);
 }
 
+// ── Evidence Attestation Unit / CLI Tests ──
+let evidenceAttestationFailed = 0;
+let evidenceAttestationTotal = 0;
+try {
+  const evidenceScript = path.resolve(__dirname, 'evidence-attestation.test.js');
+  if (fs.existsSync(evidenceScript)) {
+    console.log('  Evidence Attestation Tests\n');
+    const res = require('child_process').spawnSync(process.execPath, [evidenceScript], {
+      stdio: 'inherit',
+      timeout: 3 * 60 * 1000,
+    });
+    evidenceAttestationTotal = 1;
+    if (res.status !== 0) {
+      evidenceAttestationFailed = 1;
+      console.log(`\n  Evidence Attestation Suite FAIL (exit ${res.status})\n`);
+    } else {
+      console.log(`\n  Evidence Attestation Suite PASS\n`);
+    }
+  } else {
+    console.log(`  Evidence Attestation Suite SKIP (脚本不存在: ${evidenceScript})\n`);
+  }
+} catch (e) {
+  evidenceAttestationFailed = 1;
+  console.log(`  Evidence Attestation Suite FAIL: ${e.message}\n`);
+}
+
 // ── Task Ledger / Verify Cache Unit Tests ──
 // 覆盖 scripts/lib/task-ledger.js 与 scripts/lib/verify-cache.js：任务态路径解析、
 // legacy 回落、tasks_dir 边界、journal、增量验证指纹与缓存、selectTests。
@@ -642,7 +668,7 @@ try {
     console.log('  Scripted Test Matrix (tests/scripts/run-all.sh)\n');
     const res = require('child_process').spawnSync('bash', [scriptsRunner], {
       stdio: 'inherit',
-      timeout: 10 * 60 * 1000, // 10 分钟上限
+      timeout: 30 * 60 * 1000, // 完整 scripted matrix 含真实 E2E，给 30 分钟硬上限
     });
     scriptedTotal = 1; // 作为一个整体 section
     if (res.status !== 0) {
@@ -743,9 +769,9 @@ try {
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
-const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
-const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + evidenceAttestationFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + evidenceAttestationTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
 console.log(`  ══════════════════════════════`);
-console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (ledgerTotal - ledgerFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
+console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (evidenceAttestationTotal - evidenceAttestationFailed) + (ledgerTotal - ledgerFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
 
 process.exit(totalFailed > 0 ? 1 : 0);
