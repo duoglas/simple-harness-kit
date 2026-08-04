@@ -1,0 +1,19 @@
+{
+  "id": "T-20260804-evidence-attestation",
+  "title": "SHK 可信证据与候选谱系基础能力",
+  "status": "open",
+  "risk": "high",
+  "stage": "REVIEW",
+  "created": "2026-08-04T06:21:35.934Z",
+  "started_at": "2026-08-04T06:21:35.934Z",
+  "closed": null,
+  "outcome": null,
+  "supersedes": null,
+  "agents": [
+    "unknown"
+  ],
+  "commits": [
+    "184ef92c45ba5832ab9313fd21f9397cf0b5af16",
+    "f54facdbff9e28dd3ea4e16f7c7e5670e5f1b682"
+  ]
+}

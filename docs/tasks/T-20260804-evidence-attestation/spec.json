@@ -1,0 +1,368 @@
+{
+  "schema_version": "1.0",
+  "risk": "high",
+  "requirements": [
+    {
+      "id": "REQ-EVID-1",
+      "text": "SHK verify evidence must bind the exact Git commit, tree, dirty state, execution mode, issuer trust level, and canonical evidence digest.",
+      "priority": "must",
+      "source": "downstream project 2026-08-04 retrospective"
+    },
+    {
+      "id": "REQ-EVID-2",
+      "text": "SHK must provide a reusable verifier that rejects tampered, stale, dirty, wrong-mode, insufficient-trust, or unauthenticated higher-trust evidence with structured verdicts.",
+      "priority": "must",
+      "source": "downstream project RQ-0133"
+    },
+    {
+      "id": "REQ-EVID-3",
+      "text": "Existing SHK consumers must not accept digest-invalid READY evidence or fail open when the attestation verifier is unavailable; legacy compatibility must be explicit and fail-closed when attestation is present or required.",
+      "priority": "must",
+      "source": "SHK evidence gap"
+    },
+    {
+      "id": "REQ-DOWNSTREAM-1",
+      "text": "downstream project optimization actions must be recorded in existing requirement items where possible, without moving their status or modifying business/device behavior.",
+      "priority": "must",
+      "source": "user request 2026-08-04"
+    }
+  ],
+  "design": {
+    "summary": "Add a generic evidence-attestation library and CLI to public SHK, integrate it into verify evidence generation and critical consumers, then document downstream project adoption as project-owned optimization requirements.",
+    "changed_areas": [
+      "scripts/lib evidence attestation",
+      "shk verify/evidence CLI",
+      "evidence-consuming hooks",
+      "tests",
+      "public constraints/docs",
+      "downstream project requirement suggestions"
+    ],
+    "risk_points": [
+      {
+        "id": "RISK-EVID-1",
+        "text": "A digest can be circular, unstable, or silently omit protected fields, producing false integrity."
+      },
+      {
+        "id": "RISK-EVID-2",
+        "text": "Enforcing attestation too broadly can reject legacy evidence and self-lock existing projects."
+      },
+      {
+        "id": "RISK-EVID-3",
+        "text": "Treating a JSON trust declaration as authenticated, or calling local-self evidence independently trusted, would overstate the security boundary."
+      },
+      {
+        "id": "RISK-EVID-4",
+        "text": "Cross-repo documentation changes could duplicate existing downstream project requirements or leak internal terms into public SHK."
+      },
+      {
+        "id": "RISK-EVID-5",
+        "text": "An unavailable verifier dependency can be mistaken for a compatibility case and silently admit attested or strict evidence."
+      }
+    ]
+  },
+  "traffic_flows": [
+    {
+      "id": "FLOW-EVID-1",
+      "name": "verify evidence generation",
+      "entrypoint": "node scripts/shk.js verify --risk high --write-evidence",
+      "steps": [
+        "run configured checks",
+        "capture Git commit/tree/dirty and mode",
+        "canonicalize protected payload",
+        "write digest and trust metadata",
+        "atomically persist evidence"
+      ],
+      "covers": [
+        "REQ-EVID-1"
+      ],
+      "risks": [
+        "RISK-EVID-1",
+        "RISK-EVID-3"
+      ]
+    },
+    {
+      "id": "FLOW-EVID-2",
+      "name": "project candidate admission",
+      "entrypoint": "node scripts/shk.js evidence verify",
+      "steps": [
+        "load evidence",
+        "validate fixed attestation format and recompute digest",
+        "authenticate any trust level above local-self through an external boundary",
+        "compare expected/current commit and tree",
+        "apply clean/mode/minimum-trust policy",
+        "emit structured verdict and exit code"
+      ],
+      "covers": [
+        "REQ-EVID-2"
+      ],
+      "risks": [
+        "RISK-EVID-1",
+        "RISK-EVID-2",
+        "RISK-EVID-3"
+      ]
+    },
+    {
+      "id": "FLOW-EVID-3",
+      "name": "delivery evidence consumption",
+      "entrypoint": "delivery/verification/doctor evidence reader",
+      "steps": [
+        "read READY evidence",
+        "read strict compatibility policy before verifier fallback",
+        "validate attestation when present or required",
+        "reject tampered or unauthenticated evidence",
+        "fail closed when verifier is unavailable for attested/strict evidence",
+        "preserve only the documented non-strict legacy behavior"
+      ],
+      "covers": [
+        "REQ-EVID-3"
+      ],
+      "risks": [
+        "RISK-EVID-2",
+        "RISK-EVID-5"
+      ]
+    },
+    {
+      "id": "FLOW-DOWNSTREAM-1",
+      "name": "downstream project optimization intake",
+      "entrypoint": "docs/requirements/items/RQ-*.md",
+      "steps": [
+        "map recommendation to existing requirement",
+        "append SHK integration suggestion",
+        "add cross-reference",
+        "leave status and business code unchanged"
+      ],
+      "covers": [
+        "REQ-DOWNSTREAM-1"
+      ],
+      "risks": [
+        "RISK-EVID-4"
+      ]
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "TEST-EVID-1",
+      "type": "unit",
+      "covers": [
+        "REQ-EVID-1",
+        "REQ-EVID-2"
+      ],
+      "risks": [
+        "RISK-EVID-1",
+        "RISK-EVID-3",
+        "RISK-EVID-5"
+      ],
+      "traffic_flows": [
+        "FLOW-EVID-1",
+        "FLOW-EVID-2"
+      ],
+      "scenario": "attestation canonicalization and policy verification",
+      "assertions": [
+        "valid payload verifies",
+        "protected-field tamper fails",
+        "wrong commit/tree fails",
+        "dirty/mode/trust policies fail independently",
+        "local-self is not reported as signed or independent",
+        "local issuer cannot issue a higher trust level",
+        "recomputed ci-signed JSON fails without authenticated_trust_level",
+        "fixed protected_scope cannot be changed and re-digested"
+      ],
+      "negative_or_boundary": true
+    },
+    {
+      "id": "TEST-EVID-2",
+      "type": "cli-integration",
+      "covers": [
+        "REQ-EVID-1",
+        "REQ-EVID-2",
+        "REQ-EVID-3"
+      ],
+      "risks": [
+        "RISK-EVID-1",
+        "RISK-EVID-2",
+        "RISK-EVID-3",
+        "RISK-EVID-5"
+      ],
+      "traffic_flows": [
+        "FLOW-EVID-1",
+        "FLOW-EVID-2",
+        "FLOW-EVID-3"
+      ],
+      "scenario": "temporary real Git repository generates, verifies, tampers, and stales evidence",
+      "assertions": [
+        "fresh evidence passes",
+        "tampered evidence exits nonzero",
+        "new commit makes expected current identity fail",
+        "legacy behavior follows explicit flag or policy",
+        "CLI rejects a recomputed unauthenticated high-trust declaration",
+        "delivery, verification, and stage consumers block attested evidence when the verifier module is unavailable",
+        "non-strict unattested legacy evidence retains the documented upgrade compatibility"
+      ],
+      "negative_or_boundary": true
+    },
+    {
+      "id": "TEST-DOWNSTREAM-1",
+      "type": "documentation-contract",
+      "covers": [
+        "REQ-DOWNSTREAM-1"
+      ],
+      "risks": [
+        "RISK-EVID-4"
+      ],
+      "traffic_flows": [
+        "FLOW-DOWNSTREAM-1"
+      ],
+      "scenario": "downstream optimization recommendations are discoverable and non-duplicative",
+      "assertions": [
+        "existing RQs carry matching suggestions",
+        "no status or candidate mutation",
+        "public SHK contains no downstream business terms"
+      ],
+      "negative_or_boundary": true
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "AC-EVID-1",
+      "text": "Generated evidence is bound to exact Git and execution provenance and has a reproducible canonical digest.",
+      "covers": [
+        "REQ-EVID-1"
+      ],
+      "tests": [
+        "TEST-EVID-1",
+        "TEST-EVID-2"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-EVID-2",
+      "text": "The reusable CLI rejects every requested stale, tampered, policy-mismatch, or unauthenticated high-trust case and accepts the positive control.",
+      "covers": [
+        "REQ-EVID-2"
+      ],
+      "tests": [
+        "TEST-EVID-1",
+        "TEST-EVID-2"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-EVID-3",
+      "text": "Critical evidence consumers reject digest-invalid, unauthenticated, or verifier-unavailable READY evidence without creating a non-strict legacy deadlock.",
+      "covers": [
+        "REQ-EVID-3"
+      ],
+      "tests": [
+        "TEST-EVID-2"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-DOWNSTREAM-1",
+      "text": "downstream project contains actionable SHK adoption suggestions in the requirement system with no business implementation or device change.",
+      "covers": [
+        "REQ-DOWNSTREAM-1"
+      ],
+      "tests": [
+        "TEST-DOWNSTREAM-1"
+      ],
+      "must_have_evidence": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "W-EVID-1",
+      "stage": "EXECUTE",
+      "title": "write failing attestation unit cases",
+      "covers": [
+        "REQ-EVID-1",
+        "REQ-EVID-2"
+      ],
+      "risk": "high",
+      "done": "targeted tests fail for missing attestation implementation"
+    },
+    {
+      "id": "W-EVID-2",
+      "stage": "EXECUTE",
+      "title": "implement canonical digest and Git provenance",
+      "covers": [
+        "REQ-EVID-1"
+      ],
+      "risk": "high",
+      "done": "unit positive and tamper cases pass"
+    },
+    {
+      "id": "W-EVID-3",
+      "stage": "EXECUTE",
+      "title": "add evidence verify CLI policies",
+      "covers": [
+        "REQ-EVID-2"
+      ],
+      "risk": "high",
+      "done": "commit, tree, dirty, mode, and trust cases pass"
+    },
+    {
+      "id": "W-EVID-4",
+      "stage": "EXECUTE",
+      "title": "integrate verify writer and critical consumers",
+      "covers": [
+        "REQ-EVID-1",
+        "REQ-EVID-3"
+      ],
+      "risk": "high",
+      "done": "generated evidence is attested and tampered READY is rejected"
+    },
+    {
+      "id": "W-EVID-5",
+      "stage": "EXECUTE",
+      "title": "write public constraints and compatibility docs",
+      "covers": [
+        "REQ-EVID-1",
+        "REQ-EVID-2",
+        "REQ-EVID-3"
+      ],
+      "risk": "high",
+      "done": "docs state integrity and trust boundary and dogfood constraint copy is synchronized"
+    },
+    {
+      "id": "W-DOWNSTREAM-1",
+      "stage": "EXECUTE",
+      "title": "record downstream optimization suggestions",
+      "covers": [
+        "REQ-DOWNSTREAM-1"
+      ],
+      "risk": "high",
+      "done": "existing RQs are updated without duplicate scope or status changes"
+    },
+    {
+      "id": "W-VERIFY-1",
+      "stage": "VERIFY",
+      "title": "run targeted, full, and real-repository verification",
+      "covers": [
+        "REQ-EVID-1",
+        "REQ-EVID-2",
+        "REQ-EVID-3",
+        "REQ-DOWNSTREAM-1"
+      ],
+      "risk": "high",
+      "done": "targeted and full tests plus temporary-repository E2E produce fresh structured evidence"
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "action": "push, tag, release or publish public SHK",
+      "needs_human": true,
+      "planned": "not executed"
+    },
+    {
+      "action": "deploy to downstream device or change device or system state",
+      "needs_human": true,
+      "planned": "not executed"
+    },
+    {
+      "action": "overwrite existing out-of-scope repository changes",
+      "needs_human": true,
+      "planned": "forbidden"
+    }
+  ]
+}

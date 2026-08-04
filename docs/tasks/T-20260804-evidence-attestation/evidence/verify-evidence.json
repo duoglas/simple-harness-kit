@@ -1,0 +1,242 @@
+{
+  "schema_version": "1.0",
+  "task_id": "simple-harness-kit",
+  "risk": "high",
+  "stage": "VERIFY",
+  "started_at": "2026-08-04T09:47:49.168Z",
+  "completed_at": "2026-08-04T09:52:07.512Z",
+  "checks": {
+    "quality_gate": {
+      "status": "PASS",
+      "command": "shk quality status --risk high",
+      "risk": "high",
+      "missing": [],
+      "summary": "这次按 high 风险做准出检查。已找到测试入口：node tests/run.js --unit。已找到 E2E 入口：bash docs/tasks/T-20260804-evidence-attestation/verify-flow-e2e.sh。当前准出入口状态：READY。这只是能力快照，还没有跑测试；最终能不能交付要看 `shk verify --write-evidence` 的 fresh evidence。"
+    },
+    "build": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "types": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "lint": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "tests": {
+      "status": "PASS",
+      "command": "node tests/run.js --unit",
+      "exit_code": 0,
+      "stdout_tail": "ProtectedScopeIsFixedFormat\nPASS testLegacyBehaviorExplicit\nPASS testLegacyCompatibilityDoesNotBypassOtherPolicies\nPASS testCliJsonAndCurrentGit\nPASS testCliRejectsRecomputedUnauthenticatedHighTrust\nPASS testCliRejectsMissingOrUnknownPolicyOptions\n16/16 evidence attestation tests passed\n\n  Evidence Attestation Suite PASS\n\n  Task Ledger / Verify Cache Tests\n\nPASS testNewTaskIdShape\nPASS testNewTaskIdNormalizesSlug\nPASS testIsValidTaskId\nPASS testCurrentTaskIdRoundTrip\nPASS testSetCurrentTaskIdRejectsInvalidId\nPASS testCurrentTaskIdNullOnMissingEmptyOrInvalid\nPASS testTaskPathsLayout\nPASS testResolveArtifactPathFallsBackToLegacy\nPASS testResolveArtifactPathUsesTaskDirWhenCurrentSet\nPASS testResolveArtifactPathFallsBackWhenCurrentCorrupt\nPASS testTasksDirDefault\nPASS testTasksDirHonorsRelativeConfig\nPASS testTasksDirRejectsAbsoluteAndEscapingPaths\nPASS testJournalAppendAndRead\nPASS testJournalNormalizesUnknownKind\nPASS testJournalAppendsAreLineOriented\nPASS testChangedFilesParsesPorcelainStatuses\nPASS testChangedFilesHandlesStagedModificationAndRename\nPASS testChangedFilesExcludesLedgerNoise\nPASS testFingerprintStabilityAndSensitivity\nPASS testCreateContextFirstRunThenCaches\nPASS testCreateContextSealIgnoresCache\nPASS testCreateContextRerunsPreviousNonPass\nPASS testPersistKeepsUntouchedCheckEntries\nPASS testSelectTestsWithoutTestPlan\nPASS testSelectTestsWithoutPathDeclarations\nPASS testSelectTestsWithPartialPathDeclarations\nPASS testStructuredEvidencePathSwitchesWithCurrent\nPASS testEvidenceSearchPathsTaskModeExcludesLegacy\nPASS testEvidenceSearchPathsLegacyModeOrder\nPASS testEvidencePathsFallBackOnCorruptCurrent\nPASS testTaskNewWritesWorkingGitignoreRules\n32/32 task ledger tests passed\n\n  Task Ledger Suite PASS\n\n  Scripted Test Matrix SKIP (--unit；由 e2e 检查覆盖)\n\n  Codex Runtime Smoke SKIP (--unit；由 verify 的 runtime 检查覆盖)\n\n  Codex Init E2E Smoke (C-GATE-04 skill 入口)\n\n\n  Codex Init Smoke PASS / SKIP\n\n  ══════════════════════════════\n  总计: 254 passed, 0 failed, 254 total\n\n",
+      "stderr_tail": "[codex-init-smoke] SKIP: opt-in 测试 (设 CODEX_INIT_SMOKE=1 启用)。\n",
+      "started_at_ms": 1785836869174,
+      "completed_at_ms": 1785836935640,
+      "run_token": ""
+    },
+    "coverage": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not configured"
+    },
+    "e2e": {
+      "status": "PASS",
+      "command": "bash docs/tasks/T-20260804-evidence-attestation/verify-flow-e2e.sh",
+      "exit_code": 0,
+      "stdout_tail": "BlocksReviewWhenStructuredEvidenceNotReady\nPASS testVerificationGateRejectsReleaseTagWithoutE2ERuntimePass\nPASS testVerificationGateRejectsNotSufficientEvidence\nPASS testVerificationGateRejectsReleaseTagWithoutE2ESufficiency\nPASS testVerifyReleaseConsumesRequiredEvidenceSet\nPASS testVerifyReleaseReadyWhenAutomatedChecksAllPass\nPASS testVerifyReleaseStillBlocksRealNonPassRequiredEvidence\nPASS testVerifyReleaseSpecConsumesSpecStatusAndSantaLimitation\nPASS testNormalizeReleaseCommandIgnoresNarrativeStatusWords\nPASS testNormalizeReleaseCommandDowngradesStructuredStatusMarkers\nPASS testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream\nPASS testPreReleaseCheckBlocksRequiredFailTextWithExitZero\nPASS testVerifyWritesEvidence\nPASS testVerificationGateRejectsFailEvidence\nPASS testVerificationGateAcceptsReadyEvidence\nPASS testDoctorDetectsMissingPretoolObservation\nPASS testSecurityScanDetectsConfiguredPublicLeak\nPASS testSecurityScanDetectsHighRiskConfig\nPASS testSecurityScanSkipsDescriptionFields\nPASS testInstallProfileDryRunUsesManifest\nPASS testStageGuardBlocksTier0Execute\nPASS testStageGuardBlocksExecuteWithoutIterationSpec\nPASS testStageGuardBlocksExecuteWithIncompleteIterationSpec\nPASS testStageGuardAllowsExecuteWithReadyIterationSpec\nPASS testStageGuardAllowsApplyPatchStageTransition\nPASS testUserPromptSubmitProvidesCodexVisibleBanner\nPASS testUpdateHooksOnlySkipsPersonalSkills\nPASS testUpdateHooksReportsCodexGenerationFailure\nPASS testDoctorReportsCodexEntryBannerWiring\nPASS testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence\nPASS testDoctorWarnsWhenCodexExactProjectTrustMissing\nPASS testDoctorPassesWhenCodexExactProjectTrustExists\n79/79 quality suite tests passed\n[evidence-flow-e2e] unrelated downstream docs left untouched: [\"docs/reports/2026-08-04-近两周工程问题与优化建议.md\"]\n[evidence-flow-e2e] downstream documentation contract PASS\n[evidence-flow-e2e] task evidence written for FLOW-EVID-1, FLOW-EVID-2, FLOW-EVID-3, FLOW-DOWNSTREAM-1\n[evidence-flow-e2e] PASS\n",
+      "stderr_tail": "perl: warning: Setting locale failed.\nperl: warning: Please check that your locale settings:\n\tLC_ALL = \"C.UTF-8\",\n\tLC_CTYPE = \"C.UTF-8\",\n\tLANG = \"C.UTF-8\"\n    are supported and installed on your system.\nperl: warning: Falling back to the standard locale (\"C\").\nperl: warning: Setting locale failed.\nperl: warning: Please check that your locale settings:\n\tLC_ALL = \"C.UTF-8\",\n\tLC_CTYPE = \"C.UTF-8\",\n\tLANG = \"C.UTF-8\"\n    are supported and installed on your system.\nperl: warning: Falling back to the standard locale (\"C\").\nperl: warning: Setting locale failed.\nperl: warning: Please check that your locale settings:\n\tLC_ALL = \"C.UTF-8\",\n\tLC_CTYPE = \"C.UTF-8\",\n\tLANG = \"C.UTF-8\"\n    are supported and installed on your system.\nperl: warning: Falling back to the standard locale (\"C\").\n",
+      "started_at_ms": 1785836935776,
+      "completed_at_ms": 1785837127502,
+      "run_token": "shk-1785836935776-bc9e2ca085c3f"
+    },
+    "security": {
+      "status": "PASS",
+      "findings": 0,
+      "details": [],
+      "sections": {
+        "secrets": {
+          "status": "PASS",
+          "findings": 0,
+          "details": [],
+          "configured": true
+        },
+        "public_leaks": {
+          "status": "PASS",
+          "findings": 0,
+          "details": [],
+          "configured": false
+        },
+        "config_risks": {
+          "status": "PASS",
+          "findings": 0,
+          "details": []
+        }
+      }
+    },
+    "diff": {
+      "status": "PASS",
+      "files": 2,
+      "summary": "docs/tasks/INDEX.md | 4 +++-\n 1 file changed, 3 insertions(+), 1 deletion(-)"
+    },
+    "spec": {
+      "status": "PASS",
+      "command": "node scripts/shk.js spec status --risk high",
+      "overall": "READY",
+      "summary": "迭代 spec 是有效的：需求、方案、风险、测试计划、流量路径和验收标准都有明确映射。"
+    },
+    "santa": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "santa requires agent/human review",
+      "agent_review_required": true
+    },
+    "runtime": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "runtime_selftest": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "doctor": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "dogfood_oss": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "upstream_dogfood": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "browser_e2e_dogfood": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "clean_tree": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "upstream": {
+      "status": "SKIP",
+      "command": "",
+      "reason": "not required or not configured"
+    },
+    "e2e_sufficiency": {
+      "status": "PASS",
+      "overall": "READY",
+      "command": "bash docs/tasks/T-20260804-evidence-attestation/verify-flow-e2e.sh",
+      "e2e_status": "PASS",
+      "coverage": {
+        "covers_changed_area": "PASS",
+        "has_real_assertions": "PASS",
+        "has_positive_path": "PASS",
+        "has_negative_or_blocking_path": "PASS",
+        "writes_structured_evidence": "PASS",
+        "not_smoke_only": "PASS",
+        "has_task_quality_contract": "PASS"
+      },
+      "missing": [],
+      "summary": "E2E 不只是跑过了，也覆盖了本次风险、正向路径、阻断路径和结构化证据。"
+    },
+    "spec_status": {
+      "status": "PASS",
+      "overall": "READY",
+      "dimensions": {
+        "spec_exists": "PASS",
+        "requirements_present": "PASS",
+        "design_present": "PASS",
+        "traffic_flows_present": "PASS",
+        "test_plan_present": "PASS",
+        "acceptance_present": "PASS",
+        "tasks_present": "PASS",
+        "irreversible_actions_present": "PASS",
+        "requirements_covered": "PASS",
+        "risks_covered": "PASS",
+        "traffic_flows_covered": "PASS",
+        "test_plan_semantic": "PASS",
+        "acceptance_evidence": "PASS",
+        "task_quality": "PASS"
+      },
+      "missing": [],
+      "summary": "迭代 spec 是有效的：需求、方案、风险、测试计划、流量路径和验收标准都有明确映射。"
+    },
+    "test_effectiveness": {
+      "status": "PASS",
+      "overall": "READY",
+      "dimensions": {
+        "spec_exists": "PASS",
+        "requirements_covered": "PASS",
+        "risks_covered": "PASS",
+        "traffic_coverage": "PASS",
+        "assertion_quality": "PASS",
+        "positive_path": "PASS",
+        "negative_or_boundary_path": "PASS",
+        "mutation_sensitivity": "PASS",
+        "runtime_realism": "PARTIAL",
+        "fresh_evidence": "PASS"
+      },
+      "missing": [],
+      "summary": "测试有效性足够：它不是只证明“跑过”，而是映射到了 spec 的需求、风险、流量路径、断言、负向场景和 mutation/fault 证据。运行真实性是 PARTIAL。"
+    }
+  },
+  "limitations": [
+    {
+      "check": "coverage",
+      "status": "SKIP",
+      "claims_ready": false,
+      "reason": "not configured",
+      "summary": "Coverage is not configured; this run does not claim an 80% line/branch coverage proof."
+    },
+    {
+      "check": "runtime",
+      "status": "SKIP",
+      "claims_ready": false,
+      "reason": "not required or not configured",
+      "summary": "Runtime/Codex smoke was not required for this risk level and is not counted as runtime PASS evidence."
+    },
+    {
+      "check": "santa",
+      "status": "SKIP",
+      "claims_ready": false,
+      "reason": "santa requires agent/human review",
+      "summary": "Santa adversarial review requires agent/human review; this run does not claim santa PASS evidence."
+    }
+  ],
+  "overall": "READY",
+  "task": "T-20260804-evidence-attestation",
+  "run_id": "run-e58beefa-e409-40d8-b4b3-ef54f0c1e52c",
+  "provenance": {
+    "git": {
+      "available": true,
+      "commit": "f54facdbff9e28dd3ea4e16f7c7e5670e5f1b682",
+      "tree": "9cf5a765f71fbfd29ba810f3bc4a1ce1eece365f",
+      "dirty": true
+    },
+    "mode": "full"
+  },
+  "attestation": {
+    "schema_version": "1.0",
+    "algorithm": "sha256",
+    "canonicalization": "shk-canonical-json-v1",
+    "protected_scope": "entire-evidence-except-attestation.digest",
+    "issuer": {
+      "type": "shk-cli",
+      "name": "local"
+    },
+    "trust_level": "local-self",
+    "digest": "sha256:e755c02f2bf6e6d7f803c51bfb049bd88f25b7c72377cf7be8f52fefdf18bd1a"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "executed_at": "2026-08-04T06:54:06.682Z",
+  "scenario": "real temporary Git repository: generate, verify, tamper, and stale candidate",
+  "result": "PASS",
+  "initial_candidate": {
+    "commit": "13e91313a36c3a07618009ff8aff08690f3cfaa6",
+    "tree": "27cd5967deb53f7f5e2a30a26d467c289a0b3d73",
+    "dirty": false
+  },
+  "generated_evidence": {
+    "overall": "READY",
+    "mode": "full",
+    "trust_level": "local-self",
+    "digest": "sha256:9c654fcfd4dac6ddafe5b6c6525433f137d8615a94bc99e93f955cd290ec77e1"
+  },
+  "fresh_verification": {
+    "exit_code": 0,
+    "status": "PASS",
+    "failure_codes": []
+  },
+  "tamper_verification": {
+    "exit_code": 1,
+    "status": "FAIL",
+    "failure_codes": [
+      "ATTESTATION_DIGEST_INVALID"
+    ]
+  },
+  "stale_candidate": {
+    "commit": "b7ff88bb1c5b7868f6eaa65f18c9e8bbc09b1b6b",
+    "tree": "78556a172893b3ba30db3dde93a7ad491bb71900"
+  },
+  "stale_verification": {
+    "exit_code": 1,
+    "status": "FAIL",
+    "failure_codes": [
+      "GIT_COMMIT_MISMATCH",
+      "GIT_TREE_MISMATCH"
+    ]
+  },
+  "assertions": [
+    "generated evidence records exact clean commit and tree in full mode",
+    "fresh evidence passes current Git, clean, mode, and trust policy",
+    "protected-field tamper fails with ATTESTATION_DIGEST_INVALID",
+    "new candidate commit fails with GIT_COMMIT_MISMATCH and GIT_TREE_MISMATCH"
+  ]
+}

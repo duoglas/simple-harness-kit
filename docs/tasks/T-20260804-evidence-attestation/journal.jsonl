@@ -1,0 +1,18 @@
+{"t":"2026-08-04T06:21:35.939Z","agent":"unknown","stage":"PLAN","kind":"stage","text":"任务创建：SHK 可信证据与候选谱系基础能力"}
+{"t":"2026-08-04T06:23:50.142Z","agent":"unknown","stage":"PLAN","kind":"decision","text":"完成边界复核和 high-risk 计划；按 Harness PLAN 暂停，等待用户确认后进入 EXECUTE"}
+{"t":"2026-08-04T06:28:34.176Z","agent":"unknown","stage":"EXECUTE","kind":"stage","text":"用户确认计划，进入 EXECUTE；先写 attestation/CLI 负向测试"}
+{"t":"2026-08-04T07:14:19.164Z","agent":"unknown","stage":"EXECUTE","kind":"stage","text":"SHK attestation、CLI、消费方、文档与 downstream 优化建议已实现；targeted/unit/security/真实 Git E2E 已通过，full suite 正在用修复后的 30 分钟上限重跑"}
+{"t":"2026-08-04T07:21:45.231Z","agent":"unknown","stage":"VERIFY","kind":"stage","text":"完整回归 257/257，scripted matrix 14 PASS / 3 SKIP / 0 FAIL；进入 VERIFY 生成 fresh high-risk evidence"}
+{"t": "2026-08-04T08:29:50.958Z", "agent": "codex", "stage": "VERIFY", "kind": "blocker", "text": "首次去泄漏 high verify 被旧 evidence 中残留的调用方私有配置正确阻断；verify 已覆写为无私有词失败 evidence，未绕过扫描"}
+{"t": "2026-08-04T08:29:50.958Z", "agent": "codex", "stage": "VERIFY", "kind": "finding", "text": "E2E 使用独立有限 timeout，并由 sufficiency/effectiveness 复用同一次 run；完整回归 257/257，scripted matrix 14 PASS/3 SKIP/0 FAIL"}
+{"t": "2026-08-04T08:29:50.958Z", "agent": "codex", "stage": "VERIFY", "kind": "stage", "text": "fresh high verify READY；attestation PASS；public leak scan、security、diff/syntax 均 PASS；coverage/runtime/Santa limitation 保留"}
+{"t": "2026-08-04T08:30:20.510Z", "agent": "codex", "stage": "REVIEW", "kind": "stage", "text": "fresh READY evidence 与交付前 QA/review 已完成，进入 REVIEW；不执行 commit/push/tag/release"}
+{"t": "2026-08-04T08:31:08.391Z", "agent": "codex", "stage": "REVIEW", "kind": "finding", "text": "harness-learn --report：0 条 observation 且无 gate event，未生成模式/instinct；后续检查 session-logger wiring"}
+{"t": "2026-08-04T08:59:06.690Z", "agent": "codex", "stage": "FEEDBACK", "kind": "blocker", "text": "提交前 review 发现两个信任边界 blocker：高 trust 可仅靠自声明+重算 digest 冒充；consumer 在 attestation verifier 模块缺失时会 fail-open。进入 FEEDBACK 修复。"}
+{"t": "2026-08-04T09:20:00.000Z", "agent": "codex", "stage": "FEEDBACK", "kind": "rule", "text": "按 F1-F5 强化 C-GATE-20 并新增 VH-30：高 trust 必须外部认证；attested/strict consumer 在 verifier unavailable 时 fail-closed"}
+{"t": "2026-08-04T09:20:00.000Z", "agent": "codex", "stage": "FEEDBACK", "kind": "fix", "text": "修复高 trust 自声明与三个 consumer verifier fail-open；targeted 13/13、77/77 及 syntax/diff check 通过，待 full/fresh verify"}
+{"t": "2026-08-04T09:34:36.274Z", "agent": "codex", "stage": "VERIFY", "kind": "stage", "text": "FEEDBACK 修复及最终任务 E2E、完整回归通过；进入 VERIFY 生成 fresh high-risk attested evidence"}
+{"t": "2026-08-04T09:41:56.001Z", "agent": "codex", "stage": "VERIFY", "kind": "evidence", "text": "最终 targeted 16/16、79/79，完整回归 257/257，scripted matrix 14 PASS/3 SKIP/0 FAIL，任务 E2E PASS；fresh high evidence READY，run-c0aba1cc-0fc1-41b1-961b-74ce25733924，digest sha256:d09fb5dd1bf4c8ae1fba81bffc689739ca09425e2c5d78a524d3566347a08cb7"}
+{"t": "2026-08-04T09:41:56.001Z", "agent": "codex", "stage": "REVIEW", "kind": "stage", "text": "最终逐文件 review 无新增 blocker；legacy policy、CLI fail-closed 与 public 去泄漏复核完成，进入 REVIEW 准备精确暂存和本地提交"}
+{"t": "2026-08-04T09:52:46.202Z", "agent": "codex", "stage": "REVIEW", "kind": "commit", "text": "SHK implementation committed as 184ef92c45ba5832ab9313fd21f9397cf0b5af16; tests committed separately as f54facdbff9e28dd3ea4e16f7c7e5670e5f1b682"}
+{"t": "2026-08-04T09:52:46.202Z", "agent": "codex", "stage": "REVIEW", "kind": "evidence", "text": "实现/测试提交后 fresh high evidence READY；run run-e58beefa-e409-40d8-b4b3-ef54f0c1e52c，commit f54facdbff9e28dd3ea4e16f7c7e5670e5f1b682，tree 9cf5a765f71fbfd29ba810f3bc4a1ce1eece365f，dirty=true，full/local-self，digest sha256:e755c02f2bf6e6d7f803c51bfb049bd88f25b7c72377cf7be8f52fefdf18bd1a"}

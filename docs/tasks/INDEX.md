@@ -4,7 +4,9 @@
 
 ## Open
 
-(none)
+| ID | 标题 | 阶段 | 风险 | 结果 |
+|---|---|---|---|---|
+| T-20260804-evidence-attestation | SHK 可信证据与候选谱系基础能力 | REVIEW | high |  |
 
 ## Closed
 
