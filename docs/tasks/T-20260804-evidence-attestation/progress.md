@@ -1,96 +1,111 @@
 # Progress — T-20260804-evidence-attestation
 
-## 2026-08-04 PLAN
+## 已完成实现
 
-- 创建 SHK high-risk 任务 `T-20260804-evidence-attestation`。
-- 复核 public SHK 与 downstream project 边界。
-- 确定第一开发切片：evidence attestation + verifier + 最小消费方接入；downstream project 只登记优化需求建议。
-- 尚未修改产品代码，等待用户确认计划后进入 EXECUTE。
+- 新增 `scripts/lib/evidence-attestation.js`：canonical payload、SHA-256、Git provenance、mode/trust policy 和结构化 verdict。
+- `shk verify --write-evidence` 原子写入 provenance/attestation；`shk evidence verify` 提供 human/json 校验接口。
+- delivery、verification、stage guard 和 doctor 对 attested/strict evidence fail-closed，并保留明确的 non-strict legacy 迁移行为。
+- verification gate 支持 substitution、shell/wrapper、Git global option 和 refspec 解析；commit/tag/push 均绑定 verified candidate/HEAD。
+- REVIEW 在 task 与 legacy 模式、strict 与 light guard 下均只接受 schema 合法的 structured evidence。
+- `update.sh` 在任何写入前完成全量冲突预检，支持上游 blob 绑定的 `.harness/shk-overrides.v1`，并对 stale/invalid manifest 整批阻断。
+- `run_guarded.py` 累计发现进程组和进程树，执行 TERM/KILL 后再发现，并把不确定性与残留写入 terminal evidence。
+- `tests/run.js` 汇总改为分别统计 passed/failed/skipped/degraded/total。
 
-## Errors
+## 已完成验证
 
-| 错误 | 尝试 | 处理 |
-|---|---:|---|
-| 在 SHK 仓库读取 `package.json` 失败：文件不存在 | 1 | 确认本仓测试入口为 `node tests/run.js`，后续不再按 npm 项目处理 |
+- 定向 quality suite：98/98 PASS。
+- evidence attestation suite：21/21 PASS。
+- unit 回归：253 passed、0 failed、1 skipped、0 degraded、254 total。
+- 完整回归：255 passed、0 failed、1 skipped、1 degraded、257 total。
+- scripted matrix：14 PASS / 3 capability SKIP / 0 FAIL。
+- runner selftest：27/27 PASS。
+- 关键负向覆盖包括：摘要篡改、未认证高 trust、verifier unavailable、弱 evidence、动态 delivery executable、未知 wrapper/Git option、旧 tag/push source、stale override manifest、写入前事务阻断、detached descendant 与持续发现故障。
 
-| 生成 spec 的 Python 字面量误写为 `true`，触发 NameError | 1 | 改用严格 JSON heredoc 写入并重新跑 spec status |
+## 当前发布候选状态
 
-## 2026-08-04 EXECUTE
+- 当前阶段：REVIEW。
+- 公共内容卫生检查、完整回归和 runner selftest 已完成。
+- fresh high-risk evidence 已生成：READY、full、dirty=true、trust=`local-self`；独立 verifier PASS。
+- 尚待：冻结 diff 双独立审查。
+- 只有上述检查全部通过后才精确暂存、提交并 push `master`；不打 tag。
+- 最终报告必须如实列出 capability SKIP 与 Codex runtime DEGRADED/SKIP，不得计入 PASS。
 
-- 用户确认计划，进入 EXECUTE。
-- 下一步先写 attestation 和 CLI 的失败测试。
+## 已知环境限制
 
+- 缺少可选打包产物时，相关 dogfood 场景按 capability SKIP 记录。
+- 缺少浏览器运行依赖时，browser E2E 按 capability SKIP 记录。
+- Codex runtime smoke 本轮为 DEGRADED/SKIP；Codex init smoke 为 opt-in SKIP，不声明运行时 PASS。
 
-## 2026-08-04 EXECUTE 完成情况
+## 边界
 
-- 新增 `scripts/lib/evidence-attestation.js`：canonical JSON、whole-evidence SHA-256、Git commit/tree/dirty、mode/trust policy 和结构化失败码。
-- `shk verify --write-evidence` 现写入 `run_id`、provenance、`local-self` attestation，并对 JSON 使用临时文件 + rename 原子落盘。
-- 新增 `shk evidence verify` CLI；默认缺 attestation 时 fail-closed，只有显式 `--allow-legacy` 接受 legacy。
-- delivery/verification/stage-guard/doctor 在 attestation 存在时拒绝 digest-invalid READY；项目配置 `evidence.require_attestation=true` 后拒绝 legacy。
-- 新增 C-GATE-20、公共说明和 required wiring；新增公共行未出现 downstream 业务词。
-- downstream project 仅在 RQ-0130/RQ-0133/RQ-0143/RQ-0144 和 handoff 追加优化需求建议；未改业务代码、status/candidate 或 target runtime。
-- 真实临时 Git E2E 已完成：fresh PASS；受保护字段篡改返回 `ATTESTATION_DIGEST_INVALID`；新 commit 返回 `GIT_COMMIT_MISMATCH` + `GIT_TREE_MISMATCH`。
+- 不操作外部执行环境。
+- 不修改公共任务范围外的现有文件。
+- 不使用 `HARNESS_SKIP_GATE`。
+- 不打 tag，不创建 release。
+## 2026-08-04 第三轮 Santa 反馈循环
 
-## 2026-08-04 回归验证（进入 VERIFY 前）
+- 来源：发布前双独立对抗审查，2/2 reviewer 均因交付解析与 runtime 分类问题判定 FAIL。
+- 严重性：阻断。
+- 层级：规则层 + 工具层。
+- 已先写入 `C-GATE-23` / `VH-33`，覆盖动态关键位置 fail-closed、结果型 Git 操作不得复用操作前 evidence、runtime 只消费结构化终态。
+- 下一步：先补失败回归，再修 parser/runtime，重跑最小测试、全量验证和双独立审查。
 
-- JS syntax + `git diff --check`：PASS。
-- evidence attestation：9/9 PASS。
-- quality suite：73/73 PASS。
-- template integrity：34/34 PASS。
-- `TMPDIR=/private/tmp node tests/run.js --unit`：254/254 PASS。
-- security scan：PASS，0 findings。
-- 首次 full run 的 scripted matrix 被 `tests/run.js` 既有 10 分钟外层硬上限中止，`spawnSync.status=null`，已确认不是断言失败；将完整真实 E2E matrix 上限改为 30 分钟后正在重跑 full suite。
-- 同时修复 `tests/run.js` 汇总遗漏 evidence attestation suite 的 passed 计数；unit 汇总现为 254 passed / 0 failed / 254 total。
+## C-GATE-23 实现与定向验证
 
-## 2026-08-04 VERIFY 完成情况
+- verification gate：动态 executable、wrapper option/environment、Git global target、subcommand、tag name/target、push destination/refspec 均在 substitution marker 命中时 fail-closed。
+- legacy backtick：嵌套或转义 backtick 直接拒绝为 ambiguous；合法嵌套 `$()` 可正常解析。
+- 结果型 Git 操作：`merge`、`cherry-pick`、`rebase`、`revert`、`am`、`pull` 在专用结果 attestation 实现前统一拒绝为 `GIT_DELIVERY_RESULT_UNBOUND`。
+- runtime：新增 `[shk-runtime-result] status=...` 终态协议，`tests/run.js` 只读取最后一个结构化 marker；缺 marker 按 degraded fail-closed。
+- 定向 quality suite：99/99 PASS。
+- unit：253 passed、0 failed、1 skipped、0 degraded、254 total。
+- 无 Codex 的隔离 PATH 验证：codex smoke/selftest 与 init smoke 均输出结构化 SKIP marker，exit 0。
 
-- 修复 E2E 被普通检查的 120 秒默认 hard timeout 截断：E2E 现在有独立且始终有限的默认上限 600 秒，可用 `SHK_VERIFY_E2E_TIMEOUT_MS` 调整；0、负值和非法值会回退到有限默认值。
-- 修复 `e2e_sufficiency` 与 `test_effectiveness` 重复执行同一 E2E：后者复用本次 `checks.e2e` 结果，单次 verify 只执行一次任务 E2E。
-- 新增任务级 `verify-flow-e2e.sh`，真实覆盖证据生成、verifier 拒绝路径、关键消费方、mutation/fault 和 downstream documentation contract；证据与本次 run token 绑定。
-- targeted：evidence attestation 9/9、quality suite 74/74、template integrity 34/34 均 PASS。
-- 完整回归：`TMPDIR=/private/tmp node tests/run.js` 为 257/257 PASS；scripted matrix 为 14 PASS / 3 SKIP / 0 FAIL。3 个 SKIP 分别是缺少打包产物的 OSS dogfood、缺少打包/npm 环境的 upstream CI dogfood、缺少浏览器运行依赖的 browser E2E。
-- security scan：PASS，0 findings；`git diff --check` 与修改 JS syntax check 均 PASS。
-- 首次去泄漏重跑被任务 E2E 正确阻断：扫描时旧的未跟踪 evidence 仍携带调用方私有配置。verify 随后写出不含私有词的失败 evidence；第二次 fresh high verify 通过。
-- 最终 high verify：`READY`，run `run-749bed56-38f1-4bcf-a6bf-165172045783`，full、dirty=true、trust=`local-self`，digest=`sha256:e6732f25d6e3517988b281a89b5751d6de2db43a18125011bbbaba5afd7df542`。独立 `shk evidence verify --require-mode full --min-trust local-self` 为 PASS。
-- public 新增行与任务 evidence 的 caller-supplied forbidden-pattern 扫描无命中。
-- coverage 未配置，不声明 80% 覆盖率；runtime/Codex smoke 仍按 DEGRADED/SKIP limitation 记录，不冒充 PASS；未授权独立 reviewer，Santa 明确 SKIP。
-- downstream project 本任务只修改 5 个指定优化建议文档；发现一个并发新增报告，保持未触碰。status/candidate 未变化，无非 docs 变更，未操作 target runtime。
+## 2026-08-04 — Santa 第四轮反馈与修复
 
-## HARNESS QA REPORT
+- Santa round 4：两名全新独立 reviewer 均判定 FAIL（2/2 FAIL），冻结 diff 未进入发布。
+- 反馈先写入约束：新增 `C-GATE-24`、`C-GATE-25`、`C-GATE-26` 与 `VH-34`。
+- 交付命令解析器现对变量 executable/subcommand/wrapper/target、动态 shell `-c`、Git config alias、`eval`/`source`/process substitution 全部 fail-closed；结果型 Git 操作 `merge/cherry-pick/rebase/revert/am/pull` 统一拒绝为 result-unbound。
+- candidate digest 升级到 `shk-git-candidate-v3`：changed gitlink 绑定实际 checkout HEAD OID；dirty、未初始化或无法确认仓库边界的 submodule 令 Git identity unavailable。
+- `update.sh` 在任何 skill 写入前递归预检 HOME 与显式项目四个 skill roots；未知文件、内容、symlink 或类型变化默认阻断，只有显式 `--force-overwrite` 才可丢弃。
+- `upgrade.sh` 使用 `git status --porcelain=v1 --untracked-files=normal` 阻断 tracked、index 与 untracked kit 源树污染，同时保留 linked-worktree 支持。
+- 定向回归：quality suite `101/101 PASS`；evidence attestation `22/22 PASS`。
 
-- Layer 1 — Self Verification：PASS。代码、gate、schema 和兼容路径均有正控、负向、篡改、陈旧候选及 legacy policy 测试。
-- Layer 2 — Verification Loop：PASS with limitations。Tests 257/257；E2E PASS；Security 0 findings；diff/syntax PASS；coverage、runtime 按上述 limitation 保留。
-- Layer 3 — Spec Compliance：PASS（当前 agent 逐项核对 REQ-EVID-1/2/3 与 REQ-DOWNSTREAM-1；不冒充独立 reviewer）。
-- Layer 4 — Santa Method：SKIP。未授权两个独立 reviewer，不声明 NICE/PASS。
-- Overall：READY，受限项不会被描述为已验证能力。
+### 本轮错误与处理
 
-## DELIVERY REVIEW
+- 初次 quality rerun 在新增 untracked-upgrade 测试处失败；该进程在 `upgrade.sh` 修复落盘前已进入旧脚本路径。使用独立 fixture 验证新实现后重跑，测试 PASS。
+- skill preflight 初次放在 manifest 校验之前，导致 manifest 负向测试看不到精确错误；保留完整 skill 扫描，但把冲突报告延后到 manifest/project 预检之后、首个写入之前，恢复精确错误优先级。
+- 一次临时 shell 诊断因包含清理命令被执行策略拒绝；改为不删除 fixture 的只读诊断，没有降低验证范围。
 
-1. 流程合规：PASS；经过 PLAN → EXECUTE → VERIFY，fresh READY evidence 后进入 REVIEW。
-2. QA 达标：PASS with limitations；覆盖率、runtime、Santa 的未验证范围均显式保留。
-3. 需求完整：PASS；SHK 实现通用证明能力，downstream project 只登记项目优化建议。
-4. 规则升级：PASS；通用证据完整性/信任边界已进入 constraint、文档和 required wiring。
-5. 改进机会：把任务 E2E timeout 分类内建为结构化配置；避免同一 E2E 在多个评估器重复执行；公开 evidence 不应序列化调用方私有环境配置。
-6. 行为学习：已运行 `harness-learn.js --report`；当前观察数据为 0 条且无门禁事件，未生成模式或 instinct，提示后续确认 session-logger wiring。
+## 2026-08-04 — 第四轮修复后的冻结验证
 
+- static checks：`bash -n`、Python compile、Node syntax、`git diff --check` 全部 PASS。
+- runner selftest：`27 passed, 0 failed`。
+- task E2E：首次直接执行因缺少必须的 `SHK_E2E_RUN_TOKEN` 明确 FAIL；随后使用 fresh UUID run token 重跑，复用矩阵、attestation、quality、安全扫描与 task evidence 全部 PASS。
+- 全量回归：`256 passed, 0 failed, 1 skipped, 0 degraded, 257 total`。
+- Scripted Matrix：`14 PASS / 3 capability SKIP / 0 FAIL`；三个 SKIP 分别是缺少 OSS tarball、upstream CI 网络/缓存、Playwright Chromium，均未冒充 PASS。
+- Codex runtime smoke + selftest PASS；Codex init smoke 为显式 opt-in capability SKIP。
 
-## 2026-08-04 FEEDBACK 修复
+## 2026-08-04 — Santa round 5 冻结候选
 
-- 提交前 review 发现两个 blocker：高 trust 可通过自声明后重算 digest 冒充；三个 hook 在 attestation verifier 模块缺失时 fail-open。
-- 强化 C-GATE-20 并新增 VH-30：声明 trust 与经认证 trust 必须分离；attested/strict consumer 的 verifier unavailable 必须 fail-closed。
-- 本地 `attestEvidence()` 现在只允许签发 `local-self`；手工提升 trust 并重算 digest 会得到 `EVIDENCE_TRUST_UNVERIFIED`。只有库调用方提供外部已认证的 `authenticated_trust_level` 才能验证更高 trust，CLI 不暴露该参数。
-- attestation format 现在固定校验 `protected_scope`；修改 scope 后重算 digest 仍会因 `ATTESTATION_UNSUPPORTED` 被拒绝。
-- delivery/verification/stage-guard 在 verifier 不可用时：已 attested 或 strict policy 返回 `ATTESTATION_VERIFIER_UNAVAILABLE`；仅未 attested 且非 strict 的 legacy evidence 保持兼容。
-- targeted 修复验证：evidence attestation 13/13、quality suite 77/77、JS syntax 与 `git diff --check` 均 PASS。完整回归和 fresh high evidence 待重跑，旧 run 不再作为最终提交证据。
+- fresh high-risk evidence 在修复后首次生成：`overall=READY`、`mode=full`、`trust=local-self`，run `run-941a56f5-46f1-4bda-9952-8fa725b6ee71`。
+- 在把本条审计记录纳入最终候选后，将重新签发一次 fresh evidence；随后冻结 diff，启动两名全新且互不可见的 reviewer 执行 Santa round 5。
 
-## 2026-08-04 最终 VERIFY / REVIEW
+## 2026-08-05 — Santa Round 5 feedback repair
 
-- FEEDBACK 后新增的 legacy policy 绕过与 CLI 参数 fail-open 已修复：`--allow-legacy` 只放宽缺 attestation，不绕过 commit/tree、clean、mode、minimum trust；未知、重复、缺值参数和非法 format 均 fail-closed。
-- 最终 targeted：evidence attestation 16/16、quality suite 79/79，均 PASS。
-- 最终完整回归：257/257 PASS；scripted matrix 14 PASS / 3 SKIP / 0 FAIL。3 个 SKIP 仍是缺 OSS tarball、缺 upstream CI tarball/npm 环境、缺 Playwright Chromium。
-- 最终任务 E2E：PASS；覆盖 evidence 生成与独立验证、tamper/stale/trust/verifier-unavailable/legacy 负向路径、关键 consumer、mutation/fault、下游文档契约和 public forbidden-term scan。
-- 提交实现与测试切片后再次生成 fresh high verify：`READY`，run `run-e58beefa-e409-40d8-b4b3-ef54f0c1e52c`，commit `f54facdbff9e28dd3ea4e16f7c7e5670e5f1b682`，tree `9cf5a765f71fbfd29ba810f3bc4a1ce1eece365f`，`dirty=true`，mode `full`，trust `local-self`，digest `sha256:e755c02f2bf6e6d7f803c51bfb049bd88f25b7c72377cf7be8f52fefdf18bd1a`。
-- 独立 `shk evidence verify --require-mode full --min-trust local-self --format json`：PASS。
-- 最终逐文件 review 未发现新的 blocker；任务文档中的调用方私有仓名称已中性化，public 新增行禁词扫描无命中。
-- 限制保持原样：coverage 未配置；runtime/Codex smoke 为 SKIP/DEGRADED 范畴，未声明 runtime PASS；Santa 未获独立双 reviewer 授权，明确 SKIP；`real-git-e2e.json` 仅是早期专项 artifact，不冒充最终完整回归。
-- 进入 REVIEW，准备精确暂存和本地提交；不 push、不 tag、不 release。
+- F1-F4: recorded Round 5 findings as C-GATE-27 through C-GATE-30 and VH-35; synchronized kit and dogfood constraints.
+- Delivery parser now rejects static Git aliases, unknown wrappers, shell control forms, executable globs, and multiple irreversible Git actions; shell continuation/redirection forms are normalized and recognized.
+- Delivery/stage evidence consumers bind attested evidence to freshly read commit/tree/candidate identity.
+- Candidate schema advanced to `shk-git-candidate-v4`; changed gitlinks bind the index OID and require a clean checkout whose HEAD matches that OID.
+- Project managed targets are preflighted without following symlinks; forced replacement uses same-directory temporary files plus atomic rename.
+- Upgrade aborts before fetch when kit status cannot be established.
+- Any cleanup/discovery uncertainty forces runner `INTERNAL_ERROR`, non-zero exit, and empty completed steps.
+- Targeted verification: quality suite 104/104 PASS; evidence attestation 22/22 PASS; runner selftest 28/28 PASS.
+
+## 2026-08-05 — Santa Round 6 feedback repair
+
+- Round 6 was NAUGHTY (0/2): Reviewer A reproduced authorization of backslash-newline and adjacent-redirection commit spellings when fresh evidence was valid; Reviewer B reproduced project parent-symlink writes outside the project and force-mode false success for directory leaves.
+- Verification parser now treats raw backslash-newline and adjacent redirection around a delivery command as `GIT_DELIVERY_COMMAND_AMBIGUOUS` before normalization, including when current full evidence is otherwise valid.
+- `update.sh` now canonicalizes the project root, preflights every existing parent component for all managed paths plus control paths, and never permits parent symlinks/type changes even under force.
+- Managed directory/non-regular leaves are fail-closed in all modes; atomic installation uses a same-directory `mktemp`, revalidates the parent, performs `os.replace`, and verifies the resulting leaf is a regular file.
+- Added regressions for valid-evidence continuation/redirection ambiguity, `scripts`/`scripts/hooks`/`scripts/lib`/`.harness` parent symlinks, and hook/lib/runner/CLI directory leaves under normal and force upgrades.
+- Targeted quality suite after repair: 105/105 PASS.

@@ -80,7 +80,7 @@
     }
   },
   {
-    "name": "guard-mode: light + 切换 REVIEW 无证据 → 警告放行（strict 下 deny）",
+    "name": "guard-mode: light + 切换 REVIEW 无可信证据 → 始终拒绝",
     "hook": "harness-stage-guard.js",
     "env": {
       "HARNESS_GUARD_MODE": "light"
@@ -100,16 +100,19 @@
     },
     "expect": {
       "exitCode": 0,
-      "stderr": [
-        "light 警告",
-        "REVIEW Gate 未满足"
+      "stderrNot": [
+        "light 警告"
       ],
-      "stdout": "empty",
+      "stdoutContains": [
+        "permissionDecision",
+        "deny",
+        "REVIEW Gate 检查未通过"
+      ],
       "files": {
         ".harness/gate-events.jsonl": {
           "contains": [
             "C-GATE-01",
-            "\"action\":\"hint\""
+            "\"action\":\"deny\""
           ]
         }
       }
@@ -187,6 +190,11 @@
         "light 提示"
       ],
       "stdout": "empty"
+    },
+    "gitSetup": {
+      "stage": [
+        ".harness/current-stage.json"
+      ]
     }
   },
   {

@@ -960,9 +960,19 @@ function readStructuredVerifyEvidence() {
   const jsonPath = ledger.structuredEvidencePath(ROOT);
   try {
     const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-    if (data && data.schema_version && data.overall) return data;
-  } catch {}
-  return null;
+    const valid = data && typeof data === 'object' && !Array.isArray(data)
+      && data.schema_version
+      && typeof data.overall === 'string'
+      && data.checks && typeof data.checks === 'object' && !Array.isArray(data.checks);
+    if (!valid) return { evidence: null, error: 'STRUCTURED_EVIDENCE_INVALID', path: jsonPath };
+    return { evidence: data, error: null, path: jsonPath };
+  } catch (err) {
+    return {
+      evidence: null,
+      error: err && err.code === 'ENOENT' ? 'STRUCTURED_EVIDENCE_MISSING' : 'STRUCTURED_EVIDENCE_INVALID',
+      path: jsonPath,
+    };
+  }
 }
 
 function structuredEvidenceAttestationProblem(evidence) {
@@ -980,9 +990,31 @@ function structuredEvidenceAttestationProblem(evidence) {
     }
     return null;
   }
+  if (required && !hasAttestation) {
+    return {
+      code: 'ATTESTATION_MISSING',
+      message: 'attestation is required by policy but missing',
+    };
+  }
+  const mustBindCurrent = hasAttestation || required || Boolean(evidence.git_identity);
+  let currentGit = null;
+  if (mustBindCurrent) {
+    currentGit = evidenceAttestation.readGitIdentity(ROOT);
+    if (!currentGit || !currentGit.available || !currentGit.commit || !currentGit.tree || !currentGit.candidate_digest) {
+      return {
+        code: 'GIT_IDENTITY_UNAVAILABLE',
+        message: 'current Git commit, tree, or candidate digest could not be resolved for evidence binding',
+      };
+    }
+  }
   const result = evidenceAttestation.verifyEvidence(evidence, {
     require_attestation: required,
     allow_legacy: !required,
+    ...(mustBindCurrent ? {
+      expected_commit: currentGit.commit,
+      expected_tree: currentGit.tree,
+      expected_candidate_digest: currentGit.candidate_digest,
+    } : {}),
   });
   return result.status === 'PASS' ? null : result.failures[0];
 }
@@ -1069,9 +1101,10 @@ function enforceVerifyGateIfNeeded(newData, input) {
 
 function enforceReviewGateIfNeeded(newData, input) {
   if (!newData || newData.stage !== 'REVIEW') return;
-  const gateErrors = [];
+  const processErrors = [];
+  const evidenceErrors = [];
 
-  // 检查 1: 流程完整性（stage-history 中必须有 EXECUTE 和 VERIFY）
+  // 流程历史在 light 模式可降级；可信 evidence 错误不可降级。
   let history = [];
   try {
     history = fs.readFileSync(STAGE_HISTORY_FILE, 'utf8')
@@ -1080,47 +1113,50 @@ function enforceReviewGateIfNeeded(newData, input) {
       .filter(Boolean)
       .map(h => h.stage);
   } catch {}
-  if (!history.includes('EXECUTE')) gateErrors.push('未经过 EXECUTE 阶段');
-  if (!history.includes('VERIFY')) gateErrors.push('未经过 VERIFY 阶段');
+  if (!history.includes('EXECUTE')) processErrors.push('未经过 EXECUTE 阶段');
+  if (!history.includes('VERIFY')) processErrors.push('未经过 VERIFY 阶段');
 
-  // 检查 2: 验证证据文件
-  const hasEvidence = verifyEvidenceList().some(p => {
-    try { return fs.statSync(p).isFile(); } catch { return false; }
-  });
-  if (!hasEvidence) gateErrors.push('未找到验证证据文件（' + verifyEvidenceList().join(' / ') + '）');
-
-  const structured = readStructuredVerifyEvidence();
-  // 任务模式下没有结构化证据必须报错，不能因为存在一个 markdown 报告就当作验证过。
-  // 否则下面所有实质检查（READY / DEGRADED / e2e 充分性）被 if (structured) 整体跳过，
-  // REVIEW 门禁退化成"某个文件存在"——复审 F-D，上一轮完全没碰。
-  if (!structured && ledger.currentTaskId(ROOT)) {
-    gateErrors.push(`当前任务缺少结构化验证证据（需要 ${ledger.relFromRoot(ROOT, ledger.structuredEvidencePath(ROOT))}）`);
+  // REVIEW 只接受账本解析出的权威 structured JSON。Markdown、last-verification
+  // 等弱证据只能证明“验证跑过”，不能承载 READY/checks/attestation 语义。
+  const structuredResult = readStructuredVerifyEvidence();
+  const structuredRel = ledger.relFromRoot(ROOT, structuredResult.path);
+  if (structuredResult.error === 'STRUCTURED_EVIDENCE_MISSING') {
+    evidenceErrors.push(`缺少权威结构化验证证据（需要 ${structuredRel}）`);
+  } else if (structuredResult.error) {
+    evidenceErrors.push(`权威结构化验证证据无效 (${structuredResult.error}): ${structuredRel}`);
   }
+
+  const structured = structuredResult.evidence;
   if (structured) {
     const attestationProblem = structuredEvidenceAttestationProblem(structured);
-    if (attestationProblem) gateErrors.push(`验证证据 attestation 无效 (${attestationProblem.code}): ${attestationProblem.message}`);
-    if (structured.overall !== 'READY') gateErrors.push(`结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}`);
-    if (hasDegradedRequiredCheck(structured)) gateErrors.push('结构化验证证据包含 DEGRADED 检查，不能进入 REVIEW');
+    if (attestationProblem) evidenceErrors.push(`验证证据 attestation 无效 (${attestationProblem.code}): ${attestationProblem.message}`);
+    if (structured.overall !== 'READY') evidenceErrors.push(`结构化验证证据未 READY: overall=${structured.overall || 'UNKNOWN'}`);
+    if (hasDegradedRequiredCheck(structured)) evidenceErrors.push('结构化验证证据包含 DEGRADED 检查，不能进入 REVIEW');
     const sufficiencyBlockers = e2eSufficiencyEvidenceBlockers(structured);
-    if (sufficiencyBlockers.length > 0) gateErrors.push('E2E 充分性证据不足: ' + sufficiencyBlockers.join('; '));
+    if (sufficiencyBlockers.length > 0) evidenceErrors.push('E2E 充分性证据不足: ' + sufficiencyBlockers.join('; '));
   }
 
-  if (gateErrors.length > 0) {
-    const message = REVIEW_GATE_BLOCK + '\n具体问题:\n' + gateErrors.map(e => '  - ' + e).join('\n') + '\n';
-    if (LIGHT) {
-      // light: 降级为强警告。硬拦截由 verification-gate 证据检查 + delivery-gate 承担。
-      emitGate('hint', 'C-GATE-01', { errors: gateErrors.length });
-      process.stderr.write(
-        '[Harness Stage Guard][light 警告] REVIEW Gate 未满足（不阻断，但 verification-gate/delivery-gate 仍会按证据拦截交付）:\n' +
-        gateErrors.map(e => '  - ' + e).join('\n') + '\n'
-      );
-      return;
-    }
+  const deny = errors => {
+    const message = REVIEW_GATE_BLOCK + '\n具体问题:\n' + errors.map(e => '  - ' + e).join('\n') + '\n';
     if (input && input.hook_event_name === 'PreToolUse') {
       return denyPreToolUse(input, message, 'C-GATE-01');
     }
     process.stderr.write(message);
     process.exit(2);
+  };
+
+  // evidence/attestation 是安全边界：light 只能降级流程约束，不能降级可信证据。
+  if (evidenceErrors.length > 0) return deny([...evidenceErrors, ...processErrors]);
+  if (processErrors.length > 0) {
+    if (LIGHT) {
+      emitGate('hint', 'C-GATE-01', { errors: processErrors.length });
+      process.stderr.write(
+        '[Harness Stage Guard][light 警告] REVIEW 流程历史不完整（不阻断；可信 evidence 已通过）:\n' +
+        processErrors.map(e => '  - ' + e).join('\n') + '\n'
+      );
+      return;
+    }
+    return deny(processErrors);
   }
 }
 

@@ -24,16 +24,23 @@
 
 set -u
 
+runtime_exit() {
+  local status="$1"
+  local rc="$2"
+  printf '[shk-runtime-result] status=%s\n' "$status"
+  exit "$rc"
+}
+
 KIT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SMOKE="$KIT_ROOT/tests/codex-smoke.sh"
 
 if ! command -v codex >/dev/null 2>&1; then
   if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
     echo "[codex-smoke-selftest] FAIL: codex CLI 未安装但 CODEX_REQUIRED=1。" >&2
-    exit 1
+    runtime_exit FAIL 1
   else
     echo "[codex-smoke-selftest] SKIP: codex CLI 未安装。" >&2
-    exit 0
+    runtime_exit SKIP 0
   fi
 fi
 
@@ -49,26 +56,26 @@ if [ "$SMOKE_EXIT" -eq 0 ]; then
   if grep -q "DEGRADED: sentinel hook 未执行" /tmp/codex-smoke-selftest.log; then
     if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
       echo "[codex-smoke-selftest] FAIL: 当前 Codex exec 未执行 project sentinel hook；bad-hook 捕获能力未被验证，CODEX_REQUIRED=1 不能放行。" >&2
-      exit 1
+      runtime_exit FAIL 1
     fi
     echo "[codex-smoke-selftest] DEGRADED: 当前 Codex exec 模式未执行 project sentinel hook；bad-hook 捕获能力无法在本 runtime 强制验证。" >&2
-    exit 0
+    runtime_exit DEGRADED 0
   fi
 
   if grep -q "DEGRADED:" /tmp/codex-smoke-selftest.log; then
     if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
       echo "[codex-smoke-selftest] FAIL: codex-smoke 未完成可验证 runtime 路径；CODEX_REQUIRED=1 不能把 DEGRADED 当成 release-ready evidence。" >&2
-      exit 1
+      runtime_exit FAIL 1
     fi
     echo "[codex-smoke-selftest] DEGRADED: codex-smoke 未完成可验证 runtime 路径；selftest 不再追加强制失败。" >&2
-    exit 0
+    runtime_exit DEGRADED 0
   fi
 
   echo "[codex-smoke-selftest] FAIL: 注入坏 hook 后 codex-smoke.sh 仍 exit 0，" >&2
   echo "  说明 smoke 的断言规则失效 —— 未来 VH-13 级 regression 会静默通过。" >&2
   echo "  ────── smoke 输出 ──────" >&2
   tail -n 40 /tmp/codex-smoke-selftest.log >&2
-  exit 1
+  runtime_exit FAIL 1
 fi
 
 # 额外断言：smoke 日志里应该含预期失败标记。注入点是 safety-guard.js
@@ -78,8 +85,8 @@ if ! grep -qE "FAIL: 日志中发现 'hook: PreToolUse Failed'|invalid pre-tool-
   echo "  可能 Codex 改了失败显示格式；请检查 smoke 的 CHECK_PATTERNS 并更新。" >&2
   echo "  ────── smoke 输出 tail ──────" >&2
   tail -n 30 /tmp/codex-smoke-selftest.log >&2
-  exit 1
+  runtime_exit FAIL 1
 fi
 
 echo "[codex-smoke-selftest] PASS: smoke 正确捕获了注入的 VH-13 级 regression (exit=$SMOKE_EXIT)"
-exit 0
+runtime_exit PASS 0

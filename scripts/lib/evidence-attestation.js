@@ -3,6 +3,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const { spawnSync } = require('child_process');
 
 const ATTESTATION_SCHEMA_VERSION = '1.0';
@@ -63,18 +64,187 @@ function git(root, args) {
   return String(result.stdout || '').trim();
 }
 
+const CANDIDATE_EXCLUDES = Object.freeze([
+  '.harness/verify-evidence.json',
+  '.harness/verify-evidence.md',
+  'docs/verification-report.md',
+]);
+
+function isGeneratedEvidencePath(rel) {
+  const normalized = String(rel || '').replace(/\\/g, '/');
+  if (CANDIDATE_EXCLUDES.includes(normalized)) return true;
+  return /^docs\/tasks\/[^/]+\/(?:evidence\/)?verify-evidence\.(json|md)$/.test(normalized);
+}
+
+function indexEntryForPath(root, rel) {
+  const result = spawnSync('git', ['ls-files', '-s', '-z', '--', rel], {
+    cwd: root,
+    encoding: null,
+    timeout: 3000,
+    maxBuffer: 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.status !== 0) return null;
+  const entries = Buffer.from(result.stdout || '').toString('utf8').split('\0').filter(Boolean);
+  for (const entry of entries) {
+    const match = entry.match(/^(\d{6}) ([0-9a-f]+) (\d+)\t([\s\S]+)$/);
+    if (match && match[3] === '0' && match[4] === rel) return { mode: match[1], oid: match[2] };
+  }
+  return { mode: '', oid: '' };
+}
+
+function indexModeForPath(root, rel) {
+  const entry = indexEntryForPath(root, rel);
+  return entry === null ? null : entry.mode;
+}
+
+function gitlinkHead(root, rel) {
+  const full = path.join(root, rel);
+  let expected;
+  let actual;
+  try {
+    expected = fs.realpathSync(full);
+    actual = fs.realpathSync(git(root, ['-C', full, 'rev-parse', '--show-toplevel']) || '');
+  } catch {
+    return null;
+  }
+  if (actual !== expected) return null;
+  const head = git(root, ['-C', full, 'rev-parse', '--verify', 'HEAD']);
+  if (!head || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(head)) return null;
+  const status = git(root, ['-C', full, 'status', '--porcelain=v1', '--untracked-files=normal']);
+  if (status === null || status !== '') return null;
+  return head;
+}
+
+function candidateDigest(root, commit) {
+  // Hash the final working-tree candidate, not Git's index representation. This
+  // keeps the digest stable when the same files move from unstaged/untracked to
+  // staged while still binding path, type, executable bit, content, deletion,
+  // and the checked-out OID of every changed gitlink.
+  const changed = spawnSync('git', ['diff', '--name-only', '-z', 'HEAD', '--', '.'], {
+    cwd: root,
+    encoding: null,
+    timeout: 10000,
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (changed.status !== 0) return null;
+
+  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: root,
+    encoding: null,
+    timeout: 5000,
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (untracked.status !== 0) return null;
+
+  const decodePaths = output => Buffer.from(output || '')
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean);
+  const relPaths = [...new Set([
+    ...decodePaths(changed.stdout),
+    ...decodePaths(untracked.stdout),
+  ])]
+    .filter(rel => !isGeneratedEvidencePath(rel))
+    .sort();
+
+  const hash = crypto.createHash('sha256');
+  hash.update('shk-git-candidate-v4\0', 'utf8');
+  hash.update(String(commit || ''), 'utf8');
+  hash.update('\0paths\0', 'utf8');
+  for (const rel of relPaths) {
+    const full = path.join(root, rel);
+    const indexEntry = indexEntryForPath(root, rel);
+    if (indexEntry === null) return null;
+    if (indexEntry.mode === '160000') {
+      const head = gitlinkHead(root, rel);
+      // Git commits the index OID, not whichever commit happens to be checked out.
+      // Refuse an unstaged/split gitlink instead of signing an ambiguous candidate.
+      if (!head || head !== indexEntry.oid) return null;
+      hash.update(rel, 'utf8');
+      hash.update('\0gitlink:', 'utf8');
+      hash.update(indexEntry.oid, 'utf8');
+      hash.update('\0', 'utf8');
+      continue;
+    }
+    let stat;
+    try { stat = fs.lstatSync(full); } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        hash.update(rel, 'utf8');
+        hash.update('\0deleted\0', 'utf8');
+        continue;
+      }
+      return null;
+    }
+    hash.update(rel, 'utf8');
+    hash.update('\0', 'utf8');
+    if (stat.isSymbolicLink()) {
+      hash.update('symlink\0', 'utf8');
+      hash.update(fs.readlinkSync(full), 'utf8');
+    } else if (stat.isFile()) {
+      hash.update(`file:${stat.mode & 0o111 ? 'x' : '-'}\0`, 'utf8');
+      hash.update(fs.readFileSync(full));
+    } else {
+      return null;
+    }
+    hash.update('\0', 'utf8');
+  }
+  return `sha256:${hash.digest('hex')}`;
+}
+
+function decodeNulPaths(output) {
+  return Buffer.from(output || '').toString('utf8').split('\0').filter(Boolean);
+}
+
+function indexWorktreeMismatchPaths(root) {
+  // The evidence digest deliberately follows the final working-tree snapshot so
+  // it stays stable across `git add`. Before a commit, however, Git consumes the
+  // index. Refuse a split index/worktree candidate instead of letting a verified
+  // working-tree snapshot authorize different staged bytes.
+  const changed = spawnSync('git', ['diff', '--name-only', '-z', '--', '.'], {
+    cwd: root,
+    encoding: null,
+    timeout: 10000,
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (changed.status !== 0) return null;
+  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: root,
+    encoding: null,
+    timeout: 5000,
+    maxBuffer: 16 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (untracked.status !== 0) return null;
+  return [...new Set([...decodeNulPaths(changed.stdout), ...decodeNulPaths(untracked.stdout)])]
+    .filter(rel => !isGeneratedEvidencePath(rel))
+    .sort();
+}
+
 function readGitIdentity(root) {
   const commit = git(root, ['rev-parse', '--verify', 'HEAD']);
   const tree = git(root, ['rev-parse', '--verify', 'HEAD^{tree}']);
   if (!commit || !tree) {
-    return { available: false, commit: null, tree: null, dirty: null };
+    return {
+      available: false, commit: null, tree: null, dirty: null, candidate_digest: null,
+      index_matches_worktree: null, index_mismatch_paths: [],
+    };
   }
   const status = git(root, ['status', '--porcelain=v1', '--untracked-files=normal']);
+  const digest = candidateDigest(root, commit);
+  const mismatchPaths = indexWorktreeMismatchPaths(root);
+  const available = status !== null && digest !== null && mismatchPaths !== null;
   return {
-    available: true,
+    available,
     commit,
     tree,
     dirty: status === null ? null : status.length > 0,
+    candidate_digest: digest,
+    index_matches_worktree: mismatchPaths === null ? null : mismatchPaths.length === 0,
+    index_mismatch_paths: mismatchPaths || [],
   };
 }
 
@@ -181,6 +351,14 @@ function verifyEvidence(evidence, policy = {}) {
       });
     } else addPass('GIT_TREE_MATCH', 'evidence tree matches the expected tree', { actual: gitIdentity.tree });
   }
+  if (policy.expected_candidate_digest !== undefined) {
+    if (gitIdentity.candidate_digest !== policy.expected_candidate_digest) {
+      addFailure('GIT_CANDIDATE_MISMATCH', 'evidence candidate digest does not match the current Git candidate', {
+        expected: policy.expected_candidate_digest,
+        actual: gitIdentity.candidate_digest || null,
+      });
+    } else addPass('GIT_CANDIDATE_MATCH', 'evidence candidate digest matches the current Git candidate', { actual: gitIdentity.candidate_digest });
+  }
   if (policy.require_clean === true) {
     if (gitIdentity.dirty !== false) {
       addFailure('EVIDENCE_DIRTY', 'policy requires evidence generated from a clean Git worktree', { actual: gitIdentity.dirty ?? null });
@@ -276,6 +454,8 @@ module.exports = {
   protectedPayload,
   digestEvidence,
   readGitIdentity,
+  candidateDigest,
+  indexWorktreeMismatchPaths,
   attestEvidence,
   verifyEvidence,
   verifyEvidenceFile,

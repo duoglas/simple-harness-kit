@@ -1591,6 +1591,7 @@ function evidenceMarkdown(e) {
       lines.push(`- git_commit: ${e.provenance.git.commit || 'unavailable'}`);
       lines.push(`- git_tree: ${e.provenance.git.tree || 'unavailable'}`);
       lines.push(`- git_dirty: ${e.provenance.git.dirty === null ? 'unknown' : String(e.provenance.git.dirty)}`);
+      lines.push(`- git_candidate_digest: ${e.provenance.git.candidate_digest || 'unavailable'}`);
     }
   }
   if (e.attestation) {
@@ -1754,6 +1755,7 @@ function cmdEvidence(args, root) {
     if (currentGit.available) {
       policy.expected_commit = currentGit.commit;
       policy.expected_tree = currentGit.tree;
+      policy.expected_candidate_digest = currentGit.candidate_digest;
     }
   }
 
@@ -1768,6 +1770,7 @@ function cmdEvidence(args, root) {
     allow_legacy: policy.allow_legacy,
     expected_commit: policy.expected_commit || null,
     expected_tree: policy.expected_tree || null,
+    expected_candidate_digest: policy.expected_candidate_digest || null,
     require_clean: policy.require_clean,
     require_mode: policy.require_mode || null,
     min_trust: policy.min_trust || null,

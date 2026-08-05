@@ -30,6 +30,7 @@ REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 
 DO_MIGRATE=0
+DO_FORCE_OVERWRITE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -40,12 +41,19 @@ while [ $# -gt 0 ]; do
       # 显式表达"顺便把本工程迁到任务态"。默认不做——迁移会建目录并改 .gitignore，
       # 属于有副作用的操作，不该在一条同步命令里隐式发生。
       DO_MIGRATE=1; shift ;;
+    --force-overwrite)
+      # 默认升级对项目定制 fail-closed；只有用户明确接受丢弃定制时才透传。
+      DO_FORCE_OVERWRITE=1; shift ;;
     --help|-h)
       cat <<'USAGE'
 用法:
   curl -fsSL <raw>/upgrade.sh | bash                      # 只同步 hooks/lib/CLI
   curl -fsSL <raw>/upgrade.sh | bash -s -- --migrate      # 同步 + 迁移到任务态（一键）
   curl -fsSL <raw>/upgrade.sh | bash -s -- --ref <tag>    # 指定版本
+  curl -fsSL <raw>/upgrade.sh | bash -s -- --force-overwrite # 明确丢弃项目定制
+
+默认升级会在写入前检测项目定制；发现未知内容会中止并列出文件。
+--force-overwrite 会显式丢弃这些定制，除非已确认，否则不要使用。
 
 --migrate 会在当前工程执行 `shk task migrate --apply`：
   - 只复制不删除，存量 .harness/ 文件原样保留
@@ -59,18 +67,23 @@ done
 
 # ── 1. 定位 kit ──
 KIT="$(cat "$HOME/.simple-harness-kit-root" 2>/dev/null || true)"
-if [ -z "$KIT" ] || [ ! -d "$KIT/.git" ]; then
+if [ -z "$KIT" ] || ! git -C "$KIT" rev-parse --git-dir >/dev/null 2>&1; then
   KIT="$HOME/simple-harness-kit"
 fi
-if [ ! -d "$KIT/.git" ]; then
+if ! git -C "$KIT" rev-parse --git-dir >/dev/null 2>&1; then
   echo "[shk-upgrade] 未找到已安装的 kit，克隆到 $KIT ..."
   git clone --quiet "$REPO_URL" "$KIT"
 fi
 echo "[shk-upgrade] kit 位置: $KIT"
 
 # ── 2. 脏工作区保护 + 切版本 ──
-if ! git -C "$KIT" diff --quiet 2>/dev/null || ! git -C "$KIT" diff --cached --quiet 2>/dev/null; then
-  echo "[shk-upgrade] 中止: kit 工作区有未提交改动（$KIT）。请先处理（git -C \"$KIT\" status）后重试。"
+if ! kit_status="$(git -C "$KIT" status --porcelain=v1 --untracked-files=normal 2>/dev/null)"; then
+  echo "[shk-upgrade] 中止: 无法验证 kit 工作区状态（$KIT）；在状态边界确认前不会 fetch/checkout。"
+  exit 1
+fi
+if [ -n "$kit_status" ]; then
+  echo "[shk-upgrade] 中止: kit 工作区有未提交改动或未跟踪文件（$KIT）。请先处理（git -C \"$KIT\" status）后重试。"
+  printf '%s\n' "$kit_status"
   exit 1
 fi
 git -C "$KIT" fetch --tags --quiet origin
@@ -83,7 +96,9 @@ echo "[shk-upgrade] kit 已切到 $REF ($(git -C "$KIT" rev-parse --short HEAD))
 
 # ── 3. 同步 ──
 if [ -d "scripts/hooks" ]; then
-  bash "$KIT/update.sh" --hooks "$(pwd)"
+  update_args=(--hooks "$(pwd)")
+  if [ "$DO_FORCE_OVERWRITE" = "1" ]; then update_args+=(--force-overwrite); fi
+  bash "$KIT/update.sh" "${update_args[@]}"
 else
   echo "[shk-upgrade] 当前目录不是 Harness 工程（无 scripts/hooks/），只更新已安装的全局 skills。"
   bash "$KIT/update.sh"

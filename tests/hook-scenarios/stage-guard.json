@@ -771,7 +771,7 @@
       ".harness/current-stage.json": "{\"stage\":\"VERIFY\",\"since\":\"2026-04-03T00:00:00Z\",\"task\":\"test\"}",
       ".harness/tool-count.json": "{\"count\":1}",
       ".harness/stage-history.jsonl": "{\"stage\":\"PLAN\",\"t\":\"2026-04-03T00:00:00Z\"}\n{\"stage\":\"EXECUTE\",\"t\":\"2026-04-03T00:10:00Z\"}\n{\"stage\":\"VERIFY\",\"t\":\"2026-04-03T00:20:00Z\"}\n",
-      ".harness/verify-evidence.md": "# Verification\nAll tests passed."
+      ".harness/verify-evidence.json": "{\"schema_version\":\"1.0\",\"risk\":\"low\",\"overall\":\"READY\",\"checks\":{\"tests\":{\"status\":\"PASS\"}}}"
     },
     "expect": {
       "exitCode": 0,

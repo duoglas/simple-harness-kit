@@ -116,7 +116,7 @@
       "exitCode": 0,
       "stdoutContains": [
         "deny",
-        "缺少结构化验证证据"
+        "缺少权威结构化验证证据"
       ]
     }
   },

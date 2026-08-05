@@ -6,36 +6,29 @@
       "id": "REQ-EVID-1",
       "text": "SHK verify evidence must bind the exact Git commit, tree, dirty state, execution mode, issuer trust level, and canonical evidence digest.",
       "priority": "must",
-      "source": "downstream project 2026-08-04 retrospective"
+      "source": "SHK trust-boundary and upgrade-safety review"
     },
     {
       "id": "REQ-EVID-2",
       "text": "SHK must provide a reusable verifier that rejects tampered, stale, dirty, wrong-mode, insufficient-trust, or unauthenticated higher-trust evidence with structured verdicts.",
       "priority": "must",
-      "source": "downstream project RQ-0133"
+      "source": "SHK trust-boundary and upgrade-safety review"
     },
     {
       "id": "REQ-EVID-3",
       "text": "Existing SHK consumers must not accept digest-invalid READY evidence or fail open when the attestation verifier is unavailable; legacy compatibility must be explicit and fail-closed when attestation is present or required.",
       "priority": "must",
-      "source": "SHK evidence gap"
-    },
-    {
-      "id": "REQ-DOWNSTREAM-1",
-      "text": "downstream project optimization actions must be recorded in existing requirement items where possible, without moving their status or modifying business/device behavior.",
-      "priority": "must",
-      "source": "user request 2026-08-04"
+      "source": "SHK trust-boundary and upgrade-safety review"
     }
   ],
   "design": {
-    "summary": "Add a generic evidence-attestation library and CLI to public SHK, integrate it into verify evidence generation and critical consumers, then document downstream project adoption as project-owned optimization requirements.",
+    "summary": "Add reusable evidence attestation, delivery-target binding, managed-file upgrade safety, and runner cleanup guarantees to public SHK.",
     "changed_areas": [
-      "scripts/lib evidence attestation",
+      "scripts/lib evidence attestation and guarded runner",
       "shk verify/evidence CLI",
-      "evidence-consuming hooks",
-      "tests",
-      "public constraints/docs",
-      "downstream project requirement suggestions"
+      "delivery, verification, and stage hooks",
+      "managed-file updater and upgrade wrapper",
+      "tests and public constraints/docs"
     ],
     "risk_points": [
       {
@@ -49,10 +42,6 @@
       {
         "id": "RISK-EVID-3",
         "text": "Treating a JSON trust declaration as authenticated, or calling local-self evidence independently trusted, would overstate the security boundary."
-      },
-      {
-        "id": "RISK-EVID-4",
-        "text": "Cross-repo documentation changes could duplicate existing downstream project requirements or leak internal terms into public SHK."
       },
       {
         "id": "RISK-EVID-5",
@@ -120,23 +109,6 @@
         "RISK-EVID-2",
         "RISK-EVID-5"
       ]
-    },
-    {
-      "id": "FLOW-DOWNSTREAM-1",
-      "name": "downstream project optimization intake",
-      "entrypoint": "docs/requirements/items/RQ-*.md",
-      "steps": [
-        "map recommendation to existing requirement",
-        "append SHK integration suggestion",
-        "add cross-reference",
-        "leave status and business code unchanged"
-      ],
-      "covers": [
-        "REQ-DOWNSTREAM-1"
-      ],
-      "risks": [
-        "RISK-EVID-4"
-      ]
     }
   ],
   "test_plan": [
@@ -199,26 +171,6 @@
         "non-strict unattested legacy evidence retains the documented upgrade compatibility"
       ],
       "negative_or_boundary": true
-    },
-    {
-      "id": "TEST-DOWNSTREAM-1",
-      "type": "documentation-contract",
-      "covers": [
-        "REQ-DOWNSTREAM-1"
-      ],
-      "risks": [
-        "RISK-EVID-4"
-      ],
-      "traffic_flows": [
-        "FLOW-DOWNSTREAM-1"
-      ],
-      "scenario": "downstream optimization recommendations are discoverable and non-duplicative",
-      "assertions": [
-        "existing RQs carry matching suggestions",
-        "no status or candidate mutation",
-        "public SHK contains no downstream business terms"
-      ],
-      "negative_or_boundary": true
     }
   ],
   "acceptance": [
@@ -254,17 +206,6 @@
       ],
       "tests": [
         "TEST-EVID-2"
-      ],
-      "must_have_evidence": true
-    },
-    {
-      "id": "AC-DOWNSTREAM-1",
-      "text": "downstream project contains actionable SHK adoption suggestions in the requirement system with no business implementation or device change.",
-      "covers": [
-        "REQ-DOWNSTREAM-1"
-      ],
-      "tests": [
-        "TEST-DOWNSTREAM-1"
       ],
       "must_have_evidence": true
     }
@@ -325,24 +266,13 @@
       "done": "docs state integrity and trust boundary and dogfood constraint copy is synchronized"
     },
     {
-      "id": "W-DOWNSTREAM-1",
-      "stage": "EXECUTE",
-      "title": "record downstream optimization suggestions",
-      "covers": [
-        "REQ-DOWNSTREAM-1"
-      ],
-      "risk": "high",
-      "done": "existing RQs are updated without duplicate scope or status changes"
-    },
-    {
       "id": "W-VERIFY-1",
       "stage": "VERIFY",
       "title": "run targeted, full, and real-repository verification",
       "covers": [
         "REQ-EVID-1",
         "REQ-EVID-2",
-        "REQ-EVID-3",
-        "REQ-DOWNSTREAM-1"
+        "REQ-EVID-3"
       ],
       "risk": "high",
       "done": "targeted and full tests plus temporary-repository E2E produce fresh structured evidence"
@@ -350,12 +280,12 @@
   ],
   "irreversible_actions": [
     {
-      "action": "push, tag, release or publish public SHK",
+      "action": "push SHK master, create tags, or publish a release",
       "needs_human": true,
-      "planned": "not executed"
+      "planned": "push master only after all gates pass; no tag or release"
     },
     {
-      "action": "deploy to downstream device or change device or system state",
+      "action": "operate or mutate an external execution environment",
       "needs_human": true,
       "planned": "not executed"
     },

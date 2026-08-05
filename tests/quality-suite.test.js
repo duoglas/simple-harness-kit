@@ -10,6 +10,7 @@ const { spawnSync } = require('child_process');
 const KIT_ROOT = path.resolve(__dirname, '..');
 const SHK = path.join(KIT_ROOT, 'scripts', 'shk.js');
 const UPDATE_SH = path.join(KIT_ROOT, 'update.sh');
+const UPGRADE_SH = path.join(KIT_ROOT, 'upgrade.sh');
 const VERIFY_GATE = path.join(KIT_ROOT, 'scripts/hooks/verification-gate.js');
 const STAGE_GUARD = path.join(KIT_ROOT, 'scripts/hooks/harness-stage-guard.js');
 const DELIVERY_GATE = path.join(KIT_ROOT, 'scripts/hooks/delivery-gate.js');
@@ -61,6 +62,21 @@ function writeCodexHookConfig(dir, settings = null) {
     settings || fs.readFileSync(path.join(KIT_ROOT, 'templates/settings-json.tmpl'), 'utf8')
   );
   fs.writeFileSync(path.join(dir, '.codex/hooks.json'), '{"hooks":{}}\n');
+}
+
+function ensureGitRepo(dir) {
+  if (!fs.existsSync(path.join(dir, '.git'))) {
+    let res = spawnSync('git', ['init', '-q'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    spawnSync('git', ['config', 'user.email', 'quality@example.invalid'], { cwd: dir, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.name', 'SHK Quality'], { cwd: dir, encoding: 'utf8' });
+    res = spawnSync('git', ['add', '-A'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    res = spawnSync('git', ['commit', '-q', '-m', 'fixture'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    res = spawnSync('git', ['branch', '-M', 'master'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+  }
 }
 
 function testVerifyWritesEvidence() {
@@ -155,10 +171,9 @@ function testVerificationGateRejectsFailEvidence() {
   const dir = tmpProject();
   try {
     writeStage(dir);
-    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
-      schema_version: '1.0', risk: 'medium', stage: 'VERIFY', overall: 'NOT_READY',
-      started_at: new Date().toISOString(), completed_at: new Date().toISOString(), checks: {}
-    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir, {
+      risk: 'medium', overall: 'NOT_READY', checks: {}
+    }), null, 2) + '\n');
     const input = JSON.stringify({ tool_input: { command: 'git commit -m test' } });
     const res = runNode(VERIFY_GATE, [], { cwd: dir, input });
     assert.strictEqual(res.status, 2, 'NOT_READY evidence must block commit');
@@ -172,9 +187,9 @@ function testVerificationGateAcceptsReadyEvidence() {
   const dir = tmpProject();
   try {
     writeStage(dir);
-    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
-      schema_version: '1.0', risk: 'medium', stage: 'VERIFY', overall: 'READY',
-      started_at: new Date().toISOString(), completed_at: new Date().toISOString(), checks: {
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir, {
+      risk: 'medium',
+      checks: {
         build: { status: 'PASS', command: 'not configured' },
         tests: { status: 'PASS', command: 'not configured', passed: 0, failed: 0 },
         e2e: { status: 'PASS', command: 'npm run test:e2e' },
@@ -182,7 +197,7 @@ function testVerificationGateAcceptsReadyEvidence() {
         diff: { status: 'PASS', files: 0 },
         security: { status: 'PASS', findings: 0 }
       }
-    }) + '\n');
+    }), null, 2) + '\n');
     const input = JSON.stringify({ tool_input: { command: 'git commit -m test' } });
     const res = runNode(VERIFY_GATE, [], { cwd: dir, input });
     assert.strictEqual(res.status, 0, res.stderr || res.stdout);
@@ -436,6 +451,445 @@ function testUserPromptSubmitProvidesCodexVisibleBanner() {
   }
 }
 
+function testUpdateFailsClosedBeforeOverwritingProjectCustomization() {
+  const dir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  try {
+    const target = path.join(dir, 'scripts/hooks/find-root.js');
+    fs.appendFileSync(target, '\n// project-specific sentinel\n');
+    const before = fs.readFileSync(target, 'utf8');
+    const notYetInstalled = path.join(dir, 'scripts/hooks/harness-entry-banner.js');
+
+    const blocked = runBash(UPDATE_SH, ['--hooks-only', dir], { cwd: KIT_ROOT, env: { HOME: home } });
+    const output = `${blocked.stdout || ''}${blocked.stderr || ''}`;
+    assert.notStrictEqual(blocked.status, 0, output);
+    assert.ok(output.includes('[阻断]'), output);
+    assert.ok(output.includes('scripts/hooks/find-root.js'), output);
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'customized file must remain untouched');
+    assert.ok(!fs.existsSync(notYetInstalled), 'preflight must stop before installing any project file');
+
+    const forced = runBash(UPDATE_SH, ['--hooks-only', dir, '--force-overwrite'], {
+      cwd: KIT_ROOT, env: { HOME: home }
+    });
+    assert.strictEqual(forced.status, 0, forced.stderr || forced.stdout);
+    assert.strictEqual(
+      fs.readFileSync(target, 'utf8'),
+      fs.readFileSync(path.join(KIT_ROOT, 'scripts/hooks/find-root.js'), 'utf8'),
+      'explicit force-overwrite should replace the customized file'
+    );
+    assert.ok(fs.existsSync(notYetInstalled), 'forced update should continue with the complete sync');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function testUpdatePreservesReviewedOverrideAndBlocksWhenUpstreamChanges() {
+  const dir = tmpProject();
+  const staleDir = tmpProject();
+  const invalidDir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  try {
+    const source = path.join(KIT_ROOT, 'scripts/hooks/find-root.js');
+    const blobResult = spawnSync('git', ['-C', KIT_ROOT, 'hash-object', source], { encoding: 'utf8' });
+    assert.strictEqual(blobResult.status, 0, blobResult.stderr || blobResult.stdout);
+    const sourceBlob = blobResult.stdout.trim();
+    assert.ok(sourceBlob, 'source git blob must be available');
+
+    const target = path.join(dir, 'scripts/hooks/find-root.js');
+    const relativeSource = 'scripts/hooks/find-root.js';
+    const history = spawnSync('git', ['-C', KIT_ROOT, 'log', '--format=%H', '--', relativeSource], { encoding: 'utf8' });
+    assert.strictEqual(history.status, 0, history.stderr || history.stdout);
+    const currentSource = fs.readFileSync(source, 'utf8');
+    let historicalSource = null;
+    for (const commit of history.stdout.trim().split(/\s+/).filter(Boolean)) {
+      const shown = spawnSync('git', ['-C', KIT_ROOT, 'show', `${commit}:${relativeSource}`], { encoding: 'utf8' });
+      if (shown.status === 0 && shown.stdout !== currentSource) {
+        historicalSource = shown.stdout;
+        break;
+      }
+    }
+    assert.ok(historicalSource, 'test requires a known historical upstream blob distinct from current source');
+    fs.writeFileSync(target, historicalSource);
+    const before = fs.readFileSync(target, 'utf8');
+    fs.writeFileSync(
+      path.join(dir, '.harness/shk-overrides.v1'),
+      `# SHK project overrides v1\n${sourceBlob} scripts/hooks/find-root.js\n`
+    );
+
+    const preserved = runBash(UPDATE_SH, ['--hooks-only', dir], { cwd: KIT_ROOT, env: { HOME: home } });
+    const preservedOutput = `${preserved.stdout || ''}${preserved.stderr || ''}`;
+    assert.strictEqual(preserved.status, 0, preservedOutput);
+    assert.ok(preservedOutput.includes('[项目保留]'), preservedOutput);
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'reviewed override must be preserved');
+    assert.ok(
+      fs.existsSync(path.join(dir, 'scripts/hooks/harness-entry-banner.js')),
+      'non-overridden managed files should still sync'
+    );
+
+    const staleTarget = path.join(staleDir, 'scripts/hooks/find-root.js');
+    fs.appendFileSync(staleTarget, '\n// stale reviewed project override\n');
+    const staleBefore = fs.readFileSync(staleTarget, 'utf8');
+    fs.writeFileSync(
+      path.join(staleDir, '.harness/shk-overrides.v1'),
+      `# SHK project overrides v1\n0000000000000000000000000000000000000000 scripts/hooks/find-root.js\n`
+    );
+    const blocked = runBash(UPDATE_SH, ['--hooks-only', staleDir], { cwd: KIT_ROOT, env: { HOME: home } });
+    const blockedOutput = `${blocked.stdout || ''}${blocked.stderr || ''}`;
+    assert.notStrictEqual(blocked.status, 0, blockedOutput);
+    assert.ok(blockedOutput.includes('上游 blob 已变化'), blockedOutput);
+    assert.strictEqual(fs.readFileSync(staleTarget, 'utf8'), staleBefore, 'stale override must remain untouched');
+    assert.ok(
+      !fs.existsSync(path.join(staleDir, 'scripts/hooks/harness-entry-banner.js')),
+      'stale override must block before any project sync'
+    );
+
+    const invalidTarget = path.join(invalidDir, 'scripts/hooks/find-root.js');
+    const invalidBefore = fs.readFileSync(invalidTarget, 'utf8');
+    fs.writeFileSync(
+      path.join(invalidDir, '.harness/shk-overrides.v1'),
+      `# SHK project overrides v1\n${sourceBlob} scripts/hooks/find-root.js\n${sourceBlob} scripts/hooks/find-root.js\n`
+    );
+    const invalid = runBash(UPDATE_SH, ['--hooks-only', invalidDir], { cwd: KIT_ROOT, env: { HOME: home } });
+    const invalidOutput = `${invalid.stdout || ''}${invalid.stderr || ''}`;
+    assert.notStrictEqual(invalid.status, 0, invalidOutput);
+    assert.ok(invalidOutput.includes('override manifest 无效'), invalidOutput);
+    assert.ok(invalidOutput.includes('duplicate path'), invalidOutput);
+    assert.strictEqual(fs.readFileSync(invalidTarget, 'utf8'), invalidBefore, 'invalid manifest must block before writes');
+    assert.ok(
+      !fs.existsSync(path.join(invalidDir, 'scripts/hooks/harness-entry-banner.js')),
+      'invalid manifest must block before installing any project file'
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(staleDir, { recursive: true, force: true });
+    fs.rmSync(invalidDir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function testUpdateHooksPreflightsBeforeAnySkillWrite() {
+  const dir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  try {
+    const target = path.join(dir, 'scripts/hooks/find-root.js');
+    fs.appendFileSync(target, '\n// preflight conflict\n');
+    const before = fs.readFileSync(target, 'utf8');
+    const sentinels = [
+      path.join(home, '.claude/skills/auto-harness-qa/SKILL.md'),
+      path.join(home, '.codex/skills/auto-harness-qa/SKILL.md'),
+      path.join(dir, '.claude/skills/auto-harness-qa/SKILL.md'),
+      path.join(dir, '.codex/skills/auto-harness-qa/SKILL.md'),
+    ];
+    for (const file of sentinels) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, `sentinel:${file}\n`);
+    }
+    const sentinelBytes = new Map(sentinels.map(file => [file, fs.readFileSync(file, 'utf8')]));
+
+    const blocked = runBash(UPDATE_SH, ['--hooks', dir], { cwd: dir, env: { HOME: home } });
+    const output = `${blocked.stdout || ''}${blocked.stderr || ''}`;
+    assert.notStrictEqual(blocked.status, 0, output);
+    assert.ok(output.includes('[阻断]'), output);
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), before, 'hook conflict must remain untouched');
+    assert.ok(!fs.existsSync(path.join(dir, 'scripts/hooks/harness-entry-banner.js')), 'no managed file may be written');
+    for (const file of sentinels) {
+      assert.strictEqual(fs.readFileSync(file, 'utf8'), sentinelBytes.get(file), `skill changed before preflight: ${file}`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function testUpdateValidatesEveryManifestEntryAndForceDiscardsOverrides() {
+  const missingDir = tmpProject();
+  const equalDir = tmpProject();
+  const unknownDir = tmpProject();
+  const forceDir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  try {
+    const rel = 'scripts/hooks/find-root.js';
+    const source = path.join(KIT_ROOT, rel);
+    const blob = spawnSync('git', ['-C', KIT_ROOT, 'hash-object', source], { encoding: 'utf8' }).stdout.trim();
+    assert.ok(blob);
+
+    fs.rmSync(path.join(missingDir, rel));
+    fs.writeFileSync(path.join(missingDir, '.harness/shk-overrides.v1'), `${blob} ${rel}\n`);
+    const missingSkill = path.join(missingDir, '.codex/skills/auto-harness-qa/SKILL.md');
+    fs.mkdirSync(path.dirname(missingSkill), { recursive: true });
+    fs.writeFileSync(missingSkill, 'missing-target-sentinel\n');
+    const missing = runBash(UPDATE_SH, ['--hooks', missingDir], { cwd: KIT_ROOT, env: { HOME: home } });
+    assert.notStrictEqual(missing.status, 0, missing.stdout + missing.stderr);
+    assert.ok((missing.stdout + missing.stderr).includes('override target missing'));
+    assert.ok(!fs.existsSync(path.join(missingDir, rel)), 'current-blob missing target must remain missing');
+    assert.strictEqual(fs.readFileSync(missingSkill, 'utf8'), 'missing-target-sentinel\n', 'manifest preflight must precede skill writes');
+    assert.ok(!fs.existsSync(path.join(missingDir, 'scripts/hooks/harness-entry-banner.js')), 'manifest preflight must precede project writes');
+
+    fs.writeFileSync(path.join(equalDir, '.harness/shk-overrides.v1'), `${blob} ${rel}\n`);
+    const equalBefore = fs.readFileSync(path.join(equalDir, rel), 'utf8');
+    const equalSkill = path.join(equalDir, '.claude/skills/auto-harness-qa/SKILL.md');
+    fs.mkdirSync(path.dirname(equalSkill), { recursive: true });
+    fs.writeFileSync(equalSkill, 'equal-target-sentinel\n');
+    const equal = runBash(UPDATE_SH, ['--hooks', equalDir], { cwd: KIT_ROOT, env: { HOME: home } });
+    assert.notStrictEqual(equal.status, 0, equal.stdout + equal.stderr);
+    assert.ok((equal.stdout + equal.stderr).includes('override target equals upstream'));
+    assert.strictEqual(fs.readFileSync(path.join(equalDir, rel), 'utf8'), equalBefore);
+    assert.strictEqual(fs.readFileSync(equalSkill, 'utf8'), 'equal-target-sentinel\n', 'manifest preflight must precede skill writes');
+    assert.ok(!fs.existsSync(path.join(equalDir, 'scripts/hooks/harness-entry-banner.js')), 'manifest preflight must precede project writes');
+
+    fs.writeFileSync(path.join(unknownDir, '.harness/shk-overrides.v1'), `${blob} scripts/hooks/not-managed.js\n`);
+    const unknown = runBash(UPDATE_SH, ['--hooks-only', unknownDir], { cwd: KIT_ROOT, env: { HOME: home } });
+    assert.notStrictEqual(unknown.status, 0, unknown.stdout + unknown.stderr);
+    assert.ok((unknown.stdout + unknown.stderr).includes('非 SHK 受管路径'));
+
+    fs.appendFileSync(path.join(forceDir, rel), '\n// reviewed override discarded by force\n');
+    fs.writeFileSync(path.join(forceDir, '.harness/shk-overrides.v1'), `${blob} ${rel}\n`);
+    const forced = runBash(UPDATE_SH, ['--hooks-only', forceDir, '--force-overwrite'], { cwd: KIT_ROOT, env: { HOME: home } });
+    assert.strictEqual(forced.status, 0, forced.stdout + forced.stderr);
+    assert.strictEqual(fs.readFileSync(path.join(forceDir, rel), 'utf8'), fs.readFileSync(source, 'utf8'));
+    assert.ok(!fs.existsSync(path.join(forceDir, '.harness/shk-overrides.v1')), 'force must delete obsolete override manifest');
+  } finally {
+    for (const dir of [missingDir, equalDir, unknownDir, forceDir, home]) fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testUpgradeAcceptsLinkedWorktreeMarker() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-worktree-'));
+  const home = path.join(root, 'home');
+  const primary = path.join(root, 'primary');
+  const linked = path.join(root, 'linked');
+  const cwd = path.join(root, 'consumer');
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(cwd, { recursive: true });
+  try {
+    let res = spawnSync('git', ['clone', '--quiet', '--no-hardlinks', KIT_ROOT, primary], { encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const sha = spawnSync('git', ['-C', primary, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+    res = spawnSync('git', ['-C', primary, 'worktree', 'add', '--quiet', '--detach', linked, sha], { encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    assert.ok(fs.statSync(path.join(linked, '.git')).isFile(), 'fixture must be a linked worktree');
+    fs.writeFileSync(path.join(home, '.simple-harness-kit-root'), linked + '\n');
+
+    const upgraded = runBash(UPGRADE_SH, ['--ref', sha], { cwd, env: { HOME: home } });
+    const output = `${upgraded.stdout || ''}${upgraded.stderr || ''}`;
+    assert.strictEqual(upgraded.status, 0, output);
+    assert.ok(output.includes(`[shk-upgrade] kit 位置: ${linked}`), output);
+    assert.ok(!fs.existsSync(path.join(home, 'simple-harness-kit')), 'valid linked worktree must not fall back or clone');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testUpgradeRejectsUntrackedKitSource() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-upgrade-untracked-'));
+  const home = path.join(root, 'home');
+  const kit = path.join(root, 'kit');
+  const cwd = path.join(root, 'consumer');
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(cwd, { recursive: true });
+  try {
+    let res = spawnSync('git', ['clone', '--quiet', '--no-hardlinks', KIT_ROOT, kit], { encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const sha = spawnSync('git', ['-C', kit, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+    fs.writeFileSync(path.join(home, '.simple-harness-kit-root'), kit + '\n');
+    const injected = path.join(kit, 'skills/auto-harness-qa/UNTRACKED-INJECTION.md');
+    fs.writeFileSync(injected, 'must never reach installed skills\n');
+
+    const upgraded = runBash(UPGRADE_SH, ['--ref', sha], { cwd, env: { HOME: home } });
+    const output = `${upgraded.stdout || ''}${upgraded.stderr || ''}`;
+    assert.notStrictEqual(upgraded.status, 0, output);
+    assert.ok(output.includes('未提交改动'), output);
+    assert.ok(fs.existsSync(injected), 'upgrade must stop before checkout or cleanup');
+    assert.ok(!fs.existsSync(path.join(home, '.codex/skills/auto-harness-qa/UNTRACKED-INJECTION.md')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testUpdateManagedTargetsNeverFollowSymlinks() {
+  const dir = tmpProject();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-outside-'));
+  const cases = [
+    ['scripts/hooks/find-root.js', 'hook-outside.js'],
+    ['scripts/lib/evidence-attestation.js', 'lib-outside.js'],
+    ['scripts/shk.js', 'cli-outside.js'],
+  ];
+  try {
+    for (const [rel, externalName] of cases) {
+      const target = path.join(dir, rel);
+      const external = path.join(outside, externalName);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(external, `outside sentinel for ${rel}\n`);
+      fs.rmSync(target, { force: true });
+      fs.symlinkSync(external, target);
+    }
+    const before = new Map(cases.map(([rel, externalName]) => [rel, fs.readFileSync(path.join(outside, externalName))]));
+
+    const blocked = runBash(UPDATE_SH, ['--hooks-only', dir], { cwd: KIT_ROOT, env: { HOME: home } });
+    const output = `${blocked.stdout || ''}${blocked.stderr || ''}`;
+    assert.notStrictEqual(blocked.status, 0, output);
+    assert.ok(output.includes('symlink/type-change'), output);
+    for (const [rel, externalName] of cases) {
+      assert.ok(fs.lstatSync(path.join(dir, rel)).isSymbolicLink(), `${rel} must remain a symlink after blocked update`);
+      assert.deepStrictEqual(fs.readFileSync(path.join(outside, externalName)), before.get(rel), `${rel} external target changed`);
+    }
+
+    const forced = runBash(UPDATE_SH, ['--hooks-only', dir, '--force-overwrite'], { cwd: KIT_ROOT, env: { HOME: home } });
+    assert.strictEqual(forced.status, 0, forced.stderr || forced.stdout);
+    for (const [rel, externalName] of cases) {
+      assert.ok(fs.lstatSync(path.join(dir, rel)).isFile(), `${rel} force must replace the symlink itself`);
+      assert.deepStrictEqual(fs.readFileSync(path.join(outside, externalName)), before.get(rel), `${rel} force followed the symlink`);
+      assert.strictEqual(fs.readFileSync(path.join(dir, rel), 'utf8'), fs.readFileSync(path.join(KIT_ROOT, rel), 'utf8'));
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+}
+
+function testUpdateRejectsSymlinkParentsAndDirectoryTargetsEvenWithForce() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-parent-outside-'));
+  const parentCases = ['scripts', 'scripts/hooks', 'scripts/lib', '.harness'];
+  try {
+    for (const [idx, rel] of parentCases.entries()) {
+      const dir = tmpProject();
+      const outside = path.join(outsideRoot, `case-${idx}`);
+      fs.mkdirSync(outside, { recursive: true });
+      const target = path.join(dir, rel);
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.symlinkSync(outside, target, 'dir');
+      const before = fs.readdirSync(outside);
+      for (const args of [
+        ['--hooks-only', dir],
+        ['--hooks-only', dir, '--force-overwrite'],
+      ]) {
+        const res = runBash(UPDATE_SH, args, { cwd: KIT_ROOT, env: { HOME: home } });
+        const output = `${res.stdout || ''}${res.stderr || ''}`;
+        assert.notStrictEqual(res.status, 0, `${rel}: ${output}`);
+        assert.ok(output.includes('parent symlink/type-change'), `${rel}: ${output}`);
+        assert.ok(fs.lstatSync(target).isSymbolicLink(), `${rel} parent symlink must remain intact`);
+        assert.deepStrictEqual(fs.readdirSync(outside), before, `${rel} wrote outside project`);
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    const dir = tmpProject();
+    try {
+      const leaves = [
+        'scripts/hooks/find-root.js',
+        'scripts/lib/evidence-attestation.js',
+        'scripts/run-guarded.sh',
+        'scripts/shk.js',
+      ];
+      for (const rel of leaves) {
+        const target = path.join(dir, rel);
+        fs.rmSync(target, { recursive: true, force: true });
+        fs.mkdirSync(target, { recursive: true });
+      }
+      for (const args of [
+        ['--hooks-only', dir],
+        ['--hooks-only', dir, '--force-overwrite'],
+      ]) {
+        const res = runBash(UPDATE_SH, args, { cwd: KIT_ROOT, env: { HOME: home } });
+        const output = `${res.stdout || ''}${res.stderr || ''}`;
+        assert.notStrictEqual(res.status, 0, output);
+        assert.ok(output.includes('非普通文件受管目标'), output);
+        for (const rel of leaves) {
+          const target = path.join(dir, rel);
+          assert.ok(fs.lstatSync(target).isDirectory(), `${rel} directory target was replaced/followed`);
+          assert.deepStrictEqual(fs.readdirSync(target), [], `${rel} contains leaked temporary files`);
+        }
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+}
+
+function testUpgradeStopsBeforeFetchWhenKitStatusUnavailable() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-upgrade-status-'));
+  const home = path.join(root, 'home');
+  const kit = path.join(root, 'kit');
+  const cwd = path.join(root, 'consumer');
+  const bin = path.join(root, 'bin');
+  const log = path.join(root, 'git.log');
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(cwd, { recursive: true });
+  fs.mkdirSync(bin, { recursive: true });
+  try {
+    let res = spawnSync('git', ['clone', '--quiet', '--no-hardlinks', KIT_ROOT, kit], { encoding: 'utf8' });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+    fs.writeFileSync(path.join(home, '.simple-harness-kit-root'), kit + '\n');
+    const wrapper = path.join(bin, 'git');
+    fs.writeFileSync(wrapper, `#!/bin/bash\nif [[ " $* " == *" status --porcelain=v1 --untracked-files=normal "* ]]; then echo status-failed >> "${log}"; exit 1; fi\nif [[ " $* " == *" fetch "* ]]; then echo fetch-reached >> "${log}"; exit 42; fi\nexec "${realGit}" "$@"\n`);
+    fs.chmodSync(wrapper, 0o755);
+    const upgraded = runBash(UPGRADE_SH, ['--ref', 'master'], {
+      cwd, env: { HOME: home, PATH: `${bin}:${process.env.PATH}` }
+    });
+    const output = `${upgraded.stdout || ''}${upgraded.stderr || ''}`;
+    assert.notStrictEqual(upgraded.status, 0, output);
+    assert.ok(output.includes('无法验证 kit 工作区状态'), output);
+    const calls = fs.readFileSync(log, 'utf8');
+    assert.ok(calls.includes('status-failed'), calls);
+    assert.ok(!calls.includes('fetch-reached'), calls);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testDeliveryAndStageReadersRejectStaleCandidateEvidence() {
+  const setup = () => {
+    const dir = tmpProject();
+    ensureGitRepo(dir);
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'VERIFY', since: new Date(Date.now() - 5000).toISOString(), task: 'stale reader binding'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/stage-history.jsonl'),
+      JSON.stringify({ stage: 'EXECUTE', t: new Date(Date.now() - 4000).toISOString() }) + '\n' +
+      JSON.stringify({ stage: 'VERIFY', t: new Date(Date.now() - 3000).toISOString() }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir), null, 2) + '\n');
+    fs.appendFileSync(path.join(dir, 'README.md'), 'candidate changed after evidence\n');
+    return dir;
+  };
+
+  const deliveryDir = setup();
+  try {
+    fs.writeFileSync(path.join(deliveryDir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'stale delivery binding'
+    }) + '\n');
+    const res = runNode(DELIVERY_GATE, [], {
+      cwd: deliveryDir,
+      input: JSON.stringify({ last_assistant_message: '修改完成，请验收。' })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('GIT_CANDIDATE_MISMATCH'), res.stderr);
+  } finally { fs.rmSync(deliveryDir, { recursive: true, force: true }); }
+
+  const stageDir = setup();
+  try {
+    const input = JSON.stringify({
+      hook_event_name: 'PreToolUse', tool_name: 'Write',
+      tool_input: {
+        file_path: path.join(stageDir, '.harness/current-stage.json'),
+        content: JSON.stringify({ stage: 'REVIEW', since: 'now', task: 'stale stage binding' })
+      }
+    });
+    const res = runNode(STAGE_GUARD, [], { cwd: stageDir, input });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const out = JSON.parse(res.stdout);
+    const reason = out.hookSpecificOutput && out.hookSpecificOutput.permissionDecisionReason || '';
+    assert.strictEqual(out.hookSpecificOutput.permissionDecision, 'deny');
+    assert.ok(reason.includes('GIT_CANDIDATE_MISMATCH'), reason);
+  } finally { fs.rmSync(stageDir, { recursive: true, force: true }); }
+}
+
 function testUpdateHooksOnlySkipsPersonalSkills() {
   const dir = tmpProject();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
@@ -457,20 +911,178 @@ function testUpdateHooksOnlySkipsPersonalSkills() {
   }
 }
 
+
+function testUpdateUsesExplicitProjectForLocalSkills() {
+  const project = tmpProject();
+  const caller = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-caller-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  try {
+    const rel = 'auto-harness-qa/SKILL.md';
+    const projectSkill = path.join(project, '.claude/skills', rel);
+    const homeSkill = path.join(home, '.codex/skills', rel);
+    const callerSkill = path.join(caller, '.claude/skills', rel);
+    for (const file of [projectSkill, homeSkill, callerSkill]) fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(projectSkill, 'project sentinel\n');
+    fs.writeFileSync(homeSkill, 'home sentinel\n');
+    fs.writeFileSync(callerSkill, 'caller sentinel\n');
+
+    const blocked = runBash(UPDATE_SH, ['--hooks', project], { cwd: caller, env: { HOME: home } });
+    const blockedOutput = `${blocked.stdout || ''}${blocked.stderr || ''}`;
+    assert.notStrictEqual(blocked.status, 0, blockedOutput);
+    assert.ok(blockedOutput.includes('skill 定制'), blockedOutput);
+    assert.ok(blockedOutput.includes(projectSkill), blockedOutput);
+    assert.ok(blockedOutput.includes(homeSkill), blockedOutput);
+    assert.strictEqual(fs.readFileSync(projectSkill, 'utf8'), 'project sentinel\n');
+    assert.strictEqual(fs.readFileSync(homeSkill, 'utf8'), 'home sentinel\n');
+    assert.strictEqual(fs.readFileSync(callerSkill, 'utf8'), 'caller sentinel\n');
+    assert.ok(!fs.existsSync(path.join(project, 'scripts/hooks/harness-entry-banner.js')), 'skill conflict must block before project writes');
+
+    const forced = runBash(UPDATE_SH, ['--hooks', project, '--force-overwrite'], { cwd: caller, env: { HOME: home } });
+    assert.strictEqual(forced.status, 0, forced.stderr || forced.stdout);
+    const upstream = fs.readFileSync(path.join(KIT_ROOT, 'skills', rel), 'utf8');
+    assert.strictEqual(fs.readFileSync(projectSkill, 'utf8'), upstream, 'explicit project skill should update after force');
+    assert.strictEqual(fs.readFileSync(homeSkill, 'utf8'), upstream, 'HOME skill should update after force');
+    assert.strictEqual(fs.readFileSync(callerSkill, 'utf8'), 'caller sentinel\n', 'unrelated caller cwd skills must remain untouched');
+  } finally {
+    fs.rmSync(project, { recursive: true, force: true });
+    fs.rmSync(caller, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function testUpdateSkillOnlyRejectsCustomizationBeforeRemoval() {
+  const caller = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-skill-only-caller-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-skill-only-home-'));
+  try {
+    const homeSkill = path.join(home, '.codex/skills/auto-harness-qa');
+    const localSkill = path.join(caller, '.claude/skills/auto-harness-qa');
+    for (const skill of [homeSkill, localSkill]) {
+      fs.mkdirSync(skill, { recursive: true });
+      fs.writeFileSync(path.join(skill, 'SKILL.md'), 'customized skill\n');
+      fs.writeFileSync(path.join(skill, 'LOCAL-NOTES.md'), 'must not be silently deleted\n');
+    }
+
+    const blocked = runBash(UPDATE_SH, [], { cwd: caller, env: { HOME: home } });
+    const output = `${blocked.stdout || ''}${blocked.stderr || ''}`;
+    assert.notStrictEqual(blocked.status, 0, output);
+    assert.ok(output.includes('skill 定制'), output);
+    assert.ok(output.includes(path.join(homeSkill, 'SKILL.md')), output);
+    assert.ok(output.includes(path.join(localSkill, 'LOCAL-NOTES.md')), output);
+    for (const skill of [homeSkill, localSkill]) {
+      assert.strictEqual(fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8'), 'customized skill\n');
+      assert.strictEqual(fs.readFileSync(path.join(skill, 'LOCAL-NOTES.md'), 'utf8'), 'must not be silently deleted\n');
+    }
+
+    const forced = runBash(UPDATE_SH, ['--force-overwrite'], { cwd: caller, env: { HOME: home } });
+    assert.strictEqual(forced.status, 0, forced.stderr || forced.stdout);
+    const upstream = fs.readFileSync(path.join(KIT_ROOT, 'skills/auto-harness-qa/SKILL.md'), 'utf8');
+    for (const skill of [homeSkill, localSkill]) {
+      assert.strictEqual(fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8'), upstream);
+      assert.ok(!fs.existsSync(path.join(skill, 'LOCAL-NOTES.md')), 'force must be the only destructive skill overwrite path');
+    }
+  } finally {
+    fs.rmSync(caller, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
 function testUpdateHooksReportsCodexGenerationFailure() {
   const dir = tmpProject();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+  const successDir = tmpProject();
+  const successHome = fs.mkdtempSync(path.join(os.tmpdir(), 'shk-home-'));
+
+  function byteSnapshot(target) {
+    if (!fs.existsSync(target)) return { type: 'absent' };
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink()) return { type: 'symlink', value: fs.readlinkSync(target) };
+    if (stat.isFile()) {
+      return { type: 'file', bytes: fs.readFileSync(target).toString('base64') };
+    }
+    assert.ok(stat.isDirectory(), `unsupported fixture path type: ${target}`);
+    return {
+      type: 'directory',
+      entries: fs.readdirSync(target).sort().map(name => [name, byteSnapshot(path.join(target, name))]),
+    };
+  }
+
   try {
     writeCodexHookConfig(dir, '{ invalid json\n');
-    const res = runBash(UPDATE_SH, ['--skip-skills', '--hooks', dir], { cwd: KIT_ROOT, env: { HOME: home } });
+    fs.writeFileSync(path.join(dir, '.codex/hooks.json'), '{"hooks":{"sentinel":"before"}}\n');
+
+    const skillRoots = [
+      path.join(home, '.claude/skills'),
+      path.join(home, '.codex/skills'),
+      path.join(dir, '.claude/skills'),
+      path.join(dir, '.codex/skills'),
+    ];
+    for (const [index, root] of skillRoots.entries()) {
+      const skillFile = path.join(root, 'auto-harness-qa/SKILL.md');
+      fs.mkdirSync(path.dirname(skillFile), { recursive: true });
+      fs.writeFileSync(skillFile, Buffer.from([0x73, 0x6b, 0x69, 0x6c, 0x6c, index, 0xff]));
+    }
+
+    fs.writeFileSync(path.join(dir, 'scripts/hooks/find-root.js'), Buffer.from([0x68, 0x6f, 0x6f, 0x6b, 0x00, 0xff]));
+    fs.mkdirSync(path.join(dir, 'scripts/lib'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'scripts/lib/spec-quality.js'), Buffer.from([0x6c, 0x69, 0x62, 0x00, 0xff]));
+    fs.writeFileSync(path.join(dir, 'scripts/run-guarded.sh'), Buffer.from([0x72, 0x75, 0x6e, 0x6e, 0x65, 0x72, 0x00, 0xff]));
+    fs.writeFileSync(path.join(dir, 'scripts/shk.js'), Buffer.from([0x63, 0x6c, 0x69, 0x00, 0xff]));
+    const marker = path.join(home, '.simple-harness-kit-root');
+    fs.writeFileSync(marker, Buffer.from([0x6d, 0x61, 0x72, 0x6b, 0x65, 0x72, 0x00, 0xff]));
+
+    const protectedPaths = new Map([
+      ['HOME Claude skills', skillRoots[0]],
+      ['HOME Codex skills', skillRoots[1]],
+      ['local Claude skills', skillRoots[2]],
+      ['local Codex skills', skillRoots[3]],
+      ['project hooks', path.join(dir, 'scripts/hooks')],
+      ['project lib', path.join(dir, 'scripts/lib')],
+      ['project runner', path.join(dir, 'scripts/run-guarded.sh')],
+      ['project CLI', path.join(dir, 'scripts/shk.js')],
+      ['project Codex config', path.join(dir, '.codex')],
+      ['HOME kit-root marker', marker],
+    ]);
+    const before = new Map([...protectedPaths].map(([label, target]) => [label, byteSnapshot(target)]));
+
+    const res = runBash(UPDATE_SH, ['--hooks', dir, '--force-overwrite'], { cwd: dir, env: { HOME: home } });
     const output = `${res.stdout || ''}${res.stderr || ''}`;
     assert.notStrictEqual(res.status, 0, output);
     assert.ok(output.includes('Codex hooks 同步失败'), output);
+    assert.ok(output.includes('目标文件保持不变'), output);
     assert.ok(output.includes('.codex/hooks.json'), output);
     assert.ok(output.includes('scripts/generate-codex-hooks.js'), output);
+    for (const [label, target] of protectedPaths) {
+      assert.deepStrictEqual(byteSnapshot(target), before.get(label), `${label} changed before generator validation`);
+    }
+
+    writeCodexHookConfig(successDir);
+    const successTarget = path.join(successDir, '.codex/hooks.json');
+    fs.writeFileSync(successTarget, '{"hooks":{"sentinel":"old"}}\n');
+    fs.chmodSync(successTarget, 0o640);
+    const beforeStat = fs.statSync(successTarget);
+    const expected = spawnSync(process.execPath, [
+      path.join(KIT_ROOT, 'scripts/generate-codex-hooks.js'),
+      '--input', path.join(successDir, '.claude/settings.json'),
+    ], { encoding: 'utf8' });
+    assert.strictEqual(expected.status, 0, expected.stderr || expected.stdout);
+
+    const installed = runBash(UPDATE_SH, ['--hooks-only', successDir], {
+      cwd: KIT_ROOT, env: { HOME: successHome }
+    });
+    assert.strictEqual(installed.status, 0, installed.stderr || installed.stdout);
+    assert.strictEqual(fs.readFileSync(successTarget, 'utf8'), expected.stdout, 'validated temp output must be installed');
+    const afterStat = fs.statSync(successTarget);
+    assert.notStrictEqual(afterStat.ino, beforeStat.ino, 'hooks.json must be replaced by same-directory rename');
+    assert.strictEqual(afterStat.mode & 0o777, beforeStat.mode & 0o777, 'atomic install must preserve target permissions');
+    assert.ok(
+      !fs.readdirSync(path.dirname(successTarget)).some(name => name.startsWith('.hooks.json.shk.')),
+      'successful install must not leave generator temp files'
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(successDir, { recursive: true, force: true });
+    fs.rmSync(successHome, { recursive: true, force: true });
   }
 }
 
@@ -1010,24 +1622,28 @@ function testSkillTextsRequireAIWorkflowQualityE2ELoop() {
   }
 }
 
-function readyAttestedEvidence() {
-  return evidenceAttestation.attestEvidence({
+function readyAttestedEvidence(dir = null, overrides = {}) {
+  if (dir) ensureGitRepo(dir);
+  const baseChecks = {
+    build: { status: 'PASS' }, tests: { status: 'PASS' },
+    diff: { status: 'PASS' }, security: { status: 'PASS' }
+  };
+  const evidence = {
     schema_version: '1.0', risk: 'low', stage: 'VERIFY', overall: 'READY',
     started_at: new Date(Date.now() - 2000).toISOString(),
     completed_at: new Date(Date.now() - 1000).toISOString(),
-    checks: {
-      build: { status: 'PASS' }, tests: { status: 'PASS' },
-      diff: { status: 'PASS' }, security: { status: 'PASS' }
-    },
+    ...overrides,
+    checks: { ...baseChecks, ...(overrides.checks || {}) },
     provenance: {
-      git: { available: false, commit: null, tree: null, dirty: null },
+      git: dir ? evidenceAttestation.readGitIdentity(dir) : { available: false, commit: null, tree: null, dirty: null, candidate_digest: null },
       mode: 'full'
     }
-  }, { issuer: { type: 'shk-cli', name: 'quality-test' }, trust_level: 'local-self' });
+  };
+  return evidenceAttestation.attestEvidence(evidence, { issuer: { type: 'shk-cli', name: 'quality-test' }, trust_level: 'local-self' });
 }
 
 function writeTamperedReadyEvidence(dir) {
-  const evidence = readyAttestedEvidence();
+  const evidence = readyAttestedEvidence(dir);
   evidence.tampered_after_attestation = true;
   fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
 }
@@ -1081,6 +1697,355 @@ function testVerificationGateRejectsTamperedReadyEvidence() {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
+function testVerificationGatePushUsesTrustedStructuredEvidence() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'push evidence test'
+    }) + '\n');
+
+    writeTamperedReadyEvidence(dir);
+    let res = runNode(VERIFY_GATE, [], {
+      cwd: dir,
+      input: JSON.stringify({ tool_input: { command: 'git push origin master' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('ATTESTATION_DIGEST_INVALID'), res.stderr);
+
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir), null, 2) + '\n');
+    res = runNode(VERIFY_GATE, [], {
+      cwd: dir,
+      input: JSON.stringify({ tool_input: { command: 'git push origin master' } })
+    });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateRejectsLegacyEvidenceForAllDeliveryCommands() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'legacy delivery test'
+    }) + '\n');
+    ensureGitRepo(dir);
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
+      schema_version: '1.0', risk: 'release', overall: 'READY', checks: {
+        tests: { status: 'PASS' }, e2e: { status: 'PASS' },
+        e2e_sufficiency: { status: 'PASS', overall: 'READY' }, runtime: { status: 'PASS' }
+      }
+    }) + '\n');
+    for (const command of ['git commit -m legacy', 'git push origin master', 'git tag v1.2.3']) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 2, `${command}: ${res.stderr || res.stdout}`);
+      assert.ok(res.stderr.includes('ATTESTATION_MISSING'), `${command}: ${res.stderr}`);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateRecognizesGitGlobalOptionsAndShellWrapper() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'global option parser test'
+    }) + '\n');
+    ensureGitRepo(dir);
+    const commands = [
+      'git -C . commit -m global-option',
+      'git -c user.name=test push origin master',
+      '/usr/bin/git --git-dir=.git tag v1.2.3',
+      "bash -c 'git commit -m nested'",
+      "bash -lc 'git commit -m login-shell'",
+      'env -u HOME git commit -m env-unset',
+      'env -C . git push origin master',
+      'sudo -u root git push origin master',
+      'echo `git commit -m substitution`',
+    ];
+    for (const command of commands) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 2, `${command}: ${res.stderr || res.stdout}`);
+      assert.ok(res.stderr.includes('未找到验证报告'), `${command}: ${res.stderr}`);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateRejectsParserBypassesAndUnboundTargets() {
+  const dir = tmpProject();
+  try {
+    ensureGitRepo(dir);
+    fs.appendFileSync(path.join(dir, 'README.md'), 'current candidate\n');
+    let git = spawnSync('git', ['add', 'README.md'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(git.status, 0, git.stderr || git.stdout);
+    git = spawnSync('git', ['commit', '-q', '-m', 'current candidate'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(git.status, 0, git.stderr || git.stdout);
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'parser and target binding test'
+    }) + '\n');
+
+    const recognizedWithoutEvidence = [
+      'echo "$(git push origin master)"',
+      'env -P /usr/bin git commit -m env-path',
+      'sudo -R / git push origin master',
+      "bash -lc 'env -P /usr/bin sudo -R / git commit -m nested'",
+    ];
+    for (const command of recognizedWithoutEvidence) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 2, `${command}: ${res.stderr || res.stdout}`);
+      assert.ok(res.stderr.includes('未找到验证报告'), `${command}: ${res.stderr}`);
+    }
+
+    const ambiguousCommands = [
+      '$(printf git) commit -m dynamic',
+      '`printf git` commit -m dynamic',
+      'git $(printf commit) -m dynamic',
+      'git "$(printf commit)" -m dynamic',
+      'git `printf push` origin HEAD:refs/heads/dynamic',
+      '$(printf "git commit") -m dynamic',
+      '`printf "git push"` origin HEAD:refs/heads/dynamic',
+      'git tag v-dynamic $(printf HEAD)',
+      'git push origin $(printf HEAD):refs/heads/dynamic',
+      'git -C "$(pwd)" commit -m dynamic-root',
+      'env -C "$(pwd)" git commit -m dynamic-wrapper-root',
+      'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0=$(printf push) git x origin HEAD:refs/heads/dynamic',
+      'cmd=git; "$cmd" commit -m dynamic-variable-executable',
+      'sub=commit; git "$sub" -m dynamic-variable-subcommand',
+      'wrapper=env; "$wrapper" git push origin HEAD:refs/heads/dynamic',
+      'dest=origin; git push "$dest" HEAD:refs/heads/dynamic',
+      "bash $(printf %s -c) 'git push origin HEAD:refs/heads/dynamic'",
+      "sh $(printf %s -c) 'git commit -m dynamic-shell-option'",
+      "eval \"$(printf 'git commit -m dynamic-eval')\"",
+      "source <(printf 'git push origin HEAD:refs/heads/dynamic')",
+      'echo `echo \\`git push origin HEAD:refs/heads/dynamic\\``',
+      'git -c alias.cm=commit cm -m alias-bypass',
+      "git -c alias.x='!git push origin HEAD' x",
+      'time git commit -m wrapper-bypass',
+      'nice git commit -m wrapper-bypass',
+      'timeout 10 git commit -m wrapper-bypass',
+      'exec git commit -m wrapper-bypass',
+      'stdbuf -o0 git commit -m wrapper-bypass',
+      'busybox git commit -m wrapper-bypass',
+      '{ git commit -m control-bypass; }',
+      'if true; then git commit -m control-bypass; fi',
+      'for x in 1; do git commit -m control-bypass; done',
+      'while true; do git commit -m control-bypass; break; done',
+      'hash -p /usr/bin/git g; g commit -m renamed-executable',
+      "sh -c 'git -c alias.cm=commit cm -m nested-alias'",
+      '/usr/bin/g?t commit -m glob-executable',
+      'git co\\\nmmit -m continued-subcommand',
+      'git commit>/tmp/shk-redirection-test -m redirected',
+    ];
+    for (const command of ambiguousCommands) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 2, `${command}: ${res.stderr || res.stdout}`);
+      assert.ok(res.stderr.includes('GIT_DELIVERY_COMMAND_AMBIGUOUS'), `${command}: ${res.stderr}`);
+    }
+
+    const legalNestedSubstitution = 'echo $(echo "$(printf ok)")';
+    const legal = runNode(VERIFY_GATE, [], {
+      cwd: dir, input: JSON.stringify({ tool_input: { command: legalNestedSubstitution } })
+    });
+    assert.strictEqual(legal.status, 0, `${legalNestedSubstitution}: ${legal.stderr || legal.stdout}`);
+
+    // Commit checks require the complete verified candidate to be staged. Earlier
+    // negative checks intentionally created gate-event telemetry, so stage it before
+    // signing the positive-path evidence.
+    git = spawnSync('git', ['add', '-A'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(git.status, 0, git.stderr || git.stdout);
+    const evidence = readyAttestedEvidence(dir, { risk: 'medium', checks: {
+      tests: { status: 'PASS' },
+      e2e: { status: 'PASS' },
+      e2e_sufficiency: { status: 'PASS', overall: 'READY' },
+    } });
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+
+    // These spellings must remain fail-closed even when the candidate has valid,
+    // current evidence; otherwise parser ambiguity is silently authorized.
+    for (const command of [
+      'git co\\\nmmit -m continued-with-valid-evidence',
+      'git commit>/tmp/shk-redirection-valid-evidence -m redirected',
+    ]) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 2, `${command}: ${res.stderr || res.stdout}`);
+      assert.ok(res.stderr.includes('GIT_DELIVERY_COMMAND_AMBIGUOUS'), `${command}: ${res.stderr}`);
+    }
+
+    git = spawnSync('git', ['config', 'alias.ci', 'commit'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(git.status, 0, git.stderr || git.stdout);
+    const persistentAlias = runNode(VERIFY_GATE, [], {
+      cwd: dir, input: JSON.stringify({ tool_input: { command: 'git ci -m persistent-alias' } })
+    });
+    assert.strictEqual(persistentAlias.status, 2, persistentAlias.stderr || persistentAlias.stdout);
+    assert.ok(persistentAlias.stderr.includes('GIT_DELIVERY_COMMAND_AMBIGUOUS'), persistentAlias.stderr);
+
+    const targetFailures = [
+      ['git tag v-old HEAD~1', 'GIT_DELIVERY_TARGET_MISMATCH'],
+      ['git push origin HEAD~1:refs/heads/unverified', 'GIT_DELIVERY_TARGET_MISMATCH'],
+      ['git push --all origin', 'GIT_DELIVERY_TARGET_UNBOUND'],
+      ['git push --mirror origin', 'GIT_DELIVERY_TARGET_UNBOUND'],
+      ['git merge feature', 'GIT_DELIVERY_RESULT_UNBOUND'],
+      ['git merge --no-ff feature', 'GIT_DELIVERY_RESULT_UNBOUND'],
+      ['git cherry-pick HEAD', 'GIT_DELIVERY_RESULT_UNBOUND'],
+      ['git rebase HEAD', 'GIT_DELIVERY_RESULT_UNBOUND'],
+      ['git revert HEAD', 'GIT_DELIVERY_RESULT_UNBOUND'],
+      ['git am patch.mbox', 'GIT_DELIVERY_RESULT_UNBOUND'],
+      ['git pull origin master', 'GIT_DELIVERY_RESULT_UNBOUND'],
+    ];
+    for (const [command, code] of targetFailures) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 2, `${command}: ${res.stderr || res.stdout}`);
+      assert.ok(res.stderr.includes(code), `${command}: ${res.stderr}`);
+    }
+
+    for (const command of [
+      "bash -lc 'git commit -m ok'",
+      'git -C . push origin master',
+      'git push origin master',
+    ]) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 0, `${command}: ${res.stderr || res.stdout}`);
+    }
+
+    const releaseEvidence = readyAttestedEvidence(dir, { risk: 'release', checks: {
+      tests: { status: 'PASS' },
+      e2e: { status: 'PASS' },
+      e2e_sufficiency: { status: 'PASS', overall: 'READY' },
+      runtime: { status: 'PASS' },
+    } });
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(releaseEvidence, null, 2) + '\n');
+    const tag = runNode(VERIFY_GATE, [], {
+      cwd: dir, input: JSON.stringify({ tool_input: { command: 'git tag v-current' } })
+    });
+    assert.strictEqual(tag.status, 0, tag.stderr || tag.stdout);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateAllowsReadOnlyTagListing() {
+  const dir = tmpProject();
+  try {
+    for (const command of ['git tag', 'git tag -l', 'git tag --list=v*', 'git tag -d old']) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 0, `${command}: ${res.stderr || res.stdout}`);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateBindsCurrentGitCandidate() {
+  const dir = tmpProject();
+  try {
+    writeStage(dir);
+    const evidence = readyAttestedEvidence(dir, { risk: 'medium', checks: {
+      e2e: { status: 'PASS' }, e2e_sufficiency: { status: 'PASS', overall: 'READY' }
+    } });
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+    fs.writeFileSync(path.join(dir, 'README.md'), '# changed after evidence\n');
+    const add = spawnSync('git', ['add', 'README.md'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(add.status, 0, add.stderr || add.stdout);
+    const res = runNode(VERIFY_GATE, [], {
+      cwd: dir, input: JSON.stringify({ tool_input: { command: 'git commit -m stale-candidate' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('GIT_CANDIDATE_MISMATCH'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateRejectsIndexWorktreeSplitCandidate() {
+  const dir = tmpProject();
+  try {
+    writeStage(dir, new Date(Date.now() - 5000).toISOString());
+    fs.writeFileSync(path.join(dir, 'README.md'), '# verified candidate B\n');
+    const evidence = readyAttestedEvidence(dir, { risk: 'medium', checks: {
+      e2e: { status: 'PASS' }, e2e_sufficiency: { status: 'PASS', overall: 'READY' }
+    } });
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+    let add = spawnSync('git', ['add', 'README.md'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(add.status, 0, add.stderr || add.stdout);
+    fs.writeFileSync(path.join(dir, 'README.md'), '# staged candidate C\n');
+    add = spawnSync('git', ['add', 'README.md'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(add.status, 0, add.stderr || add.stdout);
+    fs.writeFileSync(path.join(dir, 'README.md'), '# verified candidate B\n');
+
+    const current = evidenceAttestation.readGitIdentity(dir);
+    assert.strictEqual(current.candidate_digest, evidence.provenance.git.candidate_digest);
+    assert.strictEqual(current.index_matches_worktree, false);
+    const res = runNode(VERIFY_GATE, [], {
+      cwd: dir, input: JSON.stringify({ tool_input: { command: 'git commit -m split-index' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('GIT_INDEX_CANDIDATE_MISMATCH'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateBindsCurrentCommitAndTree() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'commit tree binding test'
+    }) + '\n');
+    let evidence = readyAttestedEvidence(dir, { risk: 'medium', checks: {
+      e2e: { status: 'PASS' }, e2e_sufficiency: { status: 'PASS', overall: 'READY' }
+    } });
+    evidence.provenance.git.commit = '0'.repeat(40);
+    evidence.provenance.git.tree = '1'.repeat(40);
+    evidence = evidenceAttestation.attestEvidence(evidence, {
+      issuer: { type: 'shk-cli', name: 'quality-test' }, trust_level: 'local-self'
+    });
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+    const res = runNode(VERIFY_GATE, [], {
+      cwd: dir, input: JSON.stringify({ tool_input: { command: 'git push origin master' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('GIT_COMMIT_MISMATCH') || res.stderr.includes('GIT_TREE_MISMATCH'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateFailsClosedOnMalformedInputAndVerifierCrash() {
+  let res = runNode(VERIFY_GATE, [], { cwd: tmpProject(), input: '{not-json' });
+  assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+  assert.ok(res.stderr.includes('INTERNAL_ERROR'), res.stderr);
+
+  const dir = tmpProject();
+  try {
+    writeStage(dir);
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir), null, 2) + '\n');
+    const preloader = path.join(dir, 'throw-evidence-attestation.js');
+    fs.writeFileSync(preloader, `
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function(request, parent, isMain) {
+  if (request === '../lib/evidence-attestation') {
+    return { readGitIdentity() { return { available: true, commit: 'a', tree: 'b', candidate_digest: 'sha256:c', index_matches_worktree: true, index_mismatch_paths: [] }; }, verifyEvidence() { throw new Error('injected verifier crash'); } };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+`);
+    res = runNode(VERIFY_GATE, [], {
+      cwd: dir,
+      env: { NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preloader}`].filter(Boolean).join(' ') },
+      input: JSON.stringify({ tool_input: { command: 'git commit -m crash' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('INTERNAL_ERROR') && res.stderr.includes('injected verifier crash'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testVerificationGateRejectsWeakEvidenceWithoutCurrentTask() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'legacy evidence test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/config.json'), JSON.stringify({
+      guard_mode: 'light', evidence: { require_attestation: true }
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, 'docs/verification-report.md'), '# fresh but weak READY report\n');
+    const res = runNode(VERIFY_GATE, [], {
+      cwd: dir,
+      input: JSON.stringify({ tool_input: { command: 'git commit -m weak' } })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('缺少结构化验证证据'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 function testStageGuardRejectsTamperedReadyEvidence() {
   const dir = tmpProject();
   try {
@@ -1118,6 +2083,45 @@ function testDoctorRejectsTamperedReadyEvidence() {
     assert.ok(check, 'doctor should report verify-evidence');
     assert.strictEqual(check.status, 'FAIL');
     assert.strictEqual(check.attestation_code, 'ATTESTATION_DIGEST_INVALID');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testDeliveryGateFailsClosedOnMalformedInputInvalidStageAndVerifierCrash() {
+  let dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({ stage: 'REVIEW', since: new Date().toISOString() }) + '\n');
+    let res = runNode(DELIVERY_GATE, [], { cwd: dir, input: '{not-json' });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('INTERNAL_ERROR'), res.stderr);
+
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), '{bad-stage');
+    res = runNode(DELIVERY_GATE, [], { cwd: dir, input: JSON.stringify({ last_assistant_message: '修改完成，请验收。' }) });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('INTERNAL_ERROR'), res.stderr);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+
+  dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'delivery verifier crash'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir), null, 2) + '\n');
+    const preloader = path.join(dir, 'throw-delivery-evidence-attestation.js');
+    fs.writeFileSync(preloader, `
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function(request, parent, isMain) {
+  if (request === '../lib/evidence-attestation') return { readGitIdentity() { return { available: true, commit: 'a'.repeat(40), tree: 'b'.repeat(40), candidate_digest: 'sha256:' + 'c'.repeat(64) }; }, verifyEvidence() { throw new Error('injected delivery verifier crash'); } };
+  return originalLoad.call(this, request, parent, isMain);
+};
+`);
+    const res = runNode(DELIVERY_GATE, [], {
+      cwd: dir,
+      env: { NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${preloader}`].filter(Boolean).join(' ') },
+      input: JSON.stringify({ last_assistant_message: '修改完成，请验收。' })
+    });
+    assert.strictEqual(res.status, 2, res.stderr || res.stdout);
+    assert.ok(res.stderr.includes('INTERNAL_ERROR') && res.stderr.includes('injected delivery verifier crash'), res.stderr);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
@@ -1187,6 +2191,35 @@ function testStageGuardFailsClosedWhenVerifierUnavailable() {
       tool_input: {
         file_path: path.join(dir, '.harness/current-stage.json'),
         content: JSON.stringify({ stage: 'REVIEW', since: 'now', task: 'missing verifier stage test' })
+      }
+    });
+    const res = runNode(STAGE_GUARD, [], { cwd: dir, env: verifierUnavailableEnv(dir), input });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+    const out = JSON.parse(res.stdout);
+    const reason = out.hookSpecificOutput && out.hookSpecificOutput.permissionDecisionReason || '';
+    assert.strictEqual(out.hookSpecificOutput.permissionDecision, 'deny');
+    assert.ok(reason.includes('ATTESTATION_VERIFIER_UNAVAILABLE'), reason);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+function testStageGuardLightModeStillFailsClosedWhenVerifierUnavailable() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/config.json'), JSON.stringify({
+      guard_mode: 'light', evidence: { require_attestation: true }
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'VERIFY', since: new Date(Date.now() - 5000).toISOString(), task: 'light verifier stage test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/stage-history.jsonl'),
+      JSON.stringify({ stage: 'EXECUTE', t: new Date().toISOString() }) + '\n' +
+      JSON.stringify({ stage: 'VERIFY', t: new Date().toISOString() }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(), null, 2) + '\n');
+    const input = JSON.stringify({
+      hook_event_name: 'PreToolUse', tool_name: 'Write',
+      tool_input: {
+        file_path: path.join(dir, '.harness/current-stage.json'),
+        content: JSON.stringify({ stage: 'REVIEW', since: 'now', task: 'light verifier stage test' })
       }
     });
     const res = runNode(STAGE_GUARD, [], { cwd: dir, env: verifierUnavailableEnv(dir), input });
@@ -1349,20 +2382,57 @@ function testStageGuardBlocksReviewWhenStructuredEvidenceNotReady() {
   }
 }
 
+function testStageGuardRequiresStructuredEvidenceWithoutCurrentTask() {
+  for (const mode of ['strict', 'light']) {
+    for (const fixture of ['markdown-only', 'malformed-json']) {
+      const dir = tmpProject();
+      try {
+        fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+          stage: 'EXECUTE', since: new Date(Date.now() - 5000).toISOString(), task: 'legacy review evidence test'
+        }) + '\n');
+        fs.writeFileSync(path.join(dir, '.harness/stage-history.jsonl'), [
+          JSON.stringify({ stage: 'EXECUTE', t: new Date(Date.now() - 4000).toISOString() }),
+          JSON.stringify({ stage: 'VERIFY', t: new Date(Date.now() - 3000).toISOString() }),
+        ].join('\n') + '\n');
+        fs.writeFileSync(path.join(dir, 'docs/verification-report.md'), '# Verification\n\nREADY\n');
+        if (fixture === 'malformed-json') {
+          fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), '{ invalid json\n');
+        }
+        const input = stageTransitionWriteInput(dir, {
+          stage: 'REVIEW', since: new Date().toISOString(), task: 'legacy review evidence test'
+        });
+        const res = runNode(STAGE_GUARD, [], {
+          cwd: dir,
+          env: { HARNESS_GUARD_MODE: mode },
+          input,
+        });
+        assert.strictEqual(res.status, 0, `${mode}/${fixture}: ${res.stderr || res.stdout}`);
+        const out = JSON.parse(res.stdout);
+        const decision = out.hookSpecificOutput || {};
+        assert.strictEqual(decision.permissionDecision, 'deny', `${mode}/${fixture}: ${res.stdout}`);
+        const reason = decision.permissionDecisionReason || '';
+        if (fixture === 'markdown-only') assert.ok(reason.includes('缺少权威结构化验证证据'), reason);
+        else assert.ok(reason.includes('STRUCTURED_EVIDENCE_INVALID'), reason);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+}
+
 function testVerificationGateRejectsReleaseTagWithoutE2ERuntimePass() {
   const dir = tmpProject();
   try {
     writeStage(dir);
-    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
-      schema_version: '1.0', risk: 'release', stage: 'VERIFY', overall: 'READY',
-      started_at: new Date().toISOString(), completed_at: new Date().toISOString(), checks: {
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir, {
+      risk: 'release', checks: {
         tests: { status: 'PASS', command: 'npm test' },
         e2e: { status: 'SKIP', reason: 'not configured' },
         runtime: { status: 'PASS', command: 'bash tests/codex-smoke.sh', degraded: true },
         clean_tree: { status: 'PASS', files: 0 },
         upstream: { status: 'PASS' }
       }
-    }) + '\n');
+    }), null, 2) + '\n');
     const input = JSON.stringify({ tool_input: { command: 'git tag -a v9.9.9 -m test' } });
     const res = runNode(VERIFY_GATE, [], { cwd: dir, input });
     assert.strictEqual(res.status, 2, res.stderr || res.stdout);
@@ -1376,14 +2446,13 @@ function testVerificationGateRejectsNotSufficientEvidence() {
   const dir = tmpProject();
   try {
     writeStage(dir);
-    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
-      schema_version: '1.0', risk: 'medium', stage: 'VERIFY', overall: 'NOT_SUFFICIENT',
-      started_at: new Date().toISOString(), completed_at: new Date().toISOString(), checks: {
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir, {
+      risk: 'medium', overall: 'NOT_SUFFICIENT', checks: {
         tests: { status: 'PASS', command: 'npm test' },
         e2e: { status: 'PASS', command: 'npm run test:e2e' },
         e2e_sufficiency: { status: 'FAIL', overall: 'NOT_SUFFICIENT' }
       }
-    }) + '\n');
+    }), null, 2) + '\n');
     const input = JSON.stringify({ tool_input: { command: 'git commit -m test' } });
     const res = runNode(VERIFY_GATE, [], { cwd: dir, input });
     assert.strictEqual(res.status, 2, res.stderr || res.stdout);
@@ -1397,16 +2466,15 @@ function testVerificationGateRejectsReleaseTagWithoutE2ESufficiency() {
   const dir = tmpProject();
   try {
     writeStage(dir);
-    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
-      schema_version: '1.0', risk: 'release', stage: 'VERIFY', overall: 'READY',
-      started_at: new Date().toISOString(), completed_at: new Date().toISOString(), checks: {
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(dir, {
+      risk: 'release', checks: {
         tests: { status: 'PASS', command: 'npm test' },
         e2e: { status: 'PASS', command: 'npm run test:e2e' },
         runtime: { status: 'PASS', command: 'bash tests/codex-smoke.sh' },
         clean_tree: { status: 'PASS', files: 0 },
         upstream: { status: 'PASS' }
       }
-    }) + '\n');
+    }), null, 2) + '\n');
     const input = JSON.stringify({ tool_input: { command: 'git tag -a v9.9.9 -m test' } });
     const res = runNode(VERIFY_GATE, [], { cwd: dir, input });
     assert.strictEqual(res.status, 2, res.stderr || res.stdout);
@@ -1509,6 +2577,18 @@ function testNormalizeReleaseCommandIgnoresNarrativeStatusWords() {
   });
   assert.strictEqual(res.status, 'PASS', `叙述性状态词不得降级 exit 0 的成功命令，实际 ${res.status}`);
   assert.strictEqual(res.release_required, true);
+}
+
+function testRuntimeResultClassUsesFinalStructuredMarker() {
+  const { runtimeResultClass } = require(path.join(KIT_ROOT, 'tests/runtime-result.js'));
+  assert.strictEqual(runtimeResultClass(
+    '期望 codex-smoke.sh FAIL 或显式 DEGRADED\n[shk-runtime-result] status=PASS\n'
+  ), 'passed', 'narrative DEGRADED must not override final PASS marker');
+  assert.strictEqual(runtimeResultClass(
+    '[shk-runtime-result] status=PASS\nmore output\n[shk-runtime-result] status=DEGRADED\n'
+  ), 'degraded', 'last structured marker must win');
+  assert.strictEqual(runtimeResultClass('[shk-runtime-result] status=SKIP\n'), 'skipped');
+  assert.strictEqual(runtimeResultClass('PASS: narrative only\n'), 'degraded', 'missing marker must fail closed');
 }
 
 function testNormalizeReleaseCommandDowngradesStructuredStatusMarkers() {
@@ -2174,13 +3254,26 @@ const tests = [
   testLoopStateDescribesBoundedAutoRepairForAI,
   testSkillTextsRequireAIWorkflowQualityE2ELoop,
   testDeliveryGateRejectsTamperedReadyEvidence,
+  testDeliveryAndStageReadersRejectStaleCandidateEvidence,
   testVerificationGateRejectsTamperedReadyEvidence,
+  testVerificationGatePushUsesTrustedStructuredEvidence,
+  testVerificationGateRejectsLegacyEvidenceForAllDeliveryCommands,
+  testVerificationGateRecognizesGitGlobalOptionsAndShellWrapper,
+  testVerificationGateRejectsParserBypassesAndUnboundTargets,
+  testVerificationGateAllowsReadOnlyTagListing,
+  testVerificationGateBindsCurrentGitCandidate,
+  testVerificationGateRejectsIndexWorktreeSplitCandidate,
+  testVerificationGateBindsCurrentCommitAndTree,
+  testVerificationGateFailsClosedOnMalformedInputAndVerifierCrash,
+  testVerificationGateRejectsWeakEvidenceWithoutCurrentTask,
   testStageGuardRejectsTamperedReadyEvidence,
   testDoctorRejectsTamperedReadyEvidence,
+  testDeliveryGateFailsClosedOnMalformedInputInvalidStageAndVerifierCrash,
   testDeliveryGateFailsClosedWhenAttestationRequired,
   testDeliveryGateFailsClosedWhenVerifierUnavailable,
   testVerificationGateFailsClosedWhenVerifierUnavailable,
   testStageGuardFailsClosedWhenVerifierUnavailable,
+  testStageGuardLightModeStillFailsClosedWhenVerifierUnavailable,
   testDeliveryGateRequiresVerifierForStrictLegacyEvidence,
   testDeliveryGateKeepsNonStrictLegacyCompatibilityWithoutVerifier,
   testDeliveryGateRejectsNotReadyEvidenceEvenInReview,
@@ -2188,6 +3281,7 @@ const tests = [
   testDeliveryGateRejectsStaleReadyEvidenceEvenInReview,
   testDeliveryGateAcceptsFreshReadyEvidenceInReview,
   testStageGuardBlocksReviewWhenStructuredEvidenceNotReady,
+  testStageGuardRequiresStructuredEvidenceWithoutCurrentTask,
   testVerificationGateRejectsReleaseTagWithoutE2ERuntimePass,
   testVerificationGateRejectsNotSufficientEvidence,
   testVerificationGateRejectsReleaseTagWithoutE2ESufficiency,
@@ -2196,6 +3290,7 @@ const tests = [
   testVerifyReleaseStillBlocksRealNonPassRequiredEvidence,
   testVerifyReleaseSpecConsumesSpecStatusAndSantaLimitation,
   testNormalizeReleaseCommandIgnoresNarrativeStatusWords,
+  testRuntimeResultClassUsesFinalStructuredMarker,
   testNormalizeReleaseCommandDowngradesStructuredStatusMarkers,
   testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream,
   testPreReleaseCheckBlocksRequiredFailTextWithExitZero,
@@ -2213,7 +3308,18 @@ const tests = [
   testStageGuardAllowsExecuteWithReadyIterationSpec,
   testStageGuardAllowsApplyPatchStageTransition,
   testUserPromptSubmitProvidesCodexVisibleBanner,
+  testUpdateFailsClosedBeforeOverwritingProjectCustomization,
+  testUpdateManagedTargetsNeverFollowSymlinks,
+  testUpdateRejectsSymlinkParentsAndDirectoryTargetsEvenWithForce,
+  testUpdatePreservesReviewedOverrideAndBlocksWhenUpstreamChanges,
+  testUpdateHooksPreflightsBeforeAnySkillWrite,
+  testUpdateValidatesEveryManifestEntryAndForceDiscardsOverrides,
+  testUpgradeAcceptsLinkedWorktreeMarker,
+  testUpgradeRejectsUntrackedKitSource,
+  testUpgradeStopsBeforeFetchWhenKitStatusUnavailable,
   testUpdateHooksOnlySkipsPersonalSkills,
+  testUpdateUsesExplicitProjectForLocalSkills,
+  testUpdateSkillOnlyRejectsCustomizationBeforeRemoval,
   testUpdateHooksReportsCodexGenerationFailure,
   testDoctorReportsCodexEntryBannerWiring,
   testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence,

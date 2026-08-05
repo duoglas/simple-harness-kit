@@ -90,8 +90,8 @@ process.stdin.on('end', () => {
       const data = JSON.parse(fs.readFileSync(STAGE_FILE, 'utf8'));
       stage = data.stage;
       stageSince = data.since ? new Date(data.since) : null;
-    } catch {
-      process.exit(0);
+    } catch (err) {
+      throw new Error(`invalid Harness stage state: ${err && err.message || String(err)}`);
     }
 
     const LIGHT = guardMode.resolveGuardMode(input, ROOT).mode === 'light';
@@ -208,7 +208,10 @@ process.stdin.on('end', () => {
         process.exit(2);
       }
     }
-  } catch {}
+  } catch (err) {
+    process.stderr.write(`[Delivery Gate] INTERNAL_ERROR: ${err && err.message || String(err)}\n`);
+    process.exit(2);
+  }
 
   // 默认放行
   process.exit(0);
@@ -238,9 +241,31 @@ function structuredEvidenceAttestationProblem(evidence) {
     }
     return null;
   }
+  if (required && !hasAttestation) {
+    return {
+      code: 'ATTESTATION_MISSING',
+      message: 'attestation is required by policy but missing',
+    };
+  }
+  const mustBindCurrent = hasAttestation || required || Boolean(evidence.git_identity);
+  let currentGit = null;
+  if (mustBindCurrent) {
+    currentGit = evidenceAttestation.readGitIdentity(ROOT);
+    if (!currentGit || !currentGit.available || !currentGit.commit || !currentGit.tree || !currentGit.candidate_digest) {
+      return {
+        code: 'GIT_IDENTITY_UNAVAILABLE',
+        message: 'current Git commit, tree, or candidate digest could not be resolved for evidence binding',
+      };
+    }
+  }
   const result = evidenceAttestation.verifyEvidence(evidence, {
     require_attestation: required,
     allow_legacy: !required,
+    ...(mustBindCurrent ? {
+      expected_commit: currentGit.commit,
+      expected_tree: currentGit.tree,
+      expected_candidate_digest: currentGit.candidate_digest,
+    } : {}),
   });
   return result.status === 'PASS' ? null : result.failures[0];
 }

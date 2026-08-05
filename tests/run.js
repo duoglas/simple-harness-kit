@@ -47,6 +47,7 @@ const { execFileSync, execFile, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { runtimeResultClass } = require('./runtime-result');
 
 const HOOKS_BASE = path.resolve(__dirname, '..', 'scripts', 'hooks');
 const SCENARIOS_DIR = path.join(__dirname, 'hook-scenarios');
@@ -104,10 +105,6 @@ function runBashScript(script, options = {}) {
     ...res,
     combinedOutput: `${res.stdout || ''}${res.stderr || ''}`,
   };
-}
-
-function isDegradedOrSkipped(output) {
-  return /\b(DEGRADED|SKIP)\b/.test(output);
 }
 
 // ── 创建临时目录并预置文件 ──
@@ -180,17 +177,18 @@ function setupTempDir(scenario) {
     }
   }
 
-  // gitSetup: 初始化 git 仓库并 stage 指定文件（用于 verification-gate C-GATE-07 测试等）
-  // 格式: { "init": true, "stage": ["path/to/file", ...] }
-  // stage 之前 setup 里必须先创建对应文件（或 gitSetup.create 可选填充空文件）
-  if (scenario.gitSetup) {
+  // Delivery-gate scenarios always run in a real Git repository so attested
+  // evidence can bind the current commit/tree/candidate. gitSetup.stage keeps
+  // covering staged-entrypoint cases without committing the candidate itself.
+  const needsGit = Boolean(scenario.gitSetup || scenario.hook === 'verification-gate.js');
+  if (needsGit) {
     const { execFileSync } = require('child_process');
-    const gs = scenario.gitSetup;
+    const gs = scenario.gitSetup || {};
     try {
       execFileSync('git', ['init', '-q'], { cwd: tmpDir, stdio: 'ignore' });
       execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir, stdio: 'ignore' });
       execFileSync('git', ['config', 'user.name', 'test'], { cwd: tmpDir, stdio: 'ignore' });
-      // create: 创建空占位文件（如果 setup 里没创建）
+      execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'fixture base'], { cwd: tmpDir, stdio: 'ignore' });
       if (Array.isArray(gs.create)) {
         for (const f of gs.create) {
           const full = path.join(tmpDir, f);
@@ -201,12 +199,44 @@ function setupTempDir(scenario) {
         }
       }
       if (Array.isArray(gs.stage)) {
-        for (const f of gs.stage) {
-          execFileSync('git', ['add', '-f', f], { cwd: tmpDir, stdio: 'ignore' });
+        for (const f of gs.stage) execFileSync('git', ['add', '-f', f], { cwd: tmpDir, stdio: 'ignore' });
+      }
+
+      if (scenario.hook === 'verification-gate.js' && scenario.attestEvidence !== false) {
+        const attestation = require(path.resolve(__dirname, '..', 'scripts/lib/evidence-attestation.js'));
+        // Sign every authoritative structured-evidence fixture, including task-mode
+        // paths. Signing only the legacy singleton silently left task scenarios on
+        // pre-attestation semantics and made READY/NOT_READY tests fail too early.
+        const evidencePaths = new Set([path.join(tmpDir, '.harness/verify-evidence.json')]);
+        const tasksRoot = path.join(tmpDir, 'docs/tasks');
+        if (fs.existsSync(tasksRoot)) {
+          for (const taskId of fs.readdirSync(tasksRoot)) {
+            evidencePaths.add(path.join(tasksRoot, taskId, 'evidence/verify-evidence.json'));
+          }
+        }
+        const gitIdentity = attestation.readGitIdentity(tmpDir);
+        for (const evidencePath of evidencePaths) {
+          if (!fs.existsSync(evidencePath)) continue;
+          const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+          evidence.provenance = { git: gitIdentity, mode: 'full' };
+          const signed = attestation.attestEvidence(evidence, {
+            issuer: { type: 'shk-test-runner', name: 'hook-scenario' },
+            trust_level: 'local-self',
+          });
+          fs.writeFileSync(evidencePath, `${JSON.stringify(signed, null, 2)}\n`);
         }
       }
+
+      // Commit scenarios model the complete candidate being staged after evidence
+      // generation. The candidate digest is intentionally staging-stable, while
+      // the delivery gate separately requires index/worktree readiness.
+      const scenarioCommand = scenario.stdin && scenario.stdin.tool_input && scenario.stdin.tool_input.command;
+      if (scenario.hook === 'verification-gate.js' && typeof scenarioCommand === 'string'
+          && /\bcommit\b/.test(scenarioCommand) && gs.stageCompleteCandidate !== false) {
+        execFileSync('git', ['add', '-A'], { cwd: tmpDir, stdio: 'ignore' });
+      }
     } catch (e) {
-      // git 不可用或初始化失败，测试会走非 kit 路径；不抛出
+      // git 不可用或初始化失败时保留原场景，让 fail-closed 行为显式暴露。
     }
   }
 
@@ -692,6 +722,8 @@ try {
 // 默认策略: 本地无 codex → SKIP + warn (不阻塞主流程);
 // CI 或强制模式: CODEX_REQUIRED=1 → 无 codex 升级为 FAIL.
 let smokeFailed = 0;
+let smokeSkipped = 0;
+let smokeDegraded = 0;
 let smokeTotal = 0;
 try {
   const smokeScript = path.resolve(__dirname, 'codex-smoke.sh');
@@ -701,7 +733,6 @@ try {
   } else if (fs.existsSync(smokeScript)) {
     console.log('  Codex Runtime Smoke (C-GATE-08)\n');
     const env = { ...process.env };
-    // run.js 里默认不升级；CI 通过 CODEX_REQUIRED=1 外部注入
     const res = runBashScript(smokeScript, {
       env,
       timeout: 5 * 60 * 1000,
@@ -711,7 +742,11 @@ try {
       smokeFailed += 1;
       console.log(`\n  Codex Smoke FAIL (exit ${res.status})\n`);
     } else {
-      // 反向自测：确保 smoke 本身能捕获 bad hook
+      const resultClass = runtimeResultClass(res.combinedOutput);
+      if (resultClass === 'skipped') smokeSkipped += 1;
+      else if (resultClass === 'degraded') smokeDegraded += 1;
+
+      // 反向自测：确保 smoke 本身能捕获 bad hook。
       if (fs.existsSync(selftestScript)) {
         const st = runBashScript(selftestScript, {
           env,
@@ -721,24 +756,28 @@ try {
         if (st.status !== 0) {
           smokeFailed += 1;
           console.log(`\n  Codex Smoke Selftest FAIL (exit ${st.status})\n`);
-        } else if (isDegradedOrSkipped(res.combinedOutput) || isDegradedOrSkipped(st.combinedOutput)) {
-          console.log(`\n  Codex Smoke DEGRADED / SKIP (当前 runtime 未完整验证 project hook command)\n`);
         } else {
-          console.log(`\n  Codex Smoke + Selftest PASS\n`);
+          const selftestClass = runtimeResultClass(st.combinedOutput);
+          if (selftestClass === 'skipped') smokeSkipped += 1;
+          else if (selftestClass === 'degraded') smokeDegraded += 1;
+          if (resultClass !== 'passed' || selftestClass !== 'passed') {
+            console.log(`\n  Codex Smoke DEGRADED / SKIP (当前 runtime 未完整验证 project hook command)\n`);
+          } else {
+            console.log(`\n  Codex Smoke + Selftest PASS\n`);
+          }
         }
+      } else if (resultClass !== 'passed') {
+        console.log(`\n  Codex Smoke DEGRADED / SKIP (selftest 脚本缺失)\n`);
       } else {
-        if (isDegradedOrSkipped(res.combinedOutput)) {
-          console.log(`\n  Codex Smoke DEGRADED / SKIP (selftest 脚本缺失)\n`);
-        } else {
-          console.log(`\n  Codex Smoke PASS (selftest 脚本缺失)\n`);
-        }
+        console.log(`\n  Codex Smoke PASS (selftest 脚本缺失)\n`);
       }
     }
   } else {
     console.log(`  Codex Smoke SKIP (脚本不存在: ${smokeScript})\n`);
   }
 } catch (e) {
-  smokeFailed = 1;
+  smokeTotal = Math.max(smokeTotal, 1);
+  smokeFailed = Math.max(smokeFailed, 1);
   console.log(`  Codex Smoke FAIL: ${e.message}\n`);
 }
 
@@ -746,13 +785,14 @@ try {
 // $harness-init 完整流程跑一遍，断言所有必选产物。比 codex-smoke 慢得多
 // (~5 分钟一次)，所以 opt-in: CODEX_INIT_SMOKE=1 才执行；默认 SKIP 不卡 run.js。
 let initSmokeFailed = 0;
+let initSmokeSkipped = 0;
+let initSmokeDegraded = 0;
 let initSmokeTotal = 0;
 try {
   const initSmokeScript = path.resolve(__dirname, 'codex-init-smoke.sh');
   if (fs.existsSync(initSmokeScript)) {
     console.log('  Codex Init E2E Smoke (C-GATE-04 skill 入口)\n');
-    const res = require('child_process').spawnSync('bash', [initSmokeScript], {
-      stdio: 'inherit',
+    const res = runBashScript(initSmokeScript, {
       env: process.env,
       timeout: 12 * 60 * 1000, // init 流程要慢，给 12 分钟外层硬上限
     });
@@ -761,17 +801,24 @@ try {
       initSmokeFailed += 1;
       console.log(`\n  Codex Init Smoke FAIL (exit ${res.status})\n`);
     } else {
-      console.log(`\n  Codex Init Smoke PASS / SKIP\n`);
+      const resultClass = runtimeResultClass(res.combinedOutput);
+      if (resultClass === 'skipped') initSmokeSkipped += 1;
+      else if (resultClass === 'degraded') initSmokeDegraded += 1;
+      console.log(`\n  Codex Init Smoke ${resultClass === 'passed' ? 'PASS' : resultClass.toUpperCase()}\n`);
     }
   }
 } catch (e) {
-  initSmokeFailed = 1;
+  initSmokeTotal = Math.max(initSmokeTotal, 1);
+  initSmokeFailed = Math.max(initSmokeFailed, 1);
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
 const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + evidenceAttestationFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalSkipped = smokeSkipped + initSmokeSkipped;
+const totalDegraded = smokeDegraded + initSmokeDegraded;
 const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + evidenceAttestationTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalPassed = totalTests - totalFailed - totalSkipped - totalDegraded;
 console.log(`  ══════════════════════════════`);
-console.log(`  总计: ${passed + tpl.pass + findRootUnit.pass + (qualityTotal - qualityFailed) + (evidenceAttestationTotal - evidenceAttestationFailed) + (ledgerTotal - ledgerFailed) + (scriptedTotal - scriptedFailed) + (smokeTotal - smokeFailed) + (initSmokeTotal - initSmokeFailed)} passed, ${totalFailed} failed, ${totalTests} total\n`);
+console.log(`  总计: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped, ${totalDegraded} degraded, ${totalTests} total\n`);
 
 process.exit(totalFailed > 0 ? 1 : 0);

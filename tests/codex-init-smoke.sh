@@ -25,23 +25,30 @@
 
 set -u
 
+runtime_exit() {
+  local status="$1"
+  local rc="$2"
+  printf '[shk-runtime-result] status=%s\n' "$status"
+  exit "$rc"
+}
+
 KIT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TIMEOUT_SEC="${INIT_SMOKE_TIMEOUT:-600}"
 
 # ── opt-in gate ──
 if [ "${CODEX_INIT_SMOKE:-0}" != "1" ]; then
   echo "[codex-init-smoke] SKIP: opt-in 测试 (设 CODEX_INIT_SMOKE=1 启用)。" >&2
-  exit 0
+  runtime_exit SKIP 0
 fi
 
 # ── codex 可用性检查 ──
 if ! command -v codex >/dev/null 2>&1; then
   if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
     echo "[codex-init-smoke] FAIL: codex 未安装但 CODEX_REQUIRED=1。" >&2
-    exit 1
+    runtime_exit FAIL 1
   else
     echo "[codex-init-smoke] SKIP: codex CLI 未安装。" >&2
-    exit 0
+    runtime_exit SKIP 0
   fi
 fi
 
@@ -201,7 +208,7 @@ if [ "$FAILURES" -gt 0 ]; then
   tail -n 60 "$RUN_LOG" >&2
   echo "[codex-init-smoke] ────── 结束 ──────" >&2
   echo "[codex-init-smoke] $FAILURES 项断言失败。" >&2
-  exit 1
+  runtime_exit FAIL 1
 fi
 
 # 即使断言全过, 如果 codex 非 0 退出也要警示 (但不 FAIL — codex 可能因 rate limit 抖动)
@@ -210,4 +217,4 @@ if [ "$RUN_EXIT" -ne 0 ]; then
 fi
 
 echo "[codex-init-smoke] PASS"
-exit 0
+runtime_exit PASS 0

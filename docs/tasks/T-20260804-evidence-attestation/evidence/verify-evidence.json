@@ -3,8 +3,8 @@
   "task_id": "simple-harness-kit",
   "risk": "high",
   "stage": "VERIFY",
-  "started_at": "2026-08-04T09:47:49.168Z",
-  "completed_at": "2026-08-04T09:52:07.512Z",
+  "started_at": "2026-08-05T01:57:04.150Z",
+  "completed_at": "2026-08-05T02:06:17.855Z",
   "checks": {
     "quality_gate": {
       "status": "PASS",
@@ -32,10 +32,10 @@
       "status": "PASS",
       "command": "node tests/run.js --unit",
       "exit_code": 0,
-      "stdout_tail": "ProtectedScopeIsFixedFormat\nPASS testLegacyBehaviorExplicit\nPASS testLegacyCompatibilityDoesNotBypassOtherPolicies\nPASS testCliJsonAndCurrentGit\nPASS testCliRejectsRecomputedUnauthenticatedHighTrust\nPASS testCliRejectsMissingOrUnknownPolicyOptions\n16/16 evidence attestation tests passed\n\n  Evidence Attestation Suite PASS\n\n  Task Ledger / Verify Cache Tests\n\nPASS testNewTaskIdShape\nPASS testNewTaskIdNormalizesSlug\nPASS testIsValidTaskId\nPASS testCurrentTaskIdRoundTrip\nPASS testSetCurrentTaskIdRejectsInvalidId\nPASS testCurrentTaskIdNullOnMissingEmptyOrInvalid\nPASS testTaskPathsLayout\nPASS testResolveArtifactPathFallsBackToLegacy\nPASS testResolveArtifactPathUsesTaskDirWhenCurrentSet\nPASS testResolveArtifactPathFallsBackWhenCurrentCorrupt\nPASS testTasksDirDefault\nPASS testTasksDirHonorsRelativeConfig\nPASS testTasksDirRejectsAbsoluteAndEscapingPaths\nPASS testJournalAppendAndRead\nPASS testJournalNormalizesUnknownKind\nPASS testJournalAppendsAreLineOriented\nPASS testChangedFilesParsesPorcelainStatuses\nPASS testChangedFilesHandlesStagedModificationAndRename\nPASS testChangedFilesExcludesLedgerNoise\nPASS testFingerprintStabilityAndSensitivity\nPASS testCreateContextFirstRunThenCaches\nPASS testCreateContextSealIgnoresCache\nPASS testCreateContextRerunsPreviousNonPass\nPASS testPersistKeepsUntouchedCheckEntries\nPASS testSelectTestsWithoutTestPlan\nPASS testSelectTestsWithoutPathDeclarations\nPASS testSelectTestsWithPartialPathDeclarations\nPASS testStructuredEvidencePathSwitchesWithCurrent\nPASS testEvidenceSearchPathsTaskModeExcludesLegacy\nPASS testEvidenceSearchPathsLegacyModeOrder\nPASS testEvidencePathsFallBackOnCorruptCurrent\nPASS testTaskNewWritesWorkingGitignoreRules\n32/32 task ledger tests passed\n\n  Task Ledger Suite PASS\n\n  Scripted Test Matrix SKIP (--unit；由 e2e 检查覆盖)\n\n  Codex Runtime Smoke SKIP (--unit；由 verify 的 runtime 检查覆盖)\n\n  Codex Init E2E Smoke (C-GATE-04 skill 入口)\n\n\n  Codex Init Smoke PASS / SKIP\n\n  ══════════════════════════════\n  总计: 254 passed, 0 failed, 254 total\n\n",
+      "stdout_tail": "eCandidateDigest\nPASS testExpectedCandidateDigestMismatchFails\nPASS testCliJsonAndCurrentGit\nPASS testCliRejectsRecomputedUnauthenticatedHighTrust\nPASS testCliRejectsMissingOrUnknownPolicyOptions\n22/22 evidence attestation tests passed\n\n  Evidence Attestation Suite PASS\n\n  Task Ledger / Verify Cache Tests\n\nPASS testNewTaskIdShape\nPASS testNewTaskIdNormalizesSlug\nPASS testIsValidTaskId\nPASS testCurrentTaskIdRoundTrip\nPASS testSetCurrentTaskIdRejectsInvalidId\nPASS testCurrentTaskIdNullOnMissingEmptyOrInvalid\nPASS testTaskPathsLayout\nPASS testResolveArtifactPathFallsBackToLegacy\nPASS testResolveArtifactPathUsesTaskDirWhenCurrentSet\nPASS testResolveArtifactPathFallsBackWhenCurrentCorrupt\nPASS testTasksDirDefault\nPASS testTasksDirHonorsRelativeConfig\nPASS testTasksDirRejectsAbsoluteAndEscapingPaths\nPASS testJournalAppendAndRead\nPASS testJournalNormalizesUnknownKind\nPASS testJournalAppendsAreLineOriented\nPASS testChangedFilesParsesPorcelainStatuses\nPASS testChangedFilesHandlesStagedModificationAndRename\nPASS testChangedFilesExcludesLedgerNoise\nPASS testFingerprintStabilityAndSensitivity\nPASS testCreateContextFirstRunThenCaches\nPASS testCreateContextSealIgnoresCache\nPASS testCreateContextRerunsPreviousNonPass\nPASS testPersistKeepsUntouchedCheckEntries\nPASS testSelectTestsWithoutTestPlan\nPASS testSelectTestsWithoutPathDeclarations\nPASS testSelectTestsWithPartialPathDeclarations\nPASS testStructuredEvidencePathSwitchesWithCurrent\nPASS testEvidenceSearchPathsTaskModeExcludesLegacy\nPASS testEvidenceSearchPathsLegacyModeOrder\nPASS testEvidencePathsFallBackOnCorruptCurrent\nPASS testTaskNewWritesWorkingGitignoreRules\n32/32 task ledger tests passed\n\n  Task Ledger Suite PASS\n\n  Scripted Test Matrix SKIP (--unit；由 e2e 检查覆盖)\n\n  Codex Runtime Smoke SKIP (--unit；由 verify 的 runtime 检查覆盖)\n\n  Codex Init E2E Smoke (C-GATE-04 skill 入口)\n\n[shk-runtime-result] status=SKIP\n\n  Codex Init Smoke SKIPPED\n\n  ══════════════════════════════\n  总计: 253 passed, 0 failed, 1 skipped, 0 degraded, 254 total\n\n",
       "stderr_tail": "[codex-init-smoke] SKIP: opt-in 测试 (设 CODEX_INIT_SMOKE=1 启用)。\n",
-      "started_at_ms": 1785836869174,
-      "completed_at_ms": 1785836935640,
+      "started_at_ms": 1785895024156,
+      "completed_at_ms": 1785895205891,
       "run_token": ""
     },
     "coverage": {
@@ -47,11 +47,11 @@
       "status": "PASS",
       "command": "bash docs/tasks/T-20260804-evidence-attestation/verify-flow-e2e.sh",
       "exit_code": 0,
-      "stdout_tail": "BlocksReviewWhenStructuredEvidenceNotReady\nPASS testVerificationGateRejectsReleaseTagWithoutE2ERuntimePass\nPASS testVerificationGateRejectsNotSufficientEvidence\nPASS testVerificationGateRejectsReleaseTagWithoutE2ESufficiency\nPASS testVerifyReleaseConsumesRequiredEvidenceSet\nPASS testVerifyReleaseReadyWhenAutomatedChecksAllPass\nPASS testVerifyReleaseStillBlocksRealNonPassRequiredEvidence\nPASS testVerifyReleaseSpecConsumesSpecStatusAndSantaLimitation\nPASS testNormalizeReleaseCommandIgnoresNarrativeStatusWords\nPASS testNormalizeReleaseCommandDowngradesStructuredStatusMarkers\nPASS testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream\nPASS testPreReleaseCheckBlocksRequiredFailTextWithExitZero\nPASS testVerifyWritesEvidence\nPASS testVerificationGateRejectsFailEvidence\nPASS testVerificationGateAcceptsReadyEvidence\nPASS testDoctorDetectsMissingPretoolObservation\nPASS testSecurityScanDetectsConfiguredPublicLeak\nPASS testSecurityScanDetectsHighRiskConfig\nPASS testSecurityScanSkipsDescriptionFields\nPASS testInstallProfileDryRunUsesManifest\nPASS testStageGuardBlocksTier0Execute\nPASS testStageGuardBlocksExecuteWithoutIterationSpec\nPASS testStageGuardBlocksExecuteWithIncompleteIterationSpec\nPASS testStageGuardAllowsExecuteWithReadyIterationSpec\nPASS testStageGuardAllowsApplyPatchStageTransition\nPASS testUserPromptSubmitProvidesCodexVisibleBanner\nPASS testUpdateHooksOnlySkipsPersonalSkills\nPASS testUpdateHooksReportsCodexGenerationFailure\nPASS testDoctorReportsCodexEntryBannerWiring\nPASS testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence\nPASS testDoctorWarnsWhenCodexExactProjectTrustMissing\nPASS testDoctorPassesWhenCodexExactProjectTrustExists\n79/79 quality suite tests passed\n[evidence-flow-e2e] unrelated downstream docs left untouched: [\"docs/reports/2026-08-04-近两周工程问题与优化建议.md\"]\n[evidence-flow-e2e] downstream documentation contract PASS\n[evidence-flow-e2e] task evidence written for FLOW-EVID-1, FLOW-EVID-2, FLOW-EVID-3, FLOW-DOWNSTREAM-1\n[evidence-flow-e2e] PASS\n",
+      "stdout_tail": "esNarrativeStatusWords\nPASS testRuntimeResultClassUsesFinalStructuredMarker\nPASS testNormalizeReleaseCommandDowngradesStructuredStatusMarkers\nPASS testPreReleaseCheckAllowsReleaseBranchWithMatchingUpstream\nPASS testPreReleaseCheckBlocksRequiredFailTextWithExitZero\nPASS testVerifyWritesEvidence\nPASS testVerificationGateRejectsFailEvidence\nPASS testVerificationGateAcceptsReadyEvidence\nPASS testDoctorDetectsMissingPretoolObservation\nPASS testSecurityScanDetectsConfiguredPublicLeak\nPASS testSecurityScanDetectsHighRiskConfig\nPASS testSecurityScanSkipsDescriptionFields\nPASS testInstallProfileDryRunUsesManifest\nPASS testStageGuardBlocksTier0Execute\nPASS testStageGuardBlocksExecuteWithoutIterationSpec\nPASS testStageGuardBlocksExecuteWithIncompleteIterationSpec\nPASS testStageGuardAllowsExecuteWithReadyIterationSpec\nPASS testStageGuardAllowsApplyPatchStageTransition\nPASS testUserPromptSubmitProvidesCodexVisibleBanner\nPASS testUpdateFailsClosedBeforeOverwritingProjectCustomization\nPASS testUpdateManagedTargetsNeverFollowSymlinks\nPASS testUpdateRejectsSymlinkParentsAndDirectoryTargetsEvenWithForce\nPASS testUpdatePreservesReviewedOverrideAndBlocksWhenUpstreamChanges\nPASS testUpdateHooksPreflightsBeforeAnySkillWrite\nPASS testUpdateValidatesEveryManifestEntryAndForceDiscardsOverrides\nPASS testUpgradeAcceptsLinkedWorktreeMarker\nPASS testUpgradeRejectsUntrackedKitSource\nPASS testUpgradeStopsBeforeFetchWhenKitStatusUnavailable\nPASS testUpdateHooksOnlySkipsPersonalSkills\nPASS testUpdateUsesExplicitProjectForLocalSkills\nPASS testUpdateSkillOnlyRejectsCustomizationBeforeRemoval\nPASS testUpdateHooksReportsCodexGenerationFailure\nPASS testDoctorReportsCodexEntryBannerWiring\nPASS testDoctorAcceptsRecentPretoolObservationAsCodexRuntimeEvidence\nPASS testDoctorWarnsWhenCodexExactProjectTrustMissing\nPASS testDoctorPassesWhenCodexExactProjectTrustExists\n105/105 quality suite tests passed\n[evidence-flow-e2e] task evidence written for FLOW-EVID-1, FLOW-EVID-2, FLOW-EVID-3\n[evidence-flow-e2e] PASS\n",
       "stderr_tail": "perl: warning: Setting locale failed.\nperl: warning: Please check that your locale settings:\n\tLC_ALL = \"C.UTF-8\",\n\tLC_CTYPE = \"C.UTF-8\",\n\tLANG = \"C.UTF-8\"\n    are supported and installed on your system.\nperl: warning: Falling back to the standard locale (\"C\").\nperl: warning: Setting locale failed.\nperl: warning: Please check that your locale settings:\n\tLC_ALL = \"C.UTF-8\",\n\tLC_CTYPE = \"C.UTF-8\",\n\tLANG = \"C.UTF-8\"\n    are supported and installed on your system.\nperl: warning: Falling back to the standard locale (\"C\").\nperl: warning: Setting locale failed.\nperl: warning: Please check that your locale settings:\n\tLC_ALL = \"C.UTF-8\",\n\tLC_CTYPE = \"C.UTF-8\",\n\tLANG = \"C.UTF-8\"\n    are supported and installed on your system.\nperl: warning: Falling back to the standard locale (\"C\").\n",
-      "started_at_ms": 1785836935776,
-      "completed_at_ms": 1785837127502,
-      "run_token": "shk-1785836935776-bc9e2ca085c3f"
+      "started_at_ms": 1785895206199,
+      "completed_at_ms": 1785895577843,
+      "run_token": "shk-1785895206199-80fa5f27f6fa6"
     },
     "security": {
       "status": "PASS",
@@ -79,8 +79,8 @@
     },
     "diff": {
       "status": "PASS",
-      "files": 2,
-      "summary": "docs/tasks/INDEX.md | 4 +++-\n 1 file changed, 3 insertions(+), 1 deletion(-)"
+      "files": 31,
+      "summary": ".gitignore                                         |    4 +\n README.md                                          |   15 +-\n docs/constraints.md                                |   19 +-\n .../evidence/verify-evidence.json                  |   65 +-\n .../evidence/verify-evidence.md                    |   44 +-\n .../T-20260804-evidence-attestation/findings.md    |   84 +-\n docs/tasks/T-20260804-evidence-attestation/plan.md |  107 +-\n .../T-20260804-evidence-attestation/progress.md    |  203 ++--\n .../T-20260804-evidence-attestation/spec.json      |   94 +-\n .../T-20260804-evidence-attestation/task_plan.md   |  130 +--\n .../verify-flow-e2e.sh                             |   85 +-\n scripts/hooks/delivery-gate.js                     |   31 +-\n scripts/hooks/harness-stage-guard.js               |  106 +-\n scripts/hooks/verification-gate.js                 |  615 ++++++++++-\n scripts/lib/evidence-attestation.js                |  184 ++-\n scripts/lib/run_guarded.py                         |  422 ++++++-\n scripts/shk.js                                     |    3 +\n tests/codex-init-smoke.sh                          |   17 +-\n tests/codex-smoke-selftest.sh                      |   25 +-\n tests/codex-smoke.sh                               |   29 +-\n tests/evidence-attestation.test.js                 |  162 ++-\n tests/hook-scenarios/guard-mode-light.json         |   22 +-\n tests/hook-scenarios/stage-guard.json              |    2 +-\n .../verification-gate-task-mode.json               |    2 +-\n tests/hook-scenarios/verification-gate.json        |   27 +-\n tests/quality-suite.test.js                        | 1166 +++++++++++++++++++-\n tests/run.js                                       |  105 +-\n tests/scripts/22-run-guarded-selftest.sh           |  410 +++++++\n update.sh                                          |  592 ++++++++--\n upgrade.sh                                         |   25 +-\n 30 files changed, 4062 insertions(+), 733 deletions(-)"
     },
     "spec": {
       "status": "PASS",
@@ -217,13 +217,46 @@
   ],
   "overall": "READY",
   "task": "T-20260804-evidence-attestation",
-  "run_id": "run-e58beefa-e409-40d8-b4b3-ef54f0c1e52c",
+  "run_id": "run-c62b0012-30ad-48d2-bec5-a91373d412b9",
   "provenance": {
     "git": {
       "available": true,
-      "commit": "f54facdbff9e28dd3ea4e16f7c7e5670e5f1b682",
-      "tree": "9cf5a765f71fbfd29ba810f3bc4a1ce1eece365f",
-      "dirty": true
+      "commit": "c49b14944e850dedff31e39eddd1a5c2df121f92",
+      "tree": "c5c3697f0e2a32fb26c54646ff1d07c45e06a9a7",
+      "dirty": true,
+      "candidate_digest": "sha256:f780403e3260098ded7f75d6925afc7c16538ecb6aead586b5e4f253a365b333",
+      "index_matches_worktree": false,
+      "index_mismatch_paths": [
+        ".gitignore",
+        "README.md",
+        "docs/constraints.md",
+        "docs/tasks/T-20260804-evidence-attestation/findings.md",
+        "docs/tasks/T-20260804-evidence-attestation/plan.md",
+        "docs/tasks/T-20260804-evidence-attestation/progress.md",
+        "docs/tasks/T-20260804-evidence-attestation/spec.json",
+        "docs/tasks/T-20260804-evidence-attestation/task_plan.md",
+        "docs/tasks/T-20260804-evidence-attestation/verify-flow-e2e.sh",
+        "scripts/hooks/delivery-gate.js",
+        "scripts/hooks/harness-stage-guard.js",
+        "scripts/hooks/verification-gate.js",
+        "scripts/lib/evidence-attestation.js",
+        "scripts/lib/run_guarded.py",
+        "scripts/shk.js",
+        "tests/codex-init-smoke.sh",
+        "tests/codex-smoke-selftest.sh",
+        "tests/codex-smoke.sh",
+        "tests/evidence-attestation.test.js",
+        "tests/hook-scenarios/guard-mode-light.json",
+        "tests/hook-scenarios/stage-guard.json",
+        "tests/hook-scenarios/verification-gate-task-mode.json",
+        "tests/hook-scenarios/verification-gate.json",
+        "tests/quality-suite.test.js",
+        "tests/run.js",
+        "tests/runtime-result.js",
+        "tests/scripts/22-run-guarded-selftest.sh",
+        "update.sh",
+        "upgrade.sh"
+      ]
     },
     "mode": "full"
   },
@@ -237,6 +270,6 @@
       "name": "local"
     },
     "trust_level": "local-self",
-    "digest": "sha256:e755c02f2bf6e6d7f803c51bfb049bd88f25b7c72377cf7be8f52fefdf18bd1a"
+    "digest": "sha256:01faf7bb356ddb38ec93a59bc15abb5861270ffe821bf9145026b7e85ef0994a"
   }
 }

@@ -1,89 +1,93 @@
-# SHK 可信证据与候选谱系基础能力
+# SHK 可信证据、交付约束与安全升级
 
 ## 目标
 
-交付 SHK 第一批通用可信证据能力，使 `shk verify` 产出的证据不再只证明“有一份 fresh JSON”，而能机械绑定生成时的 Git commit/tree、dirty 状态、执行模式和证据摘要；同时提供独立 verifier 供项目准入脚本消费。downstream project 只登记项目级优化需求建议，本任务不修改其业务代码、不部署target runtime。
+交付一组可复用的 SHK 基础能力：结构化 evidence attestation、候选 Git 身份绑定、交付命令目标绑定、权威 evidence 守门、受管文件升级冲突预检、reviewed override manifest，以及可证明终止状态的进程树清理。
 
 ## 责任边界
 
-### public SHK
+### SHK 通用能力
 
-- 实现通用 evidence attestation schema、生成器与 verifier。
-- `shk verify --write-evidence` 自动写入 provenance/attestation。
-- 新增 `shk evidence verify`，支持校验证据摘要、commit/tree、clean、mode 和最小 trust level。
-- 以结构化错误码区分 tampered/stale/dirty/mode/trust 等失败。
-- 补正向、负向、篡改、陈旧候选、dirty tree 测试和公共文档/约束。
+- `shk verify --write-evidence` 生成绑定 commit/tree/dirty/mode/candidate digest 的权威结构化证据。
+- `shk evidence verify` 校验摘要、候选身份、执行模式、clean policy 和已认证 trust policy。
+- commit/tag/push 等交付动作只接受合法且与实际目标一致的结构化证据。
+- REVIEW 阶段只接受权威结构化证据；Markdown 与弱状态文件仅供阅读。
+- 更新器在任何写入前完成全量冲突预检，并通过上游 Git blob 约束 reviewed overrides。
+- runner 累计观察进程组与进程树，执行 TERM/KILL 后再发现，并诚实记录不确定性和残留。
 
-### downstream project
+### 项目级接入
 
-- 不复制 SHK 实现，不修改 project business or release code。
-- 在现有 RQ-0133、RQ-0143、RQ-0144 等需求的合适位置追加“接入 SHK attestation”的优化建议，避免重复立项。
-- 缺少现有承载项的内容，才新增独立优化需求；只写建议和客观验收，不进入 implemented/done。
+- 项目策略、阈值和领域判据由项目自身维护，不进入公共 SHK。
+- 项目定制必须显式登记为 reviewed override；上游对应 blob 变化时自动失效并要求重新合并、复测和审查。
+- 正常升级不得依赖 `--force-overwrite`；该选项只作为明确丢弃定制的破坏性恢复出口。
 
 ## 阶段
 
 ### Phase 0 — PLAN（complete）
 
-- [x] 复核 SHK/downstream project 边界和现有 evidence 实现。
-- [x] 建立 high-risk iteration spec、任务计划和接力记录。
-- [x] 用户已确认，进入 EXECUTE。
+- [x] 建立 high-risk iteration spec、任务计划与边界。
+- [x] 明确可信 evidence、升级安全和 runner 清理的验收标准。
 
-### Phase 1 — Tests first：attestation 契约（complete）
+### Phase 1 — Tests first（complete）
 
-- [x] 新增单元/CLI 场景，先证明以下路径在未实现时失败：
-  - 正常证据摘要可验证；
-  - 修改 evidence 任意受保护字段后拒绝；
-  - evidence commit/tree 与当前候选不一致时拒绝；
-  - `--require-clean` 拒绝 dirty evidence；
-  - `--require-mode full` 拒绝 incremental evidence；
-  - 最小 trust level 不满足时拒绝；
-  - 正常路径不会被“永远拒绝”实现误伤。
+- [x] 为摘要篡改、陈旧候选、错误 mode/trust、verifier unavailable 写负向测试。
+- [x] 为 shell substitution、wrapper、Git target binding 和弱证据绕过写负向测试。
+- [x] 为 stale/invalid override manifest、半升级和 runner 残留写负向测试。
 
-### Phase 2 — SHK attestation 实现（complete）
+### Phase 2 — Implementation（complete）
 
-- [x] 新增单一通用库，负责 canonical payload、SHA-256、Git identity、trust/mode 校验和结构化 verdict。
-- [x] `shk verify --write-evidence` 写入 schema version、run identity、commit、tree、dirty、mode、issuer/trust 和 digest。
-- [x] 新增 `shk evidence verify` CLI；human/json 两种输出。
-- [x] 保持旧 evidence 的兼容边界明确：普通读取可显示 legacy，要求 attested 时必须 fail-closed。
+- [x] 实现 evidence attestation 库与 CLI。
+- [x] 接入 delivery/verification/stage/doctor 消费方并保持明确的 legacy 边界。
+- [x] 实现交付命令解析、verified HEAD 目标绑定和 fail-closed 错误码。
+- [x] 实现升级事务预检、reviewed override manifest 和显式 force 语义。
+- [x] 实现 runner 累计发现、TERM/KILL 再发现与 terminal evidence。
 
-### Phase 3 — SHK 消费方与文档（complete）
+### Phase 3 — VERIFY / REVIEW（in progress）
 
-- [x] doctor/delivery/verification 的最小安全接入：不得把 digest 已损坏的 evidence 当 READY。
-- [x] 更新帮助、方法论文档和 kit-level constraints；按 C-META-04 同步 dogfood 约束副本。
-- [x] 不把 downstream 业务名词写入 public SHK。
-
-### Phase 4 — downstream project 优化需求建议（complete）
-
-- [x] RQ-0133：建议 `req.sh implemented` 消费 SHK verifier，不采用可手写的 `gate-green-at` 作为最终信任根。
-- [x] RQ-0143：建议构建输入 manifest 与 evidence 的 inputs hash 绑定。
-- [x] RQ-0144：建议引入结构化 `CODE_FAIL/INFRA_TIMEOUT/RESOURCE_CONTENTION/DEGRADED`，项目继续负责阈值。
-- [x] 检查 RQ-0130/RQ-0125 是否已覆盖 task/run nonce、重型 gate lease；只补缺口，不重复建需求。
-- [x] 在 handoff 或需求索引中加入可发现的交叉引用。
-
-### Phase 5 — VERIFY / REVIEW / FEEDBACK（in progress）
-
-- [x] `node -c` 覆盖所有修改的 JS。
-- [x] 跑新增 targeted tests。
-- [x] 跑 `node tests/run.js` 全量；257/257 PASS，环境能力缺口按 SKIP limitation 记录。
-- [x] 在临时 Git 仓库跑真实 CLI：生成 evidence → verify PASS → 篡改 FAIL → checkout/新 commit 后 stale FAIL。
-- [x] 运行 SHK 自身 `shk verify --risk high --write-evidence`，产出 fresh READY evidence。
-- [x] 检查 public SHK 泄漏词和 downstream project 工作树，不覆盖用户已有改动。
-- [x] 提交前 review 发现高 trust 自声明与 verifier unavailable fail-open 两个 blocker，已按 C-GATE-20 修复并补 targeted 负向测试。
-- [x] 重跑完整回归、fresh high evidence 和最终逐文件 review；确认无 blocker 后再提交。
+- [x] unit 回归：253 passed、0 failed、1 skipped、0 degraded、254 total。
+- [x] quality suite：98/98 PASS。
+- [x] evidence attestation suite：21/21 PASS。
+- [x] 完整回归：255 passed、0 failed、1 skipped、1 degraded、257 total；scripted matrix 14 PASS / 3 capability SKIP / 0 FAIL。
+- [x] runner selftest：27/27 PASS。
+- [x] fresh high-risk evidence：READY，独立 verifier PASS。
+- [x] 按 C-GATE-23 修复动态交付关键位置、嵌套 substitution、result-unbound merge 与 runtime 结构化终态分类。
+- [x] Santa round 4（2/2 FAIL）后按 C-GATE-24/25/26、VH-34 修复动态解释、gitlink、skill 全树预检与 untracked upgrade 边界。
+- [x] 第四轮修复定向回归：quality 101/101、attestation 22/22。
+- [x] 重新执行静态、定向与全量验证：256 passed / 0 failed / 1 skipped / 0 degraded；Scripted 14 PASS / 3 capability SKIP / 0 FAIL。
+- [x] 修复后生成 READY/full/local-self high-risk evidence；纳入冻结审计记录后重新签发最终 fresh evidence。
+- [ ] Santa round 5：两名全新独立 reviewer 对冻结 diff 给出 2/2 PASS。
+- [ ] 精确暂存、提交并推送 `master`，不打 tag。
 
 ## 边界与不可逆项
 
-- 不 push、不 tag、不 release。
-- 不操作 downstream target runtime、不运行 device write operation、不部署任何产物。
-- 不修改任何本任务范围外仓库的现有未提交文件。
-- 不把 downstream/公司内部信息写入 public SHK。
-- downstream project 仅新增/更新需求建议文档，不改变需求状态和候选字段。
+- 只发布 SHK 仓库；不在项目仓库执行 push。
+- 不操作外部执行环境。
+- 不覆盖未审阅的项目定制，不使用跳过门禁环境变量。
+- 发布使用完整 commit SHA；不创建 tag 或 release。
 
 ## 验收标准
 
-1. `shk verify --write-evidence` 生成的 evidence 含可复算 attestation，绑定 commit/tree/dirty/mode。
-2. `shk evidence verify` 对合法证据 PASS，对内容篡改、commit/tree 不一致、dirty/mode/trust 不满足分别给出结构化 FAIL。
-3. SHK gate 不再把 digest 损坏的 READY evidence 当可交付证据。
-4. 旧项目兼容行为有测试和文档，不出现静默误判。
-5. downstream project 的建议落在已有需求或明确的新优化需求中，责任边界写清，未改业务代码和target runtime状态。
-6. targeted、full test 与真实临时仓库 E2E 均有可复现记录。
+1. 合法 evidence 可复算且绑定准确候选；篡改、陈旧、策略不匹配和未认证高 trust 均被结构化拒绝。
+2. commit/tag/push 无法通过 substitution、wrapper、未知 Git option 或未绑定 refspec 绕过 verified HEAD。
+3. REVIEW 在 task/legacy、strict/light 模式下均不能用弱证据替代权威 structured evidence。
+4. 升级冲突在任何项目或 skill 写入前整批阻断；合法 reviewed override 被保留，stale manifest 自动失效。
+5. runner 对已观察后代执行清理并记录 residual/uncertainty，不能把不确定状态冒充 clean PASS。
+6. 最终验证如实区分 PASS、SKIP 与 DEGRADED。
+
+## 2026-08-05 Round 5 remediation
+
+- [x] Add C-GATE-27..30 and VH-35 to both constraint copies.
+- [x] Add parser alias/wrapper/control/glob/continuation/redirection/multi-action regressions.
+- [x] Add stale delivery/stage reader candidate-binding regression.
+- [x] Add direct `update-index --cacheinfo` gitlink split regression.
+- [x] Add hook/lib/CLI external symlink no-follow regression.
+- [x] Add upgrade status-unavailable/fetch-not-reached regression.
+- [x] Add transient discovery uncertainty terminal regression.
+- [x] Targeted suites pass: 104 + 22 + 28.
+- [x] Round 5 full regression, E2E, static checks, and fresh evidence completed before Round 6 review.
+- [x] Santa Round 6 executed with two fresh reviewers; both found blockers and triggered another repair loop.
+- [x] Repair Round 6 parser/raw-shell and full-parent no-follow findings; targeted quality suite 105/105 PASS.
+- [ ] Re-run full regression, E2E, static checks, and fresh evidence after Round 6 repair.
+- [ ] Santa Round 7: two new independent PASS verdicts.
+- [ ] Exact staging, commit, fresh post-commit evidence, push master.
+- [ ] Safe local android-ops upgrade and verification; no android-ops push.

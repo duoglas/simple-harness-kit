@@ -29,6 +29,13 @@
 
 set -u
 
+runtime_exit() {
+  local status="$1"
+  local rc="$2"
+  printf '[shk-runtime-result] status=%s\n' "$status"
+  exit "$rc"
+}
+
 KIT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROMPT="Read README.md"
 TIMEOUT_SEC="${SMOKE_TIMEOUT:-180}"
@@ -46,10 +53,10 @@ fi
 if ! command -v codex >/dev/null 2>&1; then
   if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
     echo "[codex-smoke] FAIL: codex CLI 未安装，但 CODEX_REQUIRED=1 要求强制执行。" >&2
-    exit 1
+    runtime_exit FAIL 1
   else
     echo "[codex-smoke] SKIP: codex CLI 未安装（设置 CODEX_REQUIRED=1 可升级为 FAIL）。" >&2
-    exit 0
+    runtime_exit SKIP 0
   fi
 fi
 
@@ -80,7 +87,7 @@ node "$KIT_ROOT/scripts/generate-codex-hooks.js" \
   --output "$TMP_DIR/.codex/hooks.json" 2>/dev/null
 if [ ! -s "$TMP_DIR/.codex/hooks.json" ]; then
   echo "[codex-smoke] FAIL: generate-codex-hooks.js 未产出 .codex/hooks.json" >&2
-  exit 2
+  runtime_exit FAIL 2
 fi
 
 # 拷所有 hook 脚本 + 跨目录共享库（C-INIT-05 / VH-22：hook 的本地 require 依赖必须随行）
@@ -184,7 +191,7 @@ if [ "$FAILURES" -gt 0 ]; then
   tail -n 80 "$RUN_LOG" >&2
   echo "[codex-smoke] ────── 日志结束 ──────" >&2
   echo "[codex-smoke] $FAILURES 项断言失败。" >&2
-  exit 1
+  runtime_exit FAIL 1
 fi
 
 # exec 根本没跑起来时，不能把 smoke 宣称为 PASS。
@@ -193,24 +200,24 @@ if [ "$RUN_EXIT" -ne 0 ]; then
   if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
     echo "[codex-smoke] FAIL: codex 非 0 退出（exit=${RUN_EXIT}），CODEX_REQUIRED=1 要求一次有效 runtime smoke。" >&2
     tail -n 80 "$RUN_LOG" >&2
-    exit 1
+    runtime_exit FAIL 1
   fi
   echo "[codex-smoke] DEGRADED: codex 非 0 退出（exit=${RUN_EXIT}），未完成有效 runtime smoke；非强制模式不阻塞。" >&2
   tail -n 30 "$RUN_LOG" >&2
-  exit 0
+  runtime_exit DEGRADED 0
 fi
 
 # 必须观察到 project hook marker，release-required runtime evidence 才能算 PASS。
 if grep -q "hook: SessionStart Completed" "$RUN_LOG"; then
-  echo "[codex-smoke] PASS: Codex project hook marker 存在，且未发现 hook failure marker。"
-  exit 0
+  echo "[codex-smoke] PASS: Codex project hook marker 存在，且未发现 hook failure marker."
+  runtime_exit PASS 0
 fi
 
 if [ "${CODEX_REQUIRED:-0}" = "1" ]; then
   echo "[codex-smoke] FAIL: 未观察到 Codex project hook marker；CODEX_REQUIRED=1 不能放行。" >&2
   tail -n 80 "$RUN_LOG" >&2
-  exit 1
+  runtime_exit FAIL 1
 fi
 
-echo "[codex-smoke] DEGRADED: project .codex/hooks.json command 未被 exec 模式验证；仅确认本次 codex run 无 hook failure marker。"
-exit 0
+echo "[codex-smoke] DEGRADED: project .codex/hooks.json command 未被 exec 模式验证；仅确认本次 codex run 无 hook failure marker."
+runtime_exit DEGRADED 0

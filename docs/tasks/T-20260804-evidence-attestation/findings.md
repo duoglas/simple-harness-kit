@@ -1,51 +1,61 @@
 # Findings — T-20260804-evidence-attestation
 
-## 2026-08-04 边界结论
+## 信任边界
 
-- public SHK 负责通用证明机制；downstream project 负责项目策略和 downstream 业务语义。
-- 当前 SHK 已有 structured evidence、E2E run-token freshness、mutation killed/survived 和 task ledger，但 `writeEvidence()` 仍主要写普通 JSON，没有绑定 Git commit/tree/dirty，也没有 evidence 内容摘要。
-- `.harness/gate-green-at` 若只是候选可写文件，会变成新的不可信状态字段；downstream project 的 RQ-0133 应消费通用 verifier，而不是把普通 marker 当最终信任根。
-- 哈希提供一致性，不自动提供独立真实性。第一版必须显式记录 `trust_level`，不能把 `local-self` 描述成不可伪造签名。
-- SHK 仓库没有 `package.json`；测试入口是 `node tests/run.js`。此前探测 package scripts 失败，后续不重复该假设。
-- 另一个非目标仓库有用户预存未提交修改，本任务禁止触碰。
+- fresh JSON 与 `overall=READY` 只能说明“存在一份状态”，不能说明它对应哪个候选、内容是否被改写或由谁建立信任。
+- attestation digest 保护除自身 digest 字段外的完整 evidence；它能检测未伴随新 attestation 的生成后改写，但 `local-self` 签发者仍可重新签发。
+- SHK CLI 只签发 `local-self`。`local-controller`、`ci-signed`、`independent` 必须由真实外部认证边界提供，不能由 JSON 自声明提升。
+- legacy compatibility 只是缺少 attestation 时的迁移窗口，不能绕过 commit/tree/clean/mode/trust 等其他策略。
+- attestation 已存在或策略明确要求时，verifier 缺失、异常、摘要错误或认证不足都必须 fail-closed。
 
-## downstream project 现有承载位置
+## 候选与交付绑定
 
-- RQ-0133：候选包含 main + gate 精确跑在候选上；适合补 SHK attestation 消费建议。
-- RQ-0143：构建输入双解析器；适合补 inputs manifest/hash 绑定建议。
-- RQ-0144：负载相关判据清点；适合补结构化 infra/resource verdict 建议。
-- RQ-0125/RQ-0130：已有 worktree/owner identity 相关内容；执行阶段先查覆盖范围，再决定补现有需求还是新增缺口需求。
+- candidate digest 排除任务 evidence 自身，以保证 evidence 生成与重新签发不会改变被证明候选；同时单独报告 index/worktree 是否一致。
+- `git commit` 必须同时满足 candidate digest 与 index/worktree 完整匹配；tag/push 还必须将实际 source/target 绑定到 verified HEAD。
+- shell command substitution、wrapper、Git global options 与 refspec 都属于解析边界。无法可靠判断执行目标时必须拒绝，而不是猜测放行。
+- `command -v/-V` 是查询，不应误判为执行；`command -p`、shell `-c`、`env`、`sudo` 等真实 wrapper 则必须继续解包。
+- REVIEW 只接受符合 schema 的权威结构化 JSON。Markdown、last-verification 或阶段历史不能替代 evidence verdict。
 
+## 更新安全
 
-## 2026-08-04 实现结论
+- 仅比较模板版本无法证明项目文件未定制；同版本文件也可能包含已提交增强。
+- 更新器必须先识别所有受管目标，再进行任何项目文件、local skill 或 global skill 写入，避免半升级状态。
+- reviewed override manifest 绑定的是当前上游文件 Git blob，而不是项目定制内容摘要：项目可继续演进定制；上游变化时授权自动失效。
+- manifest 中 malformed、duplicate、unknown path、stale blob、target missing、target equals upstream 都是配置错误，必须整批阻断。
+- `--force-overwrite` 的语义是明确丢弃全部项目定制并移除失效 manifest，不应出现在常规升级路径。
+- linked worktree 的 `.git` 可以是文件，仓库识别不能只接受 `.git/` 目录。
 
-- digest 保护整个 JSON evidence，仅排除 `attestation.digest` 自身；因此后续项目写入通用 `inputs` 时无需再维护字段白名单。
-- SHK CLI 只签发 `local-self`。SHA-256 证明内容一致性，不证明签发者独立性；`local-controller` / `ci-signed` / `independent` 只能由真正建立对应边界的外部集成声明。
-- consumer 采用迁移策略：attestation 一旦存在就必须有效；legacy 暂时默认兼容；项目设置 `evidence.require_attestation=true` 后强制 fail-closed。
-- macOS 默认 `os.tmpdir()` 的祖先目录存在外部旧 `.harness`，会让 find-root 场景吸附错误根；本轮测试统一显式使用 `TMPDIR=/private/tmp`，未删除或覆盖外部状态。
-- 完整 scripted matrix 已增长到真实应用/OSS/browser E2E，10 分钟外层上限会制造 infra 假红；runner 上限调整为 30 分钟，仍保留有限硬超时。
+## Runner 清理
 
-## 2026-08-04 VERIFY 结论
+- 仅跟踪初始 PGID 会漏掉重新建立会话的后代；需要累计采样 PGID 与父子进程树，并在 TERM/KILL 后重新发现。
+- 父进程在首次采样前退出是实际竞态；per-run marker 可补强常见路径，但不是操作系统级或密码学安全边界。
+- 单个 stale PGID 或 `EPERM` 不能提前中断其他信号目标；布尔短路也不能跳过后续 TERM/KILL。
+- 持续发现失败或残留进程意味着无法证明 clean terminal state，结果必须记录 `cleanup_uncertain`/residual 信息并返回内部错误。
 
-- 普通检查的 120 秒 timeout 不能直接套给真实 E2E；但 E2E 也不能允许 0/非法值取消 hard timeout。通用策略应是按检查类型提供独立、有限、可覆盖的默认值。
-- 同一 E2E 同时服务充分性和测试有效性时，应共享一次结构化 run，而不是由两个评估器各跑一次；否则会放大耗时、资源争用和非确定性。
-- 任务级 flow wrapper 必须在所有真实断言通过后才写 run-token-bound evidence，不能用预先存在的 PASS JSON 代替执行结果。
-- public evidence 会记录配置中的 command；调用方私有路径或关键词不能内嵌到仓库配置，应由外层环境传入，公开 command 只保留通用 wrapper。
-- 泄漏扫描首次正确拦截了旧 evidence 中的私有调用配置。这说明扫描应覆盖未跟踪交付物；同时生成流程需要通过一次失败 evidence 清除旧内容后再重跑，不能绕过扫描。
-- downstream project 工作树存在一个并发文档，不属于本任务。边界判断应以“本任务 write set + 非 docs 禁止 + metadata 不变”为准，而不是错误断言整个工作树只有 5 个文件。
-- 最终 READY evidence 诚实记录 `dirty=true` 和 `local-self`。当前结果证明内容完整性与本地生成过程，不等同于独立签名或 clean release candidate。
+## 验证与报告真实性
 
-## 2026-08-04 提交前 FEEDBACK 结论
+- 测试汇总必须分别统计 passed、failed、skipped、degraded、total；SKIP/DEGRADED 不能累计到 passed。
+- 普通检查和真实 E2E 需要不同但始终有限的 hard timeout；非法或非正值配置应回退到安全默认值。
+- 同一 E2E 同时服务多个评估器时应共享一次结构化结果，避免重复执行导致资源争用和不确定性。
+- 公共任务记录、配置和 evidence 都属于交付面，必须和代码一起扫描新增行，不能包含环境专属路径、标识符或领域词。
 
-- 公开 digest 可由本地调用方重算，因此“声明的 trust level”不能作为“已认证 trust boundary”。本地 attester 只允许签发 `local-self`；更高声明没有外部认证结果时必须返回 `EVIDENCE_TRUST_UNVERIFIED`。
-- `authenticated_trust_level` 只保留在库层供真正完成签名/controller 验证的集成调用；CLI 不暴露该入口，不能仅凭 JSON 中写着 `ci-signed` 就提升 trust。
-- consumer 的 legacy 兼容必须区分依赖故障：verifier 不可用时，只有无 attestation 且未开启 strict 的旧 evidence 可继续；已 attested 或 `require_attestation=true` 必须返回 `ATTESTATION_VERIFIER_UNAVAILABLE`。
-- digest 的准确能力边界是“检测未伴随新 attestation 的生成后改写”；`local-self` issuer 本身仍可重新签发，不能抵抗恶意本地生成者。
+## 第三轮审查后的补充结论
 
-## 最终复核补充（2026-08-04）
+- substitution 安全边界不能只递归检查“替换内容是否直接执行 git”；替换结果落在 executable、wrapper 控制参数、Git subcommand 或交付 target/refspec 时，本身就是不可判定的交付语义。
+- `git merge` 一类命令与 `git commit` 的根本区别是：gate 检查发生在操作前，而被交付候选产生在操作后；没有结果候选 attestation 就不能复用旧 evidence。
+- runtime 状态属于协议字段，不属于自然语言；消费者必须读取唯一结构化终态，叙述文本中的状态词没有判定权。
 
-- legacy compatibility 是“缺少 attestation 的迁移窗口”，不是其他策略的总开关；否则 `--allow-legacy` 会意外绕过候选谱系、clean、mode 和 trust 准入。
-- verifier CLI 必须把未知参数、重复参数、缺失参数值和非法输出格式视为策略错误；静默忽略拼错参数等同 fail-open。
-- public 仓任务记录本身也是交付面，必须和代码/文档一起做新增行泄漏扫描；本轮已将调用方私有仓名称中性化。
-- 最终证明链以 fresh `verify-flow-e2e.sh`、257/257 完整回归和实现/测试提交后的 run `run-e58beefa-e409-40d8-b4b3-ef54f0c1e52c` 为准；早期 `real-git-e2e.json` 只证明当时的专项路径。
-- fresh evidence 记录 `dirty=true`，适合证明本次提交前工作树的验证结果，但不声称是 clean release-candidate attestation；提交后 commit hash 由 Git 提交本身记录。
+## 第四轮审查后的补充结论
+
+- 静态识别 `git` 字面量不够：shell 变量、动态 wrapper/options、Git config alias、`eval`/`source` 都能改变最终执行语义。任何二次解释或动态生成交付关键字段的路径都必须 fail-closed。
+- submodule 是 Git tree 中的 gitlink，而不是普通目录。候选摘要必须绑定实际 checkout OID；只记录“目录/other”会让不同 gitlink 候选碰撞。dirty 或未初始化 submodule 不能形成可认证候选。
+- `rm -rf` 整个 skill 目录意味着冲突检测必须覆盖完整目录树，而不仅是 `SKILL.md`。额外说明文件、旧版文件、symlink 和类型变化都属于可能被删除的定制面。
+- upgrade checkout 前只检查 tracked/index diff 会漏掉未跟踪注入；受管源树的 untracked 文件同样可能在 checkout 后被 glob 同步，必须在 fetch/checkout 前阻断。
+
+## 2026-08-05 — Round 5 findings and resolution
+
+Round 5 demonstrated that safe delivery requires conservative treatment across four independent boundaries: shell interpretation, evidence identity, filesystem target type, and process discovery. A parser that recognizes only direct `git` tokens is insufficient when aliases, wrappers, control structures, globbed executables, continuations, redirections, or multi-action command chains can change the executed result. Evidence freshness is also insufficient unless every authoritative reader binds the evidence to the current commit/tree/candidate. For gitlinks, the index OID is authoritative because that is what Git commits; a checkout/index split is not an attestable candidate. Upgrade writers must never follow managed-target symlinks, and source status failures cannot be treated as clean. Finally, process discovery uncertainty is sticky: later clean observations do not justify PASS.
+
+## 2026-08-05 — Round 6 findings and resolution
+
+A command being recognized as a protected Git operation is weaker than proving its raw shell spelling is safe to authorize. Continuations and redirections must remain parser-ambiguity failures even when valid evidence exists; otherwise the evidence gate converts an intentionally fail-closed syntax into an allowed action. Likewise, leaf-only lstat is not a no-follow transaction: every ancestor directory is part of the write boundary. Force may replace a leaf symlink, but it must never authorize a symlinked parent or report success after moving a temporary file inside a directory-shaped leaf.

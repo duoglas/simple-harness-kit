@@ -3,6 +3,7 @@
 from __future__ import print_function
 
 import argparse
+import ctypes
 import datetime as dt
 import errno
 import json
@@ -11,10 +12,12 @@ import re
 import selectors
 import shlex
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 EXIT = {
     "PASS": 0,
@@ -85,60 +88,287 @@ def file_signature(paths):
     return tuple(sig)
 
 
-def group_rows(pgid):
-    try:
-        out = subprocess.check_output(
-            ["ps", "-axo", "pid=,ppid=,pgid=,stat=,etime=,command="],
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-        )
-    except Exception as exc:
-        return ["ps failed: %s" % exc]
-    rows = []
+def _ps_snapshot(include_env=False):
+    """Return parsed process rows as (pid, ppid, pgid, stat, raw_line)."""
+    command = ["ps"]
+    if include_env:
+        command.append("eww")
+    command.extend(["-axo", "pid=,ppid=,pgid=,stat=,etime=,command="])
+    out = subprocess.check_output(
+        command,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+    )
+    parsed = []
     for line in out.splitlines():
         fields = line.strip().split(None, 5)
-        if len(fields) >= 4:
-            try:
-                if int(fields[2]) == int(pgid) and not fields[3].startswith("Z"):
-                    rows.append(line)
-            except ValueError:
-                pass
-    return rows
+        if len(fields) < 4:
+            continue
+        try:
+            parsed.append((int(fields[0]), int(fields[1]), int(fields[2]), fields[3], line))
+        except ValueError:
+            continue
+    return parsed
 
 
-def write_process_tree(path, pgid, reason):
-    rows = group_rows(pgid)
+def group_members(pgid):
+    """Return the live process tree rooted in the guarded process group."""
+    parsed = _ps_snapshot()
+    members = {
+        pid for pid, _ppid, member_pgid, stat, _line in parsed
+        if member_pgid == int(pgid) and not stat.startswith("Z")
+    }
+    changed = True
+    while changed:
+        changed = False
+        for pid, ppid, _member_pgid, stat, _line in parsed:
+            if pid in members or stat.startswith("Z"):
+                continue
+            if ppid in members:
+                members.add(pid)
+                changed = True
+    return [
+        (pid, member_pgid, line)
+        for pid, _ppid, member_pgid, stat, line in parsed
+        if pid in members and not stat.startswith("Z")
+    ]
+
+
+def darwin_pipe_handles(pid, fd):
+    """Return (handle, peer_handle) for a Darwin pipe fd, or an empty tuple."""
+    if sys.platform != "darwin":
+        return ()
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+        buf = ctypes.create_string_buffer(184)  # sizeof(struct pipe_fdinfo), Darwin 23+
+        size = libproc.proc_pidfdinfo(int(pid), int(fd), 6, buf, len(buf))
+        if size < 176:
+            return ()
+        return struct.unpack_from("QQ", buf.raw, 160)
+    except Exception:
+        return ()
+
+
+def guarded_pipe_handles(proc):
+    handles = set()
+    for stream in (proc.stdout, proc.stderr):
+        if stream is None:
+            continue
+        handles.update(darwin_pipe_handles(os.getpid(), stream.fileno()))
+    handles.discard(0)
+    return handles
+
+
+def pipe_group_ids(pipe_handles, discovery_state=None):
+    """Darwin fallback: find groups still holding a guarded stdout/stderr pipe.
+
+    This closes the reparenting race even when a detached descendant clears the
+    environment marker, provided it still owns one of the command pipes.
+    """
+    if sys.platform != "darwin" or not pipe_handles:
+        return []
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+        groups = set()
+        rows = _ps_snapshot()
+        for pid, _ppid, pgid, stat, _line in rows:
+            if stat.startswith("Z") or pid == os.getpid():
+                continue
+            fd_buf = ctypes.create_string_buffer(65536)
+            size = libproc.proc_pidinfo(int(pid), 1, 0, fd_buf, len(fd_buf))
+            if size <= 0:
+                continue
+            for offset in range(0, size - 7, 8):
+                fd, fd_type = struct.unpack_from("iI", fd_buf.raw, offset)
+                if fd_type != 6:  # PROX_FDTYPE_PIPE
+                    continue
+                handles = darwin_pipe_handles(pid, fd)
+                if handles and pipe_handles.intersection(handles):
+                    groups.add(pgid)
+                    break
+        return sorted(groups)
+    except Exception:
+        if discovery_state is not None:
+            discovery_state["uncertain"] = True
+        return []
+
+
+def token_group_ids(guard_token, discovery_state=None):
+    """Find descendant groups that retained the per-run environment marker.
+
+    The marker closes the common race where the direct child exits before a ps
+    ancestry sample and a setsid descendant is immediately reparented. It is a
+    fallback to persistent ancestry observations, not a security boundary.
+    """
+    if not guard_token:
+        return []
+    marker = "SHK_GUARD_TOKEN=%s" % guard_token
+    try:
+        return sorted({
+            member_pgid for _pid, _ppid, member_pgid, stat, line in _ps_snapshot(include_env=True)
+            if marker in line and not stat.startswith("Z")
+        })
+    except Exception:
+        if discovery_state is not None:
+            discovery_state["uncertain"] = True
+        return []
+
+
+def refresh_guarded_groups(root_pgid, observed_pgids, guard_token=None, scan_token=False, pipe_handles=None, scan_pipes=False, discovery_state=None):
+    """Persist every process group ever observed as part of this guarded run."""
+    observed_pgids.add(int(root_pgid))
+    try:
+        for _pid, member_pgid, _line in group_members(root_pgid):
+            observed_pgids.add(member_pgid)
+    except Exception:
+        if discovery_state is not None:
+            discovery_state["uncertain"] = True
+    if scan_token:
+        for member_pgid in token_group_ids(guard_token, discovery_state):
+            observed_pgids.add(member_pgid)
+    if scan_pipes:
+        for member_pgid in pipe_group_ids(pipe_handles, discovery_state):
+            observed_pgids.add(member_pgid)
+    try:
+        own_pgid = os.getpgrp()
+    except OSError:
+        own_pgid = None
+    observed_pgids.difference_update({item for item in observed_pgids if item <= 0 or item == own_pgid})
+    return sorted(observed_pgids)
+
+
+def rows_for_groups(pgids):
+    """Return live rows belonging to captured groups, without relying on ancestry."""
+    wanted = set(int(pgid) for pgid in pgids)
+    if not wanted:
+        return []
+    return [
+        line for _pid, _ppid, member_pgid, stat, line in _ps_snapshot()
+        if member_pgid in wanted and not stat.startswith("Z")
+    ]
+
+
+def group_rows_state(pgids):
+    """Return (rows, uncertain). Process discovery failure is not proof of exit."""
+    try:
+        return rows_for_groups(pgids), False
+    except Exception:
+        return [], True
+
+
+def signal_groups(pgids, sig):
+    """Signal every observed group and report whether any outcome was uncertain.
+
+    A stale/inaccessible PGID must not abort the loop before later groups receive
+    SIGKILL. Callers combine this uncertainty with residual discovery and keep the
+    terminal result fail-closed when cleanup cannot be proven complete.
+    """
+    uncertain = False
+    try:
+        alive = {
+            member_pgid for _pid, _ppid, member_pgid, stat, _line in _ps_snapshot()
+            if not stat.startswith("Z")
+        }
+    except Exception:
+        alive = None
+        uncertain = True
+    for target in pgids:
+        if alive is not None and target not in alive:
+            continue
+        try:
+            os.killpg(target, sig)
+        except OSError as exc:
+            if exc.errno == errno.ESRCH:
+                continue
+            if exc.errno == errno.EPERM:
+                try:
+                    if not rows_for_groups([target]):
+                        continue
+                except Exception:
+                    pass
+            # Continue through the complete observed set so one stale or
+            # inaccessible group cannot suppress signaling a later child group.
+            uncertain = True
+    return uncertain
+
+
+def write_group_rows(path, pgid, pgids, reason, discovery_state=None):
+    try:
+        rows = rows_for_groups(pgids)
+    except Exception as exc:
+        if discovery_state is not None:
+            discovery_state["uncertain"] = True
+        rows = ["ps failed: %s" % exc]
     with open(path, "a") as fh:
-        fh.write("\n=== %s reason=%s pgid=%s ===\n" % (iso_now(), reason, pgid))
+        fh.write("\n=== %s reason=%s pgid=%s target_pgids=%s ===\n" % (
+            iso_now(), reason, pgid, ",".join(str(x) for x in pgids)
+        ))
         fh.write("\n".join(rows) + ("\n" if rows else "(no processes)\n"))
     return rows
 
 
-def signal_group(pgid, sig):
-    try:
-        os.killpg(pgid, sig)
-    except OSError as exc:
-        if exc.errno != errno.ESRCH:
-            raise
-
-
-def cleanup_group(proc, pgid, tree_path, reason):
-    write_process_tree(tree_path, pgid, reason + "-before-term")
-    signal_group(pgid, signal.SIGTERM)
+def cleanup_group(proc, pgid, tree_path, reason, observed_pgids, guard_token=None, pipe_handles=None, discovery_state=None):
+    """Terminate observed groups; discovery failure still escalates to unconditional KILL."""
+    target_pgids = refresh_guarded_groups(
+        pgid, observed_pgids, guard_token, scan_token=True,
+        pipe_handles=pipe_handles, scan_pipes=True, discovery_state=discovery_state,
+    )
+    write_group_rows(tree_path, pgid, target_pgids, reason + "-before-term", discovery_state)
+    uncertain = False
+    term_signaled = set()
     deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        if not group_rows(pgid):
-            return
+    while True:
+        target_pgids = refresh_guarded_groups(
+            pgid, observed_pgids, guard_token, scan_token=True,
+            pipe_handles=pipe_handles, scan_pipes=True, discovery_state=discovery_state,
+        )
+        new_targets = [item for item in target_pgids if item not in term_signaled]
+        if new_targets:
+            signal_uncertain = signal_groups(new_targets, signal.SIGTERM)
+            uncertain = uncertain or signal_uncertain
+            term_signaled.update(new_targets)
+        rows, unknown = group_rows_state(target_pgids)
+        uncertain = uncertain or unknown
+        if not unknown and not rows:
+            return {"clean": True, "uncertain": uncertain, "residual_pgids": []}
+        if time.monotonic() >= deadline:
+            break
         time.sleep(0.1)
-    write_process_tree(tree_path, pgid, reason + "-before-kill")
-    signal_group(pgid, signal.SIGKILL)
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        if not group_rows(pgid):
-            return
-        time.sleep(0.1)
-    write_process_tree(tree_path, pgid, reason + "-residual")
 
+    target_pgids = refresh_guarded_groups(
+        pgid, observed_pgids, guard_token, scan_token=True,
+        pipe_handles=pipe_handles, scan_pipes=True, discovery_state=discovery_state,
+    )
+    write_group_rows(tree_path, pgid, target_pgids, reason + "-before-kill", discovery_state)
+    kill_signaled = set()
+    deadline = time.monotonic() + 2.0
+    while True:
+        target_pgids = refresh_guarded_groups(
+            pgid, observed_pgids, guard_token, scan_token=True,
+            pipe_handles=pipe_handles, scan_pipes=True, discovery_state=discovery_state,
+        )
+        new_targets = [item for item in target_pgids if item not in kill_signaled]
+        if new_targets:
+            # signal_groups deliberately sends to every observed PGID when ps is
+            # unavailable, so a discovery outage cannot suppress SIGKILL.
+            signal_uncertain = signal_groups(new_targets, signal.SIGKILL)
+            uncertain = uncertain or signal_uncertain
+            kill_signaled.update(new_targets)
+        rows, unknown = group_rows_state(target_pgids)
+        uncertain = uncertain or unknown
+        if not unknown and not rows:
+            return {"clean": True, "uncertain": uncertain, "residual_pgids": []}
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.1)
+    rows, unknown = group_rows_state(target_pgids)
+    uncertain = uncertain or unknown
+    write_group_rows(tree_path, pgid, target_pgids, reason + "-residual", discovery_state)
+    return {
+        "clean": not unknown and not rows,
+        "uncertain": uncertain,
+        "residual_pgids": list(target_pgids) if unknown or rows else [],
+    }
 
 def main(argv):
     args = parse_args(argv)
@@ -160,13 +390,23 @@ def main(argv):
     last_progress = started
     last_progress_wall = started_wall
     last_heartbeat = started
+    last_group_sample = started
+    group_sample_interval = 0.02
     diagnosed = False
     progress_sig = file_signature(args.progress_file)
     proc = None
     pgid = None
+    out_files = {}
     termination_signal = None
     status = None
     interrupted = {"signal": None}
+    guard_token = uuid.uuid4().hex
+    observed_pgids = set()
+    cleanup_performed = False
+    cleanup_uncertain = False
+    discovery_state = {"uncertain": False}
+    residual_pgids = []
+    pipe_handles = set()
 
     def on_signal(signum, _frame):
         interrupted["signal"] = signum
@@ -174,15 +414,20 @@ def main(argv):
     old_int = signal.signal(signal.SIGINT, on_signal)
     old_term = signal.signal(signal.SIGTERM, on_signal)
     try:
+        child_env = os.environ.copy()
+        child_env["SHK_GUARD_TOKEN"] = guard_token
         proc = subprocess.Popen(
             args.command,
             cwd=root,
+            env=child_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
             preexec_fn=os.setsid,
         )
         pgid = os.getpgid(proc.pid)
+        pipe_handles = guarded_pipe_handles(proc)
+        refresh_guarded_groups(pgid, observed_pgids, guard_token, discovery_state=discovery_state)
         print("[GUARD] name=%s pid=%s pgid=%s started=%s budget=%.3fs diagnose=%.3fs idle=%.3fs hard=%.3fs" % (
             args.name, proc.pid, pgid, started_wall, args.budget, args.diagnose_after, args.idle_timeout, args.hard_timeout
         ), flush=True)
@@ -199,10 +444,18 @@ def main(argv):
         open_streams = 2
         while True:
             now = time.monotonic()
+            if now - last_group_sample >= group_sample_interval:
+                refresh_guarded_groups(pgid, observed_pgids, guard_token, discovery_state=discovery_state)
+                last_group_sample = now
             if interrupted["signal"] is not None:
                 termination_signal = signal.Signals(interrupted["signal"]).name
                 status = "INTERRUPTED"
-                cleanup_group(proc, pgid, tree_path, "interrupted")
+                cleanup = cleanup_group(proc, pgid, tree_path, "interrupted", observed_pgids, guard_token, pipe_handles, discovery_state)
+                cleanup_performed = True
+                cleanup_uncertain = cleanup["uncertain"] or discovery_state["uncertain"]
+                residual_pgids = cleanup["residual_pgids"]
+                if not cleanup["clean"]:
+                    status = "INTERNAL_ERROR"
                 break
 
             elapsed = now - started
@@ -216,26 +469,36 @@ def main(argv):
                 progress_age = 0.0
 
             if progress_age >= args.diagnose_after and not diagnosed:
-                write_process_tree(tree_path, pgid, "diagnose-after")
+                write_group_rows(tree_path, pgid, refresh_guarded_groups(pgid, observed_pgids, guard_token, discovery_state=discovery_state), "diagnose-after", discovery_state)
                 diagnosed = True
                 print("[GUARD][DIAGNOSE] name=%s elapsed=%.1fs last_progress_age=%.1fs" % (args.name, elapsed, progress_age), flush=True)
 
             if elapsed >= args.hard_timeout:
                 status = "HARD_TIMEOUT"
                 termination_signal = "SIGTERM/SIGKILL"
-                cleanup_group(proc, pgid, tree_path, "hard-timeout")
+                cleanup = cleanup_group(proc, pgid, tree_path, "hard-timeout", observed_pgids, guard_token, pipe_handles, discovery_state)
+                cleanup_performed = True
+                cleanup_uncertain = cleanup["uncertain"]
+                residual_pgids = cleanup["residual_pgids"]
+                if not cleanup["clean"]:
+                    status = "INTERNAL_ERROR"
                 break
             if progress_age >= args.idle_timeout:
                 status = "IDLE_TIMEOUT"
                 termination_signal = "SIGTERM/SIGKILL"
-                cleanup_group(proc, pgid, tree_path, "idle-timeout")
+                cleanup = cleanup_group(proc, pgid, tree_path, "idle-timeout", observed_pgids, guard_token, pipe_handles, discovery_state)
+                cleanup_performed = True
+                cleanup_uncertain = cleanup["uncertain"]
+                residual_pgids = cleanup["residual_pgids"]
+                if not cleanup["clean"]:
+                    status = "INTERNAL_ERROR"
                 break
 
             if now - last_heartbeat >= args.heartbeat:
                 print("[GUARD][HEARTBEAT] name=%s elapsed=%.1fs last_progress_age=%.1fs" % (args.name, elapsed, progress_age), flush=True)
                 last_heartbeat = now
 
-            events = sel.select(timeout=min(0.2, max(0.01, args.hard_timeout - elapsed)))
+            events = sel.select(timeout=min(group_sample_interval, max(0.005, args.hard_timeout - elapsed)))
             for key, _ in events:
                 stream = key.fileobj
                 try:
@@ -251,6 +514,7 @@ def main(argv):
                     last_progress = time.monotonic()
                     last_progress_wall = iso_now()
                     diagnosed = False
+                    refresh_guarded_groups(pgid, observed_pgids, guard_token, discovery_state=discovery_state)
                 else:
                     try:
                         sel.unregister(stream)
@@ -268,6 +532,27 @@ def main(argv):
                 else:
                     status = "PASS"
                 break
+
+        # A successful direct child is not permission to leave daemons behind. Before
+        # reporting any terminal status, reclaim every still-live observed/token group.
+        if not cleanup_performed:
+            targets = refresh_guarded_groups(pgid, observed_pgids, guard_token, scan_token=True, pipe_handles=pipe_handles, scan_pipes=True, discovery_state=discovery_state)
+            rows, discovery_uncertain = group_rows_state(targets)
+            if rows or discovery_uncertain:
+                cleanup = cleanup_group(proc, pgid, tree_path, "terminal-%s" % status.lower(), observed_pgids, guard_token, pipe_handles, discovery_state)
+                cleanup_performed = True
+                cleanup_uncertain = discovery_uncertain or cleanup["uncertain"]
+                residual_pgids = cleanup["residual_pgids"]
+                if termination_signal is None:
+                    termination_signal = "SIGTERM/SIGKILL(residual-descendants)"
+                if not cleanup["clean"]:
+                    status = "INTERNAL_ERROR"
+
+        # C-GATE-30: any cleanup/discovery uncertainty is terminal. A later clean
+        # sample cannot prove no descendant escaped during the observation gap.
+        cleanup_uncertain = cleanup_uncertain or discovery_state["uncertain"]
+        if cleanup_uncertain:
+            status = "INTERNAL_ERROR"
 
         for fh in out_files.values():
             fh.close()
@@ -295,6 +580,8 @@ def main(argv):
             "runner_exit_code": EXIT[status],
             "child_exit_code": child_rc,
             "termination_signal": termination_signal,
+            "cleanup_uncertain": cleanup_uncertain,
+            "residual_pgids": residual_pgids,
             "incident_dir": incident_dir,
         }
         atomic_json(result_path, result)
@@ -312,10 +599,49 @@ def main(argv):
     except Exception as exc:
         if proc is not None and pgid is not None:
             try:
-                cleanup_group(proc, pgid, tree_path, "internal-error")
+                cleanup = cleanup_group(
+                    proc, pgid, tree_path, "internal-error", observed_pgids, guard_token, pipe_handles, discovery_state
+                )
+                cleanup_uncertain = cleanup["uncertain"]
+                residual_pgids = cleanup["residual_pgids"]
+            except Exception:
+                cleanup_uncertain = True
+                residual_pgids = sorted(observed_pgids)
+        for fh in out_files.values():
+            try:
+                fh.close()
             except Exception:
                 pass
-        print("[GUARD][INTERNAL_ERROR] %s" % exc, file=sys.stderr)
+        ended_wall = iso_now()
+        elapsed_ms = int(round((time.monotonic() - started) * 1000))
+        payload = {
+            "schema_version": 1, "name": args.name, "command": args.command,
+            "started_at": started_wall, "ended_at": ended_wall,
+            "elapsed_ms": elapsed_ms, "budget_ms": int(args.budget * 1000),
+            "diagnose_after_ms": int(args.diagnose_after * 1000),
+            "idle_timeout_ms": int(args.idle_timeout * 1000),
+            "hard_timeout_ms": int(args.hard_timeout * 1000),
+            "last_progress_at": last_progress_wall, "status": "INTERNAL_ERROR",
+            "runner_exit_code": EXIT["INTERNAL_ERROR"],
+            "child_exit_code": proc.poll() if proc is not None else None,
+            "termination_signal": "SIGTERM/SIGKILL" if proc is not None else None,
+            "cleanup_uncertain": cleanup_uncertain,
+            "residual_pgids": residual_pgids,
+            "incident_dir": incident_dir, "error": str(exc),
+        }
+        try:
+            atomic_json(result_path, payload)
+            atomic_json(runtime_path, {
+                "schema_version": 1, "task": args.name, "step": args.name,
+                "status": "INTERNAL_ERROR", "pid": proc.pid if proc is not None else None,
+                "command": args.command, "started_at": started_wall,
+                "last_progress_at": last_progress_wall, "ended_at": ended_wall,
+                "completed_steps": [], "evidence": [result_path], "retry_count": 0,
+                "error": str(exc),
+            })
+        except Exception:
+            pass
+        print("[GUARD][INTERNAL_ERROR] %s evidence=%s" % (exc, incident_dir), file=sys.stderr)
         return EXIT["INTERNAL_ERROR"]
     finally:
         signal.signal(signal.SIGINT, old_int)

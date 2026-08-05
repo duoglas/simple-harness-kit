@@ -85,10 +85,21 @@ curl -fsSL https://raw.githubusercontent.com/duoglas/simple-harness-kit/master/u
 
 `upgrade.sh` does four things:
 
-1. **Locates the kit**: reads the `~/.simple-harness-kit-root` marker, falls back to `~/simple-harness-kit`, and **clones automatically if the kit was never installed** (works on a fresh machine);
+1. **Locates the kit**: reads the `~/.simple-harness-kit-root` marker, falls back to `~/simple-harness-kit`, and **clones automatically if the kit was never installed** (works on a fresh machine). The marker may point to a normal checkout or a linked Git worktree;
 2. **Checks out the target version**: fetches, then checks out the script's built-in `DEFAULT_REF` (bumped per release; override with `--ref <tag|branch>` or the `SHK_REF` env var). **Aborts** if the kit worktree has uncommitted changes — your local edits are never overwritten;
-3. **Syncs the current project**: runs `update.sh --hooks`, which updates `scripts/hooks/` by `@version` comparison (new hooks are installed automatically, `scripts/lib` shared libs are synced), regenerates `.codex/hooks.json`, and refreshes installed global skills;
+3. **Preflights and syncs the current project**: runs `update.sh --hooks`, which validates the complete override manifest and checks every managed hook/library/runner/CLI before any project or skill write. Files matching a known historical kit blob upgrade automatically; unknown project customizations stop the whole sync and are listed for three-way merge. Only after preflight succeeds are project files, project-local skills, installed global skills, and `.codex/hooks.json` updated;
 4. **Safe fallback**: running it outside a project directory is harmless — it only updates global skills and tells you to re-run from a project root.
+
+Destructive replacement is never implicit. After reviewing the listed conflicts, `--force-overwrite` is available only when intentionally discarding **all** project customizations, including reviewed overrides. A successful forced sync removes `.harness/shk-overrides.v1`, because those approvals no longer describe preserved files.
+
+For a project that intentionally maintains a reviewed override, record the **current upstream blob** in `.harness/shk-overrides.v1`:
+
+```text
+# SHK project overrides v1
+<current-upstream-git-blob> scripts/hooks/example.js
+```
+
+Generate the blob from the exact kit revision being adopted, for example `git -C "$KIT" hash-object "$KIT/scripts/hooks/example.js"`. A matching entry preserves that project file while all other managed files continue to upgrade. Track `.harness/shk-overrides.v1` in the project repository so a clean clone has the same reviewed approvals. The entire manifest is validated even when a target file is missing or already equals SHK: stale blobs, duplicate/malformed entries, and paths that are not managed by the selected SHK revision stop the sync before any project or skill write. When SHK changes an approved upstream file, three-way merge and re-review the override before updating its blob.
 
 Takes effect in the next session, zero configuration. Pin a specific version:
 
