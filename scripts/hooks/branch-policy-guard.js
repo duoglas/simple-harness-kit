@@ -4,7 +4,7 @@
 /**
  * branch-policy-guard.js — Block git operations that violate the active
  * preset's branch-policy.json / commit-format.json.
- * @version 0.10.0
+ * @version 0.10.1
  * Trigger: PreToolUse:Bash
  *
  * Blocks (exit 2):
