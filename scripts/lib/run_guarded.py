@@ -425,7 +425,10 @@ def main(argv):
             bufsize=0,
             preexec_fn=os.setsid,
         )
-        pgid = os.getpgid(proc.pid)
+        # preexec_fn=os.setsid creates a new session whose PGID is exactly the
+        # child PID. Reading it back with os.getpgid() races an immediate child
+        # exit on macOS/Linux and can turn a successful command into ESRCH.
+        pgid = proc.pid
         pipe_handles = guarded_pipe_handles(proc)
         refresh_guarded_groups(pgid, observed_pgids, guard_token, discovery_state=discovery_state)
         print("[GUARD] name=%s pid=%s pgid=%s started=%s budget=%.3fs diagnose=%.3fs idle=%.3fs hard=%.3fs" % (
