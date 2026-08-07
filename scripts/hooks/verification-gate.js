@@ -3,7 +3,7 @@
 
 /**
  * Verification Gate Hook — commit/push 前的阶段和证据检查
- * @version 0.14.0 (evidence-attestation: commit/push 拒绝摘要损坏或 strict legacy 证据)
+ * @version 0.14.1 (evidence-attestation: 对齐可配置 legacy consumer 契约)
  * 触发: PreToolUse:Bash
  *
  * 五重检查（[过程] 检查在 light 模式降级为提示；[证据] 检查两种模式一致保留）:
@@ -878,14 +878,29 @@ function readStructuredEvidence(filePath) {
 }
 
 function structuredEvidenceAttestationProblem(evidence, currentGit, requireIndexReady = false) {
+  let config = {};
+  try { config = ledger ? ledger.readHarnessConfig(ROOT) : JSON.parse(fs.readFileSync(path.join(ROOT, '.harness/config.json'), 'utf8')); } catch {}
+  const required = Boolean(config && config.evidence && config.evidence.require_attestation === true);
   if (!evidence) return null;
+  const hasAttestation = Boolean(evidence.attestation && typeof evidence.attestation === 'object');
   if (!evidenceAttestation) {
+    if (hasAttestation || required) {
+      return {
+        code: 'ATTESTATION_VERIFIER_UNAVAILABLE',
+        message: 'attestation verifier module is unavailable while attested or strict evidence is being consumed',
+      };
+    }
+    return null;
+  }
+  if (required && !hasAttestation) {
     return {
-      code: 'ATTESTATION_VERIFIER_UNAVAILABLE',
-      message: 'attestation verifier module is unavailable for a delivery command',
+      code: 'ATTESTATION_MISSING',
+      message: 'attestation is required by policy but missing',
     };
   }
-  if (!currentGit || !currentGit.available || !currentGit.commit || !currentGit.tree || !currentGit.candidate_digest) {
+  const mustBindCurrent = hasAttestation || required || Boolean(evidence.git_identity);
+  const needsCurrentGit = requireIndexReady || mustBindCurrent;
+  if (needsCurrentGit && (!currentGit || !currentGit.available || !currentGit.commit || !currentGit.tree || !currentGit.candidate_digest)) {
     return {
       code: 'GIT_IDENTITY_UNAVAILABLE',
       message: 'current Git commit, tree, or candidate digest could not be resolved',
@@ -899,11 +914,13 @@ function structuredEvidenceAttestationProblem(evidence, currentGit, requireIndex
     };
   }
   const result = evidenceAttestation.verifyEvidence(evidence, {
-    require_attestation: true,
-    allow_legacy: false,
-    expected_commit: currentGit.commit,
-    expected_tree: currentGit.tree,
-    expected_candidate_digest: currentGit.candidate_digest,
+    require_attestation: required,
+    allow_legacy: !required,
+    ...(mustBindCurrent ? {
+      expected_commit: currentGit.commit,
+      expected_tree: currentGit.tree,
+      expected_candidate_digest: currentGit.candidate_digest,
+    } : {}),
   });
   return result.status === 'PASS' ? null : result.failures[0];
 }
