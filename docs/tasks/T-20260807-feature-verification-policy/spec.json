@@ -1,0 +1,426 @@
+{
+  "schema_version": "1.0",
+  "risk": "high",
+  "requirements": [
+    {
+      "id": "REQ-VERIFY-1",
+      "text": "Focused verification may reuse only a digest-valid full baseline whose candidate identity is explicit; missing, stale, partial, or untrusted baselines must fail closed or cause the affected checks to run.",
+      "priority": "must",
+      "source": "verification cost and trust-boundary review"
+    },
+    {
+      "id": "REQ-VERIFY-2",
+      "text": "A full run must have a structured admission decision so an exact already-verified candidate can be reused while changed candidates, runner changes, or missing prerequisites cannot silently reuse old evidence.",
+      "priority": "must",
+      "source": "verification cost and trust-boundary review"
+    },
+    {
+      "id": "REQ-VERIFY-3",
+      "text": "Projects can declare suite inclusion as data; transitive inclusion is resolved once, cycles and unknown references are rejected, and an included suite is not executed twice for the same candidate and test manifest.",
+      "priority": "must",
+      "source": "verification cost review"
+    },
+    {
+      "id": "REQ-VERIFY-4",
+      "text": "Candidate identity changes invalidate prior approval and verification evidence; reviewer policy defaults to evidence audit plus independent risk probes and requests a full rebuild only for explicit trust or runner risks.",
+      "priority": "must",
+      "source": "review responsibility review"
+    },
+    {
+      "id": "REQ-VERIFY-5",
+      "text": "A requirement document or structured spec containing configured placeholder text in required fields cannot enter a configured completed state, while valid completed documents and non-completed drafts remain allowed.",
+      "priority": "must",
+      "source": "requirement completeness review"
+    },
+    {
+      "id": "REQ-VERIFY-6",
+      "text": "All public defaults and documentation remain project-neutral and expose policy primitives rather than embedding an adopter-specific controller or command name.",
+      "priority": "must",
+      "source": "public kit boundary"
+    }
+  ],
+  "design": {
+    "summary": "Add a reusable verification-policy module, connect trusted-baseline reuse and suite de-duplication to SHK verify, enforce requirement completeness at task completion, and update public verification/reviewer guidance.",
+    "changed_areas": [
+      "scripts/lib verification policy",
+      "verify cache and CLI admission",
+      "task close completeness gate",
+      "public QA templates and methodology",
+      "focused policy tests"
+    ],
+    "risk_points": [
+      {
+        "id": "RISK-VERIFY-1",
+        "text": "A forged or partial baseline could suppress a required check."
+      },
+      {
+        "id": "RISK-VERIFY-2",
+        "text": "Suite inclusion cycles or ambiguous ownership could skip every runnable suite or double-count inherited success."
+      },
+      {
+        "id": "RISK-VERIFY-3",
+        "text": "Candidate rewrite could leave old review or full evidence looking current."
+      },
+      {
+        "id": "RISK-VERIFY-4",
+        "text": "Placeholder detection could either miss common placeholders or reject legitimate prose and permanently block completion."
+      },
+      {
+        "id": "RISK-VERIFY-5",
+        "text": "Changing default verify semantics could unexpectedly break existing adopters."
+      }
+    ]
+  },
+  "traffic_flows": [
+    {
+      "id": "FLOW-VERIFY-1",
+      "name": "focused verification from trusted baseline",
+      "entrypoint": "shk verify --incremental",
+      "steps": [
+        "load and authenticate configured baseline evidence",
+        "compare baseline identity to current candidate",
+        "classify changed inputs",
+        "reuse only unaffected PASS checks",
+        "run affected checks and record reasons"
+      ],
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2"
+      ],
+      "risks": [
+        "RISK-VERIFY-1",
+        "RISK-VERIFY-3",
+        "RISK-VERIFY-5"
+      ]
+    },
+    {
+      "id": "FLOW-VERIFY-2",
+      "name": "suite planning",
+      "entrypoint": "verification_policy.suite_includes",
+      "steps": [
+        "validate suite graph",
+        "resolve transitive closure",
+        "drop suites already covered by another selected suite",
+        "project the containing suite verdict onto included suites with provenance"
+      ],
+      "covers": [
+        "REQ-VERIFY-3",
+        "REQ-VERIFY-6"
+      ],
+      "risks": [
+        "RISK-VERIFY-2",
+        "RISK-VERIFY-5"
+      ]
+    },
+    {
+      "id": "FLOW-VERIFY-3",
+      "name": "candidate and reviewer admission",
+      "entrypoint": "verification policy API",
+      "steps": [
+        "verify candidate continuity",
+        "evaluate full admission",
+        "choose evidence audit plus risk probes or full rebuild",
+        "emit structured reason codes"
+      ],
+      "covers": [
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-4",
+        "REQ-VERIFY-6"
+      ],
+      "risks": [
+        "RISK-VERIFY-1",
+        "RISK-VERIFY-3"
+      ]
+    },
+    {
+      "id": "FLOW-VERIFY-4",
+      "name": "requirement completion",
+      "entrypoint": "shk task close --outcome shipped",
+      "steps": [
+        "load required-field policy",
+        "inspect structured values or document sections",
+        "match configured placeholder patterns",
+        "reject completed state with incomplete required content",
+        "allow valid completion and draft states"
+      ],
+      "covers": [
+        "REQ-VERIFY-5",
+        "REQ-VERIFY-6"
+      ],
+      "risks": [
+        "RISK-VERIFY-4",
+        "RISK-VERIFY-5"
+      ]
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "TEST-VERIFY-1",
+      "type": "unit",
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-4"
+      ],
+      "risks": [
+        "RISK-VERIFY-1",
+        "RISK-VERIFY-3",
+        "RISK-VERIFY-5"
+      ],
+      "traffic_flows": [
+        "FLOW-VERIFY-1",
+        "FLOW-VERIFY-3"
+      ],
+      "scenario": "admission and continuity distinguish exact trusted evidence from missing, stale, rewritten, partial, or runner-sensitive evidence",
+      "assertions": [
+        "exact trusted full evidence is reusable",
+        "candidate or manifest changes invalidate reuse",
+        "runner/verdict changes require rebuild",
+        "invalid evidence never suppresses checks"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "scripts/lib/verification-policy.js",
+        "scripts/lib/verify-cache.js",
+        "scripts/shk.js",
+        "tests/verification-policy.test.js"
+      ]
+    },
+    {
+      "id": "TEST-VERIFY-2",
+      "type": "unit",
+      "covers": [
+        "REQ-VERIFY-3",
+        "REQ-VERIFY-6"
+      ],
+      "risks": [
+        "RISK-VERIFY-2",
+        "RISK-VERIFY-5"
+      ],
+      "traffic_flows": [
+        "FLOW-VERIFY-2"
+      ],
+      "scenario": "declarative suite graphs de-duplicate direct and transitive inclusion without hiding invalid graphs",
+      "assertions": [
+        "included suite executes once",
+        "transitive closure is stable",
+        "cycles and unknown suites fail closed",
+        "failed containing suite cannot yield inherited PASS"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "scripts/lib/verification-policy.js",
+        "scripts/shk.js",
+        "tests/verification-policy.test.js"
+      ]
+    },
+    {
+      "id": "TEST-VERIFY-3",
+      "type": "unit",
+      "covers": [
+        "REQ-VERIFY-5",
+        "REQ-VERIFY-6"
+      ],
+      "risks": [
+        "RISK-VERIFY-4",
+        "RISK-VERIFY-5"
+      ],
+      "traffic_flows": [
+        "FLOW-VERIFY-4"
+      ],
+      "scenario": "completion rejects placeholders only in configured required content and permits complete or non-completed controls",
+      "assertions": [
+        "TODO/TBD and configured localized placeholders fail",
+        "ordinary words containing similar substrings do not false-positive",
+        "draft state remains allowed",
+        "task close fails before mutating task state"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "scripts/lib/verification-policy.js",
+        "scripts/shk.js",
+        "tests/verification-policy.test.js"
+      ]
+    },
+    {
+      "id": "TEST-VERIFY-4",
+      "type": "integration",
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-3",
+        "REQ-VERIFY-4",
+        "REQ-VERIFY-5",
+        "REQ-VERIFY-6"
+      ],
+      "risks": [
+        "RISK-VERIFY-1",
+        "RISK-VERIFY-2",
+        "RISK-VERIFY-3",
+        "RISK-VERIFY-4",
+        "RISK-VERIFY-5"
+      ],
+      "traffic_flows": [
+        "FLOW-VERIFY-1",
+        "FLOW-VERIFY-2",
+        "FLOW-VERIFY-3",
+        "FLOW-VERIFY-4"
+      ],
+      "scenario": "a temporary Git project exercises focused baseline reuse, suite de-duplication, candidate rewrite invalidation, reviewer policy, and completion blocking through public SHK entrypoints",
+      "assertions": [
+        "positive flow records structured provenance",
+        "negative mutations return non-zero with reason codes",
+        "public files contain no adopter-specific vocabulary"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "docs/tasks/T-20260807-feature-verification-policy/verify-flow-e2e.sh",
+        "tests/verification-policy.test.js",
+        "scripts/shk.js"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "ACC-VERIFY-1",
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-4"
+      ],
+      "tests": [
+        "TEST-VERIFY-1",
+        "TEST-VERIFY-4"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "ACC-VERIFY-2",
+      "covers": [
+        "REQ-VERIFY-3"
+      ],
+      "tests": [
+        "TEST-VERIFY-2",
+        "TEST-VERIFY-4"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "ACC-VERIFY-3",
+      "covers": [
+        "REQ-VERIFY-5"
+      ],
+      "tests": [
+        "TEST-VERIFY-3",
+        "TEST-VERIFY-4"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "ACC-VERIFY-4",
+      "covers": [
+        "REQ-VERIFY-6"
+      ],
+      "tests": [
+        "TEST-VERIFY-2",
+        "TEST-VERIFY-3",
+        "TEST-VERIFY-4"
+      ],
+      "must_have_evidence": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-VERIFY-1",
+      "title": "write policy contracts and failing tests",
+      "stage": "SETUP",
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-3",
+        "REQ-VERIFY-4",
+        "REQ-VERIFY-5"
+      ],
+      "risk": "policy false admission",
+      "done": "focused unit test exits non-zero because the policy module or required behavior is absent"
+    },
+    {
+      "id": "TASK-VERIFY-2",
+      "title": "implement admission continuity and reviewer policy",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-4"
+      ],
+      "risk": "stale evidence reuse",
+      "done": "TEST-VERIFY-1 passes with exact and rewritten candidate controls"
+    },
+    {
+      "id": "TASK-VERIFY-3",
+      "title": "implement suite inclusion planning",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-VERIFY-3"
+      ],
+      "risk": "suite graph skips or duplicates work",
+      "done": "TEST-VERIFY-2 passes including cycle and failure propagation mutations"
+    },
+    {
+      "id": "TASK-VERIFY-4",
+      "title": "implement completion placeholder gate",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-VERIFY-5"
+      ],
+      "risk": "false completion or permanent false positive",
+      "done": "TEST-VERIFY-3 passes with positive, negative, localized, and draft controls"
+    },
+    {
+      "id": "TASK-VERIFY-5",
+      "title": "wire CLI and update neutral guidance",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-3",
+        "REQ-VERIFY-4",
+        "REQ-VERIFY-5",
+        "REQ-VERIFY-6"
+      ],
+      "risk": "existing adopter compatibility",
+      "done": "integration fixture passes and existing focused suites remain green"
+    },
+    {
+      "id": "TASK-VERIFY-6",
+      "title": "freeze candidate and run final full once",
+      "stage": "VERIFY",
+      "covers": [
+        "REQ-VERIFY-1",
+        "REQ-VERIFY-2",
+        "REQ-VERIFY-3",
+        "REQ-VERIFY-4",
+        "REQ-VERIFY-5",
+        "REQ-VERIFY-6"
+      ],
+      "risk": "unbound final evidence",
+      "done": "one exact-commit full run writes READY attested evidence with zero failed checks"
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "id": "IRREV-VERIFY-1",
+      "action": "push verified commits to the configured remote",
+      "required": true,
+      "requires_human_confirmation": false,
+      "status": "authorized by user"
+    },
+    {
+      "id": "IRREV-VERIFY-2",
+      "action": "publish a tag or release artifact",
+      "required": false,
+      "requires_human_confirmation": true,
+      "status": "not planned"
+    }
+  ]
+}

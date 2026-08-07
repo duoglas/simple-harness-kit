@@ -1,0 +1,16 @@
+{
+  "id": "T-20260807-feature-verification-policy",
+  "title": "可信基线、Suite Inclusion 与候选验证策略",
+  "status": "open",
+  "risk": "high",
+  "stage": "EXECUTE",
+  "created": "2026-08-07T01:26:05.881Z",
+  "started_at": "2026-08-07T01:26:05.881Z",
+  "closed": null,
+  "outcome": null,
+  "supersedes": null,
+  "agents": [
+    "codex"
+  ],
+  "commits": []
+}
