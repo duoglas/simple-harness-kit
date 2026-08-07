@@ -10,6 +10,9 @@ The structured evidence contains:
 - `provenance.git.commit`: `HEAD` at evidence generation time;
 - `provenance.git.tree`: the committed Git tree for that `HEAD`;
 - `provenance.git.dirty`: whether tracked or untracked worktree changes existed;
+- `provenance.git.candidate_digest`: digest of the committed base plus the current deliverable working-tree snapshot;
+- `provenance.verification.test_manifest_digest`: digest of commands, check inputs, suite inclusion, and the current spec test plan;
+- configured `runner_digest`, `verdict_digest`, and `scheduler_digest` fields when the project declares identity inputs for those control areas;
 - `provenance.mode`: `full`, `incremental`, or `seal`;
 - `attestation.issuer` and `attestation.trust_level`;
 - `attestation.digest`: SHA-256 over canonical JSON for the entire evidence object except the digest field itself.
@@ -55,3 +58,37 @@ Trust levels describe how evidence was issued; they are not interchangeable:
 The current SHK CLI only issues and authenticates `local-self`. Merely editing `trust_level` to `ci-signed` and recomputing the digest returns `EVIDENCE_TRUST_UNVERIFIED`; the CLI deliberately exposes no option to bless that declaration. Higher levels require a project or CI integration that first validates a signature/controller boundary and then calls the library verifier with `authenticated_trust_level`. A hash proves consistency, not independent authenticity.
 
 The attestation format also fixes `protected_scope` to `entire-evidence-except-attestation.digest`. Changing the scope and recomputing the digest is rejected as an unsupported attestation format.
+
+## Trusted baseline and verification phases
+
+SHK separates rapid feedback from final admission:
+
+```bash
+shk verify --risk medium --phase focused
+shk verify --risk medium --phase final --write-evidence
+shk verify --risk medium --phase integration
+```
+
+- `focused` may reuse an unaffected PASS check only from an attested READY full/seal baseline with no cached checks, complete candidate identity, a compatible test manifest and configured control-plane identities, and a baseline commit that is still a reachable ancestor of the current `HEAD`. Candidate source changes are then classified against that trusted commit; affected checks still run.
+- `final` reuses an exact trusted baseline when one already exists. Otherwise it runs one full verification for the frozen candidate and, when evidence is written and READY, atomically records `.harness/verification-baseline.json` (or the configured baseline path).
+- `integration` never manufactures replacement evidence. It reuses only an exact candidate baseline; a missing, stale, partial, tampered, or incompatible baseline is rejected.
+
+Older evidence without `provenance.verification.test_manifest_digest` remains readable under existing compatibility policies, but it cannot act as a trusted verification baseline. This is deliberately fail-closed.
+
+Projects may declare real suite containment in `.harness/config.json`:
+
+```json
+{
+  "verification_policy": {
+    "suite_includes": {
+      "e2e": ["tests"]
+    }
+  }
+}
+```
+
+The declaration means the containing command actually executes the included suite. SHK resolves transitive inclusion, runs only execution roots, and records inherited results. Cycles, unknown suite names, invalid values, and ambiguous multiple owners are rejected rather than guessed.
+
+## Reviewer evidence policy
+
+The normal reviewer action is **audit and probe**: verify the exact candidate and attestation, inspect the original final evidence, confirm that the worktree and test manifest have not drifted, and independently run targeted probes for the change's highest risks. A reviewer requests a full rebuild only when the evidence is not auditable, the candidate changed, the environment cannot be trusted, or the change touches verification control areas such as the runner, verdict logic, scheduler, or test manifest.

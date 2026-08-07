@@ -85,31 +85,30 @@ Overall:   [READY/NOT READY]
 
 产出写入验收证据文件（verification-gate / delivery-gate 据此放行）：有当前任务时落 `<tasks_dir>/<TASK-ID>/evidence/`，否则落 `.harness/verify-evidence.{json,md}`。路径由 `shk verify --write-evidence` 自动解析，不要手工拼。
 
-## 多轮验证的成本控制（增量 + 封盘）
+## 候选验证的成本控制（focused → final → integration）
 
-一次交付里反复跑完整测试是不可接受的成本，而且长 session 里"我记得刚才那项过了"本身就不可信。
-所以验证状态一律外置到任务目录的 `evidence/`，靠文件判断，不靠记忆。
+验证结论必须外置为结构化 evidence，不能依赖 session 记忆；但也不能在设计尚未稳定时反复跑完整门禁。
 
-```
-第 1 轮   shk verify --risk <档> --round 1     全量，建立基线
-修一处
-第 2 轮   shk verify --risk <档> --round 2     只跑：上轮 FAIL 的 + 输入指纹变了的
-...
-全绿后   shk verify --risk <档> --seal         全量封盘，这一轮的 READY 才算数
+```bash
+# 开发和修复阶段：只跑受影响检查；只有可信 full baseline 才能复用未受影响 PASS
+shk verify --risk <档> --phase focused
+
+# 候选冻结后：对 exact candidate 只跑一次完整门禁并写入可信 baseline
+shk verify --risk <档> --phase final --write-evidence
+
+# 集成、打包或后续准入：同一 exact candidate 复用 final evidence，不机械重跑 full
+shk verify --risk <档> --phase integration
 ```
 
 规则：
 
-- **增量轮不算数**。只要本轮有复用结论（CACHED），overall 就是 `INCREMENTAL_GREEN` 而不是 `READY`，
-  交付前必须有一次 `--seal` 的全量绿。理由：增量轮的绿只覆盖了本轮改动。
-- **上轮没过的一律重跑**，哪怕输入没变——修不动也要如实再报一次失败，不能靠缓存把红变没。
-- **默认输入划分是保守的**：源码变了，build/tests/lint 一起失效。项目可以在
-  `.harness/config.json` 的 `check_inputs` 里按自己的构建结构收窄，换取更细的跳过。
-- **只改文档/spec 时源码类检查会全部命中缓存**——这是收益最大的常见场景（Santa 报的问题里
-  相当一部分是文档和 spec 层面的）。
-- **选测**靠 spec `test_plan` 条目里的 `paths` 字段声明"这条 test 关心哪些路径"。
-  没声明就全跑（保守）。声明了但有变更文件不被任何 paths 覆盖时，会报 uncovered——
-  **不能因为"没有 test 声明关心它"就当作通过**。
+- **focused 不是最终准出**：只要复用了缓存，overall 就是 `INCREMENTAL_GREEN`；它用于快速反馈，不得冒充最终 `READY`。
+- **baseline 必须可信**：只接受 attestation 有效、`overall=READY`、模式为 full/seal、无 cached check、身份字段完整且 test manifest/控制面兼容的 evidence。baseline commit 必须仍可读取且是当前 `HEAD` 的祖先，否则不允许抑制检查。
+- **最终候选只跑一次 full**：candidate 冻结后使用 `--phase final --write-evidence`。candidate、tree、test manifest 或配置的 runner/verdict/scheduler 身份改变后，旧 evidence 与 approval 立即失效。
+- **integration fail-closed**：只有 exact candidate 命中可信 final baseline 才 `REUSE`；缺失、失配或不可信时直接拒绝，不在集成阶段偷偷重建 full。
+- **suite inclusion 必须声明式**：若一个 suite 已真实包含另一个 suite，在 `verification_policy.suite_includes` 声明包含关系；传递闭包只执行一次，cycle、未知引用或多 owner 歧义必须拒绝。不得机械连续运行一个 suite 和已经包含它的 full suite。
+- **上轮失败必须重跑**：缓存只能复用 PASS；源码、配置、测试输入或 manifest 改变时，受影响检查重新执行。
+- **选测保守**：spec `test_plan.paths` 未声明则全跑；存在未覆盖变更时必须报告 uncovered，不得因“没有测试声明关心它”就当作通过。
 
 ## Layer 3: Spec Compliance Review（升级档）
 
@@ -119,6 +118,9 @@ Overall:   [READY/NOT READY]
 2. 逐项对照规格检查
 3. **Coverage-first 输出**：报告所有发现（含低置信度），标注 confidence + severity，禁止发现阶段自我过滤——过滤是下游（人或第二轮）的事
 4. 检查是否有项目专属默认约束污染通用规则或模板
+5. 默认审计 exact commit/tree/test-manifest 绑定的 final evidence，并独立运行本轮高风险 probe；不机械复制实现者已经完成且身份可信的 full
+
+只有 evidence 身份不完整/不可信、candidate 已改写、工作树漂移、测试环境不可审计，或修改触及 runner/verdict/scheduler/test manifest 等验证控制面时，Reviewer 才要求 `FULL_REBUILD`。
 
 **关键设计：Reviewer ≠ Author**（不同 Agent 实例、独立上下文，消除 author-bias）
 

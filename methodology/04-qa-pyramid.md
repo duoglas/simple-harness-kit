@@ -122,18 +122,32 @@ Diff:      [N files changed, +X/-Y lines]
 Overall:   [READY/NOT READY]
 ```
 
+### Layer 2.1: Verification Admission（focused → final → integration）
+
+完整门禁不是每轮修复后的默认动作。验证按候选生命周期分三段：
+
+1. **focused**：开发中只运行受影响专项。只有 attestation 有效、完整执行、身份字段完整、test manifest/控制面兼容，且 baseline commit 仍是当前 `HEAD` 祖先的 full evidence，才能复用未受影响的 PASS。
+2. **final**：设计与 review finding 收敛、candidate 冻结后，对 exact commit/tree/candidate/test-manifest 只运行一次 full，并写入可信 baseline。
+3. **integration**：集成或打包只接受 exact candidate 的 final baseline；命中则复用，失配则拒绝。集成阶段不得为“补一张绿灯”静默重跑 full。
+
+如果一个 suite 已真实包含另一个 suite，必须通过声明式 `suite_includes` 表达；执行器解析传递闭包并只运行根 suite。cycle、未知引用和多 owner 歧义全部 fail-closed。这样可以消除“先跑专项，再机械跑一个已经包含它的 full”的重复成本，同时保留可审计的 inherited verdict。
+
+candidate、tree、test manifest 或配置的 runner/verdict/scheduler 身份发生变化后，旧 evidence 与 approval 均视为 stale；不能靠文件仍存在继续准入。
+
 ## Layer 3: Spec Compliance Review
 
 **谁执行：** 独立的 Reviewer Agent（不是写代码的那个 Agent）
 **何时执行：** Verification Loop 全部 PASS 后
 **怎么执行：**
 
-1. Reviewer 收到：需求规格 + Agent 的代码变更
-2. 逐项对照规格检查：
+1. Reviewer 收到：需求规格 + Agent 的代码变更 + exact-candidate final evidence
+2. 审计 evidence 的 attestation、commit/tree/candidate/test-manifest、工作树和环境身份；默认不机械重跑已有可信 full
+3. 独立运行本轮高风险专项 probe，再逐项对照规格检查：
    - 每个需求点是否被实现
    - 实现是否符合规格描述
    - 是否有遗漏的边界条件
-3. 输出结构化报告
+4. 只有 evidence 不可信/身份不完整、candidate 已改写、环境不可审计，或 runner/verdict/scheduler/test manifest 控制面发生变化时，要求 full rebuild
+5. 输出结构化报告
 
 **关键设计：Reviewer ≠ Author**
 
