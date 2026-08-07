@@ -3,7 +3,7 @@
 
 /**
  * Harness Stage Guard — Harness 阶段声明守门（strict）/ 阶段遥测（light）
- * @version 0.15.0 (evidence-attestation: REVIEW 拒绝摘要损坏或 strict legacy 证据)
+ * @version 0.15.1 (terminal apply_patch: heredoc delimiter 必须带引号)
  * 触发:
  *   - PreToolUse:*（Claude tools + Codex Bash/apply_patch/mcp__.* matcher）
  *   - PermissionRequest（Codex 权限升级请求）
@@ -342,12 +342,12 @@ function terminalApplyPatchPayload(input) {
   if (!['Bash', 'exec_command', 'functions.exec_command'].includes(toolName)) return null;
   const command = String(input.tool_input?.command || input.tool_input?.cmd || '');
   const match = command.match(
-    /^\s*apply_patch[ \t]+<<[ \t]*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))[ \t]*\r?\n([\s\S]*?)\r?\n([A-Za-z_][A-Za-z0-9_]*)[ \t]*$/
+    /^\s*apply_patch[ \t]+<<[ \t]*(['"])([A-Za-z_][A-Za-z0-9_]*)\1[ \t]*\r?\n([\s\S]*?)\r?\n([A-Za-z_][A-Za-z0-9_]*)[ \t]*$/
   );
   if (!match) return null;
-  const opener = match[1] || match[2] || match[3];
-  if (opener !== match[5]) return null;
-  const patch = match[4];
+  const opener = match[2];
+  if (opener !== match[4]) return null;
+  const patch = match[3];
   if (!patch.startsWith('*** Begin Patch\n') || !patch.endsWith('\n*** End Patch')) return null;
   return patch + '\n';
 }

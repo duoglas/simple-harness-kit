@@ -225,6 +225,78 @@
     }
   },
   {
+    "name": "stage-guard: PLAN + Bash unquoted apply_patch command substitution → 阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "apply_patch <<PATCH\n*** Begin Patch\n*** Update File: .harness/current-plan.md\n@@\n-old plan\n+$(touch /tmp/shk-stage-guard-command-substitution)\n*** End Patch\nPATCH"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/current-plan.md": "old plan\n",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + Bash unquoted apply_patch backticks → 阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "apply_patch <<PATCH\n*** Begin Patch\n*** Update File: .harness/current-plan.md\n@@\n-old plan\n+`touch /tmp/shk-stage-guard-backticks`\n*** End Patch\nPATCH"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/current-plan.md": "old plan\n",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ]
+    }
+  },
+  {
+    "name": "stage-guard: PLAN + Bash unquoted apply_patch variable expansion → 阻止",
+    "hook": "harness-stage-guard.js",
+    "stdin": {
+      "hook_event_name": "PreToolUse",
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "apply_patch <<PATCH\n*** Begin Patch\n*** Update File: .harness/current-plan.md\n@@\n-old plan\n+${HOME}\n*** End Patch\nPATCH"
+      }
+    },
+    "setup": {
+      ".harness/current-stage.json": "{\"stage\":\"PLAN\",\"since\":\"RECENT_TIMESTAMP\",\"task\":\"test\"}",
+      ".harness/current-plan.md": "old plan\n",
+      ".harness/tool-count.json": "{\"count\":1}"
+    },
+    "expect": {
+      "exitCode": 0,
+      "stdoutContains": [
+        "hookSpecificOutput",
+        "permissionDecision",
+        "deny"
+      ]
+    }
+  },
+  {
     "name": "stage-guard: PLAN + Bash terminal apply_patch current-stage OFF → 放行",
     "hook": "harness-stage-guard.js",
     "stdin": {
