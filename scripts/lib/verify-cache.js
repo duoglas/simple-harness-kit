@@ -119,11 +119,11 @@ function ledgerNoiseMatchers(root) {
  * 注意不能对 porcelain 输出整体 trim：状态位是 `XY ` 三字符定宽前缀，
  * 未暂存修改的行首就是空格，trim 掉会把路径切错一位。
  */
-function changedFiles(root) {
+function discoverChangedFiles(root, gitRunner = spawnSync) {
   const noise = ledgerNoiseMatchers(root);
-  const r = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' });
-  if (r.status !== 0) return [];
-  return String(r.stdout || '')
+  const r = gitRunner('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' });
+  if (!r || r.status !== 0) return { ok: false, files: [], reason: 'git-status-failed' };
+  const files = String(r.stdout || '')
     .split('\n')
     .filter(l => l.length > 3)
     .map(l => l.slice(3))
@@ -131,6 +131,11 @@ function changedFiles(root) {
     .map(unquoteGitPath)
     .filter(Boolean)
     .filter(p => !noise.some(re => re.test(p)));
+  return { ok: true, files, reason: null };
+}
+
+function changedFiles(root) {
+  return discoverChangedFiles(root).files;
 }
 
 /**
@@ -143,19 +148,27 @@ function changedFiles(root) {
  * 相对一个已验证 commit 计算当前候选的完整变化面（含后续 commit、工作树和未跟踪文件）。
  * 仅在调用方已经验证 baseline attestation 后使用；本函数不负责决定 baseline 是否可信。
  */
-function changedFilesSince(root, commit) {
-  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(String(commit || ''))) return changedFiles(root);
+function discoverChangedFilesSince(root, commit, gitRunner = spawnSync) {
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(String(commit || ''))) {
+    return discoverChangedFiles(root, gitRunner);
+  }
   const noise = ledgerNoiseMatchers(root);
-  const changed = spawnSync('git', ['diff', '--name-only', '-z', String(commit), '--', '.'], {
+  const changed = gitRunner('git', ['diff', '--name-only', '-z', String(commit), '--', '.'], {
     cwd: root, encoding: null, maxBuffer: 16 * 1024 * 1024,
   });
-  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+  const untracked = gitRunner('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
     cwd: root, encoding: null, maxBuffer: 16 * 1024 * 1024,
   });
-  if (changed.status !== 0 || untracked.status !== 0) return changedFiles(root);
+  if (!changed || changed.status !== 0) return { ok: false, files: [], reason: 'git-diff-failed' };
+  if (!untracked || untracked.status !== 0) return { ok: false, files: [], reason: 'git-untracked-failed' };
   const decode = output => Buffer.from(output || '').toString('utf8').split('\0').filter(Boolean);
-  return [...new Set([...decode(changed.stdout), ...decode(untracked.stdout)])]
+  const files = [...new Set([...decode(changed.stdout), ...decode(untracked.stdout)])]
     .filter(p => !noise.some(re => re.test(p)));
+  return { ok: true, files, reason: null };
+}
+
+function changedFilesSince(root, commit) {
+  return discoverChangedFilesSince(root, commit).files;
 }
 
 function unquoteGitPath(p) {
@@ -261,9 +274,11 @@ function createContext(root, opts = {}) {
   const config = opts.config || {};
   const baseline = opts.baseline || null;
   const prev = readCache(root);
-  const changed = baseline && baseline.identity && baseline.identity.commit
-    ? changedFilesSince(root, baseline.identity.commit)
-    : changedFiles(root);
+  const gitRunner = typeof opts.gitRunner === 'function' ? opts.gitRunner : spawnSync;
+  const discovery = baseline && baseline.identity && baseline.identity.commit
+    ? discoverChangedFilesSince(root, baseline.identity.commit, gitRunner)
+    : discoverChangedFiles(root, gitRunner);
+  const changed = discovery.files;
   const next = {};
   const decisions = {};
 
@@ -274,6 +289,8 @@ function createContext(root, opts = {}) {
     let d;
     if (seal || fp === null) {
       d = { run: true, reason: seal ? 'seal' : 'always' };
+    } else if (!discovery.ok) {
+      d = { run: true, reason: 'change-discovery-failed' };
     } else if (!before && baseline) {
       const baselineCheck = baseline.checks && baseline.checks[check];
       const relevant = relevantFilesForCheck(check, config, changed);
@@ -339,7 +356,16 @@ function createContext(root, opts = {}) {
       const ran = Object.keys(decisions).filter(c => decisions[c].run);
       const cached = Object.keys(decisions).filter(c => !decisions[c].run);
       const baselineCached = cached.filter(c => decisions[c].cached && decisions[c].cached.baseline === true);
-      return { round, seal, ran, cached, baseline_cached: baselineCached, changed_files: changed.length };
+      return {
+        round,
+        seal,
+        ran,
+        cached,
+        baseline_cached: baselineCached,
+        changed_files: changed.length,
+        change_discovery_failed: !discovery.ok,
+        change_discovery_reason: discovery.reason,
+      };
     },
   };
 }

@@ -693,6 +693,46 @@ function testCreateContextReusesTrustedBaselineOnlyForUnaffectedChecks() {
   });
 }
 
+
+function testCreateContextFailsClosedWhenGitChangeDiscoveryFails() {
+  withRepo({ 'src/app.js': 'module.exports = 1;\n' }, dir => {
+    const baselineCommit = git(dir, ['rev-parse', 'HEAD']).trim();
+    const baseline = {
+      identity: { commit: baselineCommit },
+      completed_at: new Date().toISOString(),
+      checks: {
+        build: { status: 'PASS', command: 'npm run build' },
+        tests: { status: 'PASS', command: 'npm test' },
+      },
+    };
+    vcache.writeCache(dir, {
+      build: {
+        fingerprint: vcache.fingerprint(dir, 'build', {}, []),
+        status: 'PASS',
+        round: 0,
+        t: new Date().toISOString(),
+        result: { command: 'npm run build' },
+      },
+    });
+    const gitRunner = (command, args, options) => {
+      if (command === 'git' && (args[0] === 'diff' || args[0] === 'ls-files' || args[0] === 'status')) {
+        return { status: 128, stdout: '', stderr: 'injected git discovery failure' };
+      }
+      return spawnSync(command, args, options);
+    };
+    const ctx = vcache.createContext(dir, { round: 1, baseline, gitRunner });
+    for (const check of ['build', 'tests']) {
+      assert.strictEqual(ctx.shouldRun(check), true, `${check} must run when Git discovery fails`);
+      assert.strictEqual(ctx.reasonFor(check), 'change-discovery-failed');
+      assert.strictEqual(ctx.cachedResult(check), null);
+    }
+    const summary = ctx.summary();
+    assert.strictEqual(summary.change_discovery_failed, true, JSON.stringify(summary));
+    assert.deepStrictEqual(summary.cached, [], JSON.stringify(summary));
+    assert.deepStrictEqual(summary.baseline_cached, [], JSON.stringify(summary));
+  });
+}
+
 // ── runner ──
 
 const tests = [
@@ -726,6 +766,7 @@ const tests = [
   testCreateContextRerunsPreviousNonPass,
   testPersistKeepsUntouchedCheckEntries,
   testCreateContextReusesTrustedBaselineOnlyForUnaffectedChecks,
+  testCreateContextFailsClosedWhenGitChangeDiscoveryFails,
   // T7b selectTests
   testSelectTestsWithoutTestPlan,
   testSelectTestsWithoutPathDeclarations,

@@ -1721,11 +1721,14 @@ function testVerificationGatePushUsesTrustedStructuredEvidence() {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
-function testVerificationGateRejectsLegacyEvidenceForAllDeliveryCommands() {
+function testVerificationGateRejectsLegacyEvidenceWhenAttestationRequiredForAllDeliveryCommands() {
   const dir = tmpProject();
   try {
     fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
       stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'legacy delivery test'
+    }) + '\n');
+    fs.writeFileSync(path.join(dir, '.harness/config.json'), JSON.stringify({
+      evidence: { require_attestation: true }
     }) + '\n');
     ensureGitRepo(dir);
     fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
@@ -1741,6 +1744,28 @@ function testVerificationGateRejectsLegacyEvidenceForAllDeliveryCommands() {
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
+
+
+function testVerificationGateKeepsNonStrictLegacyCompatibility() {
+  const dir = tmpProject();
+  try {
+    fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
+      stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'legacy compatibility test'
+    }) + '\n');
+    ensureGitRepo(dir);
+    fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify({
+      schema_version: '1.0', risk: 'low', overall: 'READY', checks: {
+        tests: { status: 'PASS' }
+      }
+    }) + '\n');
+    const res = runNode(VERIFY_GATE, [], {
+      cwd: dir,
+      input: JSON.stringify({ tool_input: { command: 'git commit -m legacy-compatible' } })
+    });
+    assert.strictEqual(res.status, 0, res.stderr || res.stdout);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 
 function testVerificationGateRecognizesGitGlobalOptionsAndShellWrapper() {
   const dir = tmpProject();
@@ -3257,7 +3282,8 @@ const tests = [
   testDeliveryAndStageReadersRejectStaleCandidateEvidence,
   testVerificationGateRejectsTamperedReadyEvidence,
   testVerificationGatePushUsesTrustedStructuredEvidence,
-  testVerificationGateRejectsLegacyEvidenceForAllDeliveryCommands,
+  testVerificationGateRejectsLegacyEvidenceWhenAttestationRequiredForAllDeliveryCommands,
+  testVerificationGateKeepsNonStrictLegacyCompatibility,
   testVerificationGateRecognizesGitGlobalOptionsAndShellWrapper,
   testVerificationGateRejectsParserBypassesAndUnboundTargets,
   testVerificationGateAllowsReadOnlyTagListing,
