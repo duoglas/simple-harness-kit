@@ -661,6 +661,38 @@ function testSelectTestsWithPartialPathDeclarations() {
   assert.deepStrictEqual(sibling.uncovered, ['src/apiary/x.js']);
 }
 
+
+function testCreateContextReusesTrustedBaselineOnlyForUnaffectedChecks() {
+  withRepo({
+    'src/app.js': 'module.exports = 1;\n',
+    'docs/guide.md': '# guide\n',
+  }, dir => {
+    const baselineCommit = git(dir, ['rev-parse', 'HEAD']).trim();
+    writeFile(dir, 'docs/guide.md', '# changed guide\n');
+    const baseline = {
+      identity: { commit: baselineCommit },
+      completed_at: new Date().toISOString(),
+      checks: {
+        build: { status: 'PASS', command: 'npm run build' },
+        tests: { status: 'PASS', command: 'npm test' },
+        diff: { status: 'PASS', command: 'git diff' },
+      },
+    };
+    const docsOnly = vcache.createContext(dir, { round: 1, baseline });
+    assert.strictEqual(docsOnly.shouldRun('build'), false, 'docs-only change should reuse trusted build baseline');
+    assert.strictEqual(docsOnly.reasonFor('build'), 'trusted-baseline');
+    assert.strictEqual(docsOnly.cachedResult('build').cached_from_baseline, true);
+    assert.strictEqual(docsOnly.shouldRun('tests'), false, 'docs-only change should reuse trusted test baseline');
+    assert.strictEqual(docsOnly.shouldRun('diff'), true, 'uncacheable current-state checks must still execute');
+
+    writeFile(dir, 'src/app.js', 'module.exports = 2;\n');
+    const sourceChanged = vcache.createContext(dir, { round: 2, baseline });
+    assert.strictEqual(sourceChanged.shouldRun('build'), true, 'source change must invalidate baseline build');
+    assert.strictEqual(sourceChanged.reasonFor('build'), 'changed-since-baseline');
+    assert.strictEqual(sourceChanged.shouldRun('tests'), true, 'source change must invalidate baseline tests');
+  });
+}
+
 // ── runner ──
 
 const tests = [
@@ -693,6 +725,7 @@ const tests = [
   testCreateContextSealIgnoresCache,
   testCreateContextRerunsPreviousNonPass,
   testPersistKeepsUntouchedCheckEntries,
+  testCreateContextReusesTrustedBaselineOnlyForUnaffectedChecks,
   // T7b selectTests
   testSelectTestsWithoutTestPlan,
   testSelectTestsWithoutPathDeclarations,

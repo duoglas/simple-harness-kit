@@ -651,6 +651,32 @@ try {
   console.log(`  Evidence Attestation Suite FAIL: ${e.message}\n`);
 }
 
+// ── Verification Policy Unit / CLI Tests ──
+let verificationPolicyFailed = 0;
+let verificationPolicyTotal = 0;
+try {
+  const policyScript = path.resolve(__dirname, 'verification-policy.test.js');
+  if (fs.existsSync(policyScript)) {
+    console.log('  Verification Policy Tests\n');
+    const res = require('child_process').spawnSync(process.execPath, [policyScript], {
+      stdio: 'inherit',
+      timeout: 3 * 60 * 1000,
+    });
+    verificationPolicyTotal = 1;
+    if (res.status !== 0) {
+      verificationPolicyFailed = 1;
+      console.log(`\n  Verification Policy Suite FAIL (exit ${res.status})\n`);
+    } else {
+      console.log(`\n  Verification Policy Suite PASS\n`);
+    }
+  } else {
+    console.log(`  Verification Policy Suite SKIP (脚本不存在: ${policyScript})\n`);
+  }
+} catch (e) {
+  verificationPolicyFailed = 1;
+  console.log(`  Verification Policy Suite FAIL: ${e.message}\n`);
+}
+
 // ── Task Ledger / Verify Cache Unit Tests ──
 // 覆盖 scripts/lib/task-ledger.js 与 scripts/lib/verify-cache.js：任务态路径解析、
 // legacy 回落、tasks_dir 边界、journal、增量验证指纹与缓存、selectTests。
@@ -813,10 +839,10 @@ try {
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
-const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + evidenceAttestationFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + evidenceAttestationFailed + verificationPolicyFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
 const totalSkipped = smokeSkipped + initSmokeSkipped;
 const totalDegraded = smokeDegraded + initSmokeDegraded;
-const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + evidenceAttestationTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + evidenceAttestationTotal + verificationPolicyTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
 const totalPassed = totalTests - totalFailed - totalSkipped - totalDegraded;
 console.log(`  ══════════════════════════════`);
 console.log(`  总计: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped, ${totalDegraded} degraded, ${totalTests} total\n`);
