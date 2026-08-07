@@ -138,6 +138,26 @@ function changedFiles(root) {
  * 不还原就 stat 不到文件、fileStamp 恒为 'missing'、指纹恒定、检查永远 CACHED。
  * 对中文项目是必现问题（Santa F11）。
  */
+
+/**
+ * 相对一个已验证 commit 计算当前候选的完整变化面（含后续 commit、工作树和未跟踪文件）。
+ * 仅在调用方已经验证 baseline attestation 后使用；本函数不负责决定 baseline 是否可信。
+ */
+function changedFilesSince(root, commit) {
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(String(commit || ''))) return changedFiles(root);
+  const noise = ledgerNoiseMatchers(root);
+  const changed = spawnSync('git', ['diff', '--name-only', '-z', String(commit), '--', '.'], {
+    cwd: root, encoding: null, maxBuffer: 16 * 1024 * 1024,
+  });
+  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: root, encoding: null, maxBuffer: 16 * 1024 * 1024,
+  });
+  if (changed.status !== 0 || untracked.status !== 0) return changedFiles(root);
+  const decode = output => Buffer.from(output || '').toString('utf8').split('\0').filter(Boolean);
+  return [...new Set([...decode(changed.stdout), ...decode(untracked.stdout)])]
+    .filter(p => !noise.some(re => re.test(p)));
+}
+
 function unquoteGitPath(p) {
   const t = String(p).trim();
   if (!(t.startsWith('"') && t.endsWith('"'))) return t;
@@ -202,15 +222,21 @@ function checkInputs(config, check) {
     : ['any'];
 }
 
+
+function relevantFilesForCheck(check, config, changed) {
+  const kinds = checkInputs(config, check);
+  if (kinds === null) return null;
+  return changed.filter(f => classify(f).some(k => kinds.includes(k)));
+}
+
 /**
  * 检查项指纹。输入 = HEAD + 该检查关心的变更文件的 (path,size,mtime)。
  * HEAD 进指纹是必要的：切分支/新 commit 后工作树可能干净，但被验证的内容已经不同。
  */
 function fingerprint(root, check, config, changed) {
-  const kinds = checkInputs(config, check);
-  if (kinds === null) return null;
-  const relevant = changed
-    .filter(f => classify(f).some(k => kinds.includes(k)))
+  const relevantFiles = relevantFilesForCheck(check, config, changed);
+  if (relevantFiles === null) return null;
+  const relevant = relevantFiles
     .map(f => `${f}@${fileStamp(root, f)}`)
     .sort();
   const head = git(root, ['rev-parse', 'HEAD']) || 'no-head';
@@ -227,13 +253,17 @@ function fingerprint(root, check, config, changed) {
  *   round  第几轮（默认 1）
  *   seal   封盘轮：忽略缓存全量执行，只有封盘轮才允许判 READY
  *   config .harness/config.json 内容
+ *   baseline 已由调用方验证过的 full evidence 摘要；只用于首轮复用未受影响的 PASS check
  */
 function createContext(root, opts = {}) {
   const seal = !!opts.seal;
   const round = Number(opts.round) || 1;
   const config = opts.config || {};
+  const baseline = opts.baseline || null;
   const prev = readCache(root);
-  const changed = changedFiles(root);
+  const changed = baseline && baseline.identity && baseline.identity.commit
+    ? changedFilesSince(root, baseline.identity.commit)
+    : changedFiles(root);
   const next = {};
   const decisions = {};
 
@@ -244,6 +274,25 @@ function createContext(root, opts = {}) {
     let d;
     if (seal || fp === null) {
       d = { run: true, reason: seal ? 'seal' : 'always' };
+    } else if (!before && baseline) {
+      const baselineCheck = baseline.checks && baseline.checks[check];
+      const relevant = relevantFilesForCheck(check, config, changed);
+      if (baselineCheck && baselineCheck.status === 'PASS' && relevant && relevant.length === 0) {
+        d = {
+          run: false,
+          reason: 'trusted-baseline',
+          cached: {
+            fingerprint: fp,
+            status: 'PASS',
+            round: 'baseline',
+            t: baseline.completed_at || new Date().toISOString(),
+            baseline: true,
+            result: { command: baselineCheck.command, reason: baselineCheck.reason || 'trusted full baseline' },
+          },
+        };
+      } else {
+        d = { run: true, reason: baselineCheck && baselineCheck.status === 'PASS' ? 'changed-since-baseline' : 'baseline-check-not-pass' };
+      }
     } else if (!before || before.fingerprint !== fp) {
       d = { run: true, reason: before ? 'changed' : 'first-run' };
     } else if (before.status !== 'PASS') {
@@ -267,7 +316,7 @@ function createContext(root, opts = {}) {
       const d = decide(check);
       if (d.run || !d.cached) return null;
       next[check] = d.cached;
-      return { ...d.cached.result, status: d.cached.status, cached: true, cached_from_round: d.cached.round };
+      return { ...d.cached.result, status: d.cached.status, cached: true, cached_from_round: d.cached.round, cached_from_baseline: d.cached.baseline === true };
     },
     record(check, result) {
       const d = decide(check);
@@ -289,7 +338,8 @@ function createContext(root, opts = {}) {
     summary() {
       const ran = Object.keys(decisions).filter(c => decisions[c].run);
       const cached = Object.keys(decisions).filter(c => !decisions[c].run);
-      return { round, seal, ran, cached, changed_files: changed.length };
+      const baselineCached = cached.filter(c => decisions[c].cached && decisions[c].cached.baseline === true);
+      return { round, seal, ran, cached, baseline_cached: baselineCached, changed_files: changed.length };
     },
   };
 }
@@ -323,6 +373,8 @@ module.exports = {
   DEFAULT_CHECK_INPUTS,
   classify,
   changedFiles,
+  changedFilesSince,
+  relevantFilesForCheck,
   fingerprint,
   readCache,
   writeCache,

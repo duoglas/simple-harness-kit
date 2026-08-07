@@ -67,6 +67,7 @@ function git(root, args) {
 const CANDIDATE_EXCLUDES = Object.freeze([
   '.harness/verify-evidence.json',
   '.harness/verify-evidence.md',
+  '.harness/verification-baseline.json',
   'docs/verification-report.md',
 ]);
 

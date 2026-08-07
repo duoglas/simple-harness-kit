@@ -10,6 +10,7 @@ const specQuality = require('./lib/spec-quality');
 const ledger = require('./lib/task-ledger');
 const verifyCache = require('./lib/verify-cache');
 const evidenceAttestation = require('./lib/evidence-attestation');
+const verificationPolicy = require('./lib/verification-policy');
 
 const KIT_ROOT = path.resolve(__dirname, '..');
 const MANIFEST_PATH = path.join(KIT_ROOT, 'manifests/shk-profiles.json');
@@ -71,6 +72,7 @@ function usage() {
 Usage:
   shk verify --risk low|medium|high|release [--write-evidence]
                 [--round N | --incremental] [--seal]
+                [--phase focused|final|integration]
   shk evidence verify [--file <path>] [--current-git]
                 [--expected-commit <sha>] [--expected-tree <sha>] [--require-clean]
                 [--require-mode full|incremental|seal] [--min-trust <level>]
@@ -1439,7 +1441,96 @@ function computeEvidenceOverall(checks, risk) {
   return failed ? (notSufficient ? 'NOT_SUFFICIENT' : 'NOT_READY') : 'READY';
 }
 
-function makeEvidence(root, risk, cache) {
+
+function digestObject(value) {
+  return `sha256:${crypto.createHash('sha256').update(evidenceAttestation.canonicalStringify(value), 'utf8').digest('hex')}`;
+}
+
+function verificationIdentity(root, config = {}) {
+  const gitIdentity = evidenceAttestation.readGitIdentity(root);
+  const policy = config.verification_policy || {};
+  const spec = readJson(iterationSpecPath(root));
+  const testManifest = {
+    commands: config.commands || {},
+    check_inputs: config.check_inputs || {},
+    suite_includes: policy.suite_includes || {},
+    test_plan: spec && spec.test_plan || [],
+  };
+  const identity = {
+    ...gitIdentity,
+    test_manifest_digest: digestObject(testManifest),
+  };
+  const inputs = policy.identity_inputs || {};
+  for (const area of ['runner', 'verdict', 'scheduler']) {
+    const files = Array.isArray(inputs[area]) ? inputs[area] : [];
+    if (!files.length) continue;
+    const payload = files.map(relPath => {
+      const normalized = String(relPath).replace(/\\/g, '/');
+      try { return { path: normalized, content: fs.readFileSync(path.join(root, normalized), 'utf8') }; }
+      catch { return { path: normalized, missing: true }; }
+    });
+    identity[`${area}_digest`] = digestObject(payload);
+  }
+  return identity;
+}
+
+function baselineEvidencePath(root, config = {}) {
+  const configured = config.verification_policy && config.verification_policy.baseline_file;
+  const relPath = configured || '.harness/verification-baseline.json';
+  return path.isAbsolute(relPath) ? relPath : path.join(root, relPath);
+}
+
+function trustedBaseline(root, config, candidate) {
+  const baseline = readJson(baselineEvidencePath(root, config));
+  const policy = config.verification_policy && config.verification_policy.full_admission || {};
+  const exactAssessment = verificationPolicy.baselineAssessment(baseline, candidate, policy);
+  const identityInputs = config.verification_policy && config.verification_policy.identity_inputs || {};
+  const focusedIdentityFields = ['test_manifest_digest'];
+  for (const area of ['runner', 'verdict', 'scheduler']) {
+    if (Array.isArray(identityInputs[area]) && identityInputs[area].length > 0) focusedIdentityFields.push(`${area}_digest`);
+  }
+  const focusedAssessment = verificationPolicy.baselineAssessment(baseline, candidate, {
+    ...policy,
+    identity_fields: focusedIdentityFields,
+    required_identity_fields: [...verificationPolicy.DEFAULT_IDENTITY_FIELDS, ...focusedIdentityFields],
+  });
+  const baselineCommit = focusedAssessment.identity && focusedAssessment.identity.commit;
+  const commitExists = baselineCommit && spawnSync('git', ['cat-file', '-e', `${baselineCommit}^{commit}`], {
+    cwd: root, encoding: 'utf8', stdio: 'ignore',
+  }).status === 0;
+  const isAncestor = commitExists && spawnSync('git', ['merge-base', '--is-ancestor', baselineCommit, 'HEAD'], {
+    cwd: root, encoding: 'utf8', stdio: 'ignore',
+  }).status === 0;
+  if (!commitExists) focusedAssessment.reason_codes = [...new Set([...focusedAssessment.reason_codes, 'BASELINE_COMMIT_UNAVAILABLE'])];
+  else if (!isAncestor) focusedAssessment.reason_codes = [...new Set([...focusedAssessment.reason_codes, 'BASELINE_NOT_ANCESTOR'])];
+  if (!commitExists || !isAncestor) focusedAssessment.status = 'INVALID';
+  if (focusedAssessment.status !== 'VALID') {
+    return { evidence: baseline, assessment: exactAssessment, focused_assessment: focusedAssessment, cache_seed: null };
+  }
+  return {
+    evidence: baseline,
+    assessment: exactAssessment,
+    focused_assessment: focusedAssessment,
+    cache_seed: {
+      identity: focusedAssessment.identity,
+      checks: baseline.checks || {},
+      completed_at: baseline.completed_at || null,
+    },
+  };
+}
+
+function persistTrustedBaseline(root, config, evidence) {
+  const mode = evidence && evidence.provenance && evidence.provenance.mode;
+  const incrementalCached = evidence && evidence.incremental && Array.isArray(evidence.incremental.cached)
+    ? evidence.incremental.cached : [];
+  const cachedChecks = Object.values(evidence && evidence.checks || {}).filter(check => check && check.cached);
+  if (!evidence || evidence.overall !== 'READY' || !['full', 'seal'].includes(mode)
+      || incrementalCached.length > 0 || cachedChecks.length > 0) return false;
+  writeJsonAtomic(baselineEvidencePath(root, config), evidence);
+  return true;
+}
+
+function makeEvidence(root, risk, cache, options = {}) {
   const started = new Date().toISOString();
   // cache 为空时行为与改造前完全一致：每项都跑。
   const runCached = (check, fn) => {
@@ -1454,8 +1545,17 @@ function makeEvidence(root, risk, cache) {
   const checks = {};
   for (const name of ALL_CHECKS) checks[name] = { status: 'SKIP', command: '', reason: 'not required or not configured' };
   const required = RISK_CHECKS[risk] || RISK_CHECKS.medium;
+  const config = options.config || {};
+  const commandSuites = required.filter(check => ['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check));
+  const suitePlan = verificationPolicy.resolveSuitePlan({
+    selected: commandSuites,
+    suite_includes: config.verification_policy && config.verification_policy.suite_includes || {},
+    known_suites: ['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'],
+  });
+  const executableSuites = new Set(suitePlan.execute);
   checks.quality_gate = qualityGateCheck(root, risk);
   for (const check of required) {
+    if (commandSuites.includes(check) && !executableSuites.has(check)) continue;
     if (check === 'quality_gate') continue;
     if (check === 'security') checks.security = runCached('security', () => runSecurityScan(root));
     else if (check === 'diff') checks.diff = diffCheck(root);
@@ -1487,6 +1587,9 @@ function makeEvidence(root, risk, cache) {
     else if (check === 'spec') continue; // spec 消费下方 spec_status 的真实结果，不用占位符
     else checks[check] = { status: 'SKIP', command: '', reason: `${check} requires agent/human review`, agent_review_required: true };
   }
+  const projectedSuites = verificationPolicy.projectSuiteResults(suitePlan,
+    Object.fromEntries(suitePlan.execute.map(name => [name, checks[name]])));
+  for (const [name, result] of Object.entries(projectedSuites)) checks[name] = result;
   if (required.includes('e2e')) {
     const sufficiency = e2eSufficiencyAssess(root, risk, checks.e2e);
     checks.e2e_sufficiency = {
@@ -1573,6 +1676,7 @@ function makeEvidence(root, risk, cache) {
     completed_at: new Date().toISOString(),
     checks,
     limitations,
+    verification_policy: { suite_plan: suitePlan },
     overall: computeEvidenceOverall(checks, risk),
   };
 }
@@ -1632,6 +1736,7 @@ function writeEvidence(root, evidence, options = {}) {
     run_id: evidence.run_id || `run-${crypto.randomUUID()}`,
     provenance: {
       git: evidenceAttestation.readGitIdentity(root),
+      verification: options.verification_identity || {},
       mode: options.mode || 'full',
     },
   };
@@ -1652,17 +1757,50 @@ function cmdVerify(args, root) {
   const riskIdx = args.indexOf('--risk');
   const risk = riskIdx >= 0 ? args[riskIdx + 1] : 'medium';
   if (!RISK_ORDER[risk]) throw new Error(`invalid risk: ${risk}`);
+  const phaseIdx = args.indexOf('--phase');
+  const phase = phaseIdx >= 0 ? args[phaseIdx + 1] : null;
+  if (phase && !['focused', 'final', 'integration'].includes(phase)) throw new Error(`invalid verify phase: ${phase}`);
+  const config = ledger.readHarnessConfig(root);
+  const candidate = verificationIdentity(root, config);
+  const baseline = trustedBaseline(root, config, candidate);
+
+  if (phase === 'integration' || phase === 'final') {
+    const admissionPolicy = config.verification_policy && config.verification_policy.full_admission || {};
+    const admission = verificationPolicy.evaluateFullAdmission({
+      phase,
+      candidate,
+      baseline: baseline.evidence,
+      prerequisites: admissionPolicy.prerequisites || {},
+      policy: admissionPolicy,
+    });
+    if (admission.action === 'REUSE') {
+      const reused = {
+        ...baseline.evidence,
+        admission,
+        reused_at: new Date().toISOString(),
+      };
+      console.log(evidenceMarkdown(reused));
+      console.log(`\nFull admission: REUSE (${admission.reason_codes.join(', ')})`);
+      return 0;
+    }
+    if (admission.action === 'REJECT') {
+      console.error(`Full admission rejected: ${admission.reason_codes.join(', ')}`);
+      return 1;
+    }
+  }
+
   const roundIdx = args.indexOf('--round');
   const seal = args.includes('--seal');
-  const incremental = seal || roundIdx >= 0 || args.includes('--incremental');
+  const incremental = phase === 'focused' || seal || roundIdx >= 0 || args.includes('--incremental');
   const cache = incremental
     ? verifyCache.createContext(root, {
       round: roundIdx >= 0 ? Number(args[roundIdx + 1]) : 1,
       seal,
-      config: ledger.readHarnessConfig(root),
+      config,
+      baseline: phase === 'focused' ? baseline.cache_seed : null,
     })
     : null;
-  let evidence = makeEvidence(root, risk, cache);
+  let evidence = makeEvidence(root, risk, cache, { config });
   if (cache) {
     const sum = cache.summary();
     cache.persist();
@@ -1675,26 +1813,28 @@ function cmdVerify(args, root) {
         seal: sum.seal,
         ran: sum.ran,
         cached: sum.cached,
+        baseline_cached: sum.baseline_cached || [],
         changed_files: sum.changed_files,
         tests_selected: sel.declared ? sel.selected : 'all（test_plan 未声明 paths）',
         uncovered_changes: sel.uncovered.slice(0, 20),
       },
     };
-    // 封盘护栏：增量轮里凡有复用结论，就不给 READY——那个绿只覆盖了本轮改动。
     if (!seal && sum.cached.length && evidence.overall === 'READY') {
       evidence = { ...evidence, overall: 'INCREMENTAL_GREEN', seal_required: true };
     }
   }
   if (args.includes('--write-evidence')) {
     const mode = seal ? 'seal' : (incremental ? 'incremental' : 'full');
-    evidence = writeEvidence(root, evidence, { mode });
+    evidence = writeEvidence(root, evidence, { mode, verification_identity: candidate });
+    if (phase === 'final' || seal || (!incremental && mode === 'full')) persistTrustedBaseline(root, config, evidence);
   }
   console.log(evidenceMarkdown(evidence));
   if (evidence.incremental) {
     const i = evidence.incremental;
     console.log(`\n增量验证 第 ${i.round} 轮${i.seal ? '（封盘）' : ''}：执行 ${i.ran.length} 项，复用 ${i.cached.length} 项${i.cached.length ? `（${i.cached.join(', ')}）` : ''}`);
+    if (i.baseline_cached && i.baseline_cached.length) console.log(`可信 baseline 复用 ${i.baseline_cached.length} 项：${i.baseline_cached.join(', ')}`);
     if (i.uncovered_changes.length) console.log(`未被 test_plan paths 覆盖的变更 ${i.uncovered_changes.length} 个：${i.uncovered_changes.slice(0, 5).join(', ')}`);
-    if (evidence.seal_required) console.log('本轮为增量绿，交付前需跑一次 shk verify --seal 全量封盘。');
+    if (evidence.seal_required) console.log('本轮为增量绿；冻结最终候选后执行一次 --phase final，不要机械重复 full。');
   }
   return evidence.overall === 'READY' ? 0 : 1;
 }
@@ -2538,6 +2678,35 @@ function cmdTask(args, root) {
     const outcome = flag('--outcome') || 'shipped';
     if (!['shipped', 'dropped', 'superseded'].includes(outcome)) { console.error(`invalid outcome: ${outcome}`); return 1; }
     const t = ledger.readTask(root, id) || {};
+    if (outcome === 'shipped') {
+      const p = ledger.taskPaths(root, id);
+      const config = ledger.readHarnessConfig(root);
+      const configured = config.verification_policy && config.verification_policy.requirement_completeness || {};
+      const specPolicy = {
+        completed_states: configured.completed_states || ['shipped'],
+        placeholder_patterns: configured.placeholder_patterns,
+        required_fields: configured.required_fields || ['requirements.*.text', 'design.summary'],
+      };
+      const planPolicy = {
+        completed_states: configured.completed_states || ['shipped'],
+        placeholder_patterns: configured.placeholder_patterns,
+        required_sections: configured.required_sections || ['目标', '验收标准'],
+      };
+      const reports = [
+        verificationPolicy.evaluateRequirementCompleteness({ state: outcome, document: readJson(p.spec), policy: specPolicy }),
+        verificationPolicy.evaluateRequirementCompleteness({
+          state: outcome,
+          document: exists(p.plan) ? fs.readFileSync(p.plan, 'utf8') : '',
+          policy: planPolicy,
+        }),
+      ];
+      const failures = reports.flatMap(report => report.failures || []);
+      if (failures.length) {
+        failures.forEach(failure => console.error(`${failure.code}: ${failure.path}`));
+        console.error('task close rejected: completed requirements still contain missing or placeholder content');
+        return 1;
+      }
+    }
     const dirty = dirtyCount(root);
     ledger.writeTask(root, id, { ...t, status: 'closed', outcome, closed: new Date().toISOString(), uncommitted_at_close: dirty });
     ledger.appendJournal(root, id, { kind: 'stage', text: `任务关闭：${outcome}` });
@@ -2663,6 +2832,9 @@ module.exports = {
   computeEvidenceOverall,
   normalizeReleaseCommandResult,
   verificationCheckTimeout,
+  verificationIdentity,
+  baselineEvidencePath,
+  trustedBaseline,
   doctorReport,
   expandProfile,
   runSecurityScan,
