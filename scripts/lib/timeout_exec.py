@@ -7,14 +7,35 @@ import subprocess
 import sys
 
 
-def terminate_group(process: subprocess.Popen) -> None:
+def child_process_group(process: subprocess.Popen):
     if process.poll() is not None:
+        return None
+    try:
+        pgid = os.getpgid(process.pid)
+    except ProcessLookupError:
+        return None
+    if pgid <= 0 or pgid != process.pid or pgid == os.getpgrp():
+        raise RuntimeError("refusing to signal an untrusted process group")
+    return pgid
+
+
+def signal_child_group(process: subprocess.Popen, sig) -> bool:
+    pgid = child_process_group(process)
+    if pgid is None:
+        return False
+    # start_new_session=True establishes process.pid as the dedicated child PGID;
+    # the checks above prevent signaling this runner or a different process group.
+    os.killpg(pgid, sig)
+    return True
+
+
+def terminate_group(process: subprocess.Popen) -> None:
+    if not signal_child_group(process, signal.SIGTERM):
         return
-    os.killpg(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=1)
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        signal_child_group(process, signal.SIGKILL)
         process.wait()
 
 
