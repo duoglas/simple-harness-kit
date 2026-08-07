@@ -6,7 +6,7 @@
 
 | ID | 标题 | 阶段 | 风险 | 结果 |
 |---|---|---|---|---|
-| T-20260807-feature-verification-policy | 可信基线、Suite Inclusion 与候选验证策略 | EXECUTE | high |  |
+| T-20260807-feature-verification-policy | 可信基线、Suite Inclusion 与候选验证策略 | VERIFY | high |  |
 | T-20260804-evidence-attestation | SHK 可信证据与候选谱系基础能力 | REVIEW | high |  |
 
 ## Closed

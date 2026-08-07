@@ -2,3 +2,6 @@
 {"t":"2026-08-07T01:29:44.600Z","agent":"unknown","stage":"PLAN","kind":"decision","text":"完成 PLAN：范围限定为通用 policy primitives；开发阶段 focused，最终候选只跑一次 full。"}
 {"t":"2026-08-07T01:33:19.826Z","agent":"unknown","stage":"EXECUTE","kind":"stage","text":"SETUP 负控成立：verification-policy 模块不存在时 focused test 非零退出。进入 EXECUTE。"}
 {"t":"2026-08-07T02:00:30.000Z","agent":"codex","stage":"EXECUTE","kind":"finding","text":"最终审计补强三处 fail-closed：cached check 不得藏在空 incremental 列表后；两个执行根共享未显式选中的 descendant 也属于多 owner 歧义；缺失 plan 必须结构化拒绝而非未捕获异常。"}
+{"t":"2026-08-07T02:04:30.000Z","agent":"codex","stage":"VERIFY","kind":"evidence","text":"Focused 验证通过：verification-policy 12/12；脚本语法通过；task spec READY。开发阶段未重复运行完整 full。"}
+{"t":"2026-08-07T02:04:31.000Z","agent":"codex","stage":"VERIFY","kind":"commit","text":"逻辑提交已拆分：73c6729 task contract；23ed19b policy implementation；903e2eb tests；81ee753 guidance and install wiring。冻结前不再修改产品、测试或说明内容。"}
+{"t":"2026-08-07T02:04:32.000Z","agent":"codex","stage":"VERIFY","kind":"stage","text":"进入 VERIFY：冻结最终候选后仅执行一次 exact-candidate full，不额外机械运行 coord。"}

@@ -3,7 +3,7 @@
   "title": "可信基线、Suite Inclusion 与候选验证策略",
   "status": "open",
   "risk": "high",
-  "stage": "EXECUTE",
+  "stage": "VERIFY",
   "created": "2026-08-07T01:26:05.881Z",
   "started_at": "2026-08-07T01:26:05.881Z",
   "closed": null,
@@ -12,5 +12,10 @@
   "agents": [
     "codex"
   ],
-  "commits": []
+  "commits": [
+    "73c67296865dfb5d5110b0715174c1961581b1c1",
+    "23ed19b3b29fc2d13714d33b49c97891d27499fd",
+    "903e2ebd44667b2fd94d0d41f5e39b171ab083ee",
+    "81ee753bb2ebb1aec77bba489b3978b4efd8e5dd"
+  ]
 }
