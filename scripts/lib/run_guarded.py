@@ -280,10 +280,20 @@ def group_is_gone(target):
         return False
 
 
-def signal_group(target, sig):
+def signal_target_is_safe(target):
     try:
-        # Targets are positive, live PGIDs collected from the guarded child tree;
-        # refresh_guarded_groups also removes this runner's own process group.
+        own_pgid = os.getpgrp()
+    except OSError:
+        return False
+    return isinstance(target, int) and target > 0 and target != own_pgid
+
+
+def signal_group(target, sig):
+    if not signal_target_is_safe(target):
+        return True
+    try:
+        # The target is a live PGID collected from the guarded child tree and is
+        # explicitly checked not to be this runner's own process group.
         os.killpg(target, sig)
         return False
     except OSError as exc:
