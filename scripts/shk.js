@@ -1834,7 +1834,7 @@ function cmdVerify(args, root) {
     console.log(`\n增量验证 第 ${i.round} 轮${i.seal ? '（封盘）' : ''}：执行 ${i.ran.length} 项，复用 ${i.cached.length} 项${i.cached.length ? `（${i.cached.join(', ')}）` : ''}`);
     if (i.baseline_cached && i.baseline_cached.length) console.log(`可信 baseline 复用 ${i.baseline_cached.length} 项：${i.baseline_cached.join(', ')}`);
     if (i.uncovered_changes.length) console.log(`未被 test_plan paths 覆盖的变更 ${i.uncovered_changes.length} 个：${i.uncovered_changes.slice(0, 5).join(', ')}`);
-    if (evidence.seal_required) console.log('本轮为增量绿；冻结最终候选后执行一次 --phase final，不要机械重复 full。');
+    if (evidence.seal_required) console.log('本轮为增量绿；冻结最终候选后执行一次封盘全量验证（--seal，等价 --phase final），不要机械重复 full。');
   }
   return evidence.overall === 'READY' ? 0 : 1;
 }
