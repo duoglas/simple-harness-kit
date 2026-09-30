@@ -100,6 +100,21 @@ check "F1 阻断：重复创建同名任务被拒" "[ '$S2' = '1' ]"
 cp "$KIT_ROOT/docs/tasks/T-20260726-task-ledger/spec.json" "$F1/docs/tasks/$TASK_ID/spec.json"
 (cd "$F1" && $SHK task status >/dev/null 2>&1) && S3=0 || S3=1
 check "F1 spec 达标后 status 返回零" "[ '$S3' = '0' ]"
+# 阻断断言：plan 模板骨架（目标/验收标准空）不满足 shipped 完整性，close 必须拒绝。
+(cd "$F1" && $SHK task close --outcome shipped >/dev/null 2>&1) && S4=0 || S4=1
+check "F1 阻断：plan 未填充时 close shipped 被拒" "[ '$S4' = '1' ]"
+# EXECUTE 阶段 agent 填充 plan（真实流程），之后 close 才允许。
+cat > "$F1/docs/tasks/$TASK_ID/plan.md" <<'PLAN'
+# E2E 演示任务
+
+## 目标
+
+演示任务全流程：task new → spec → plan → close shipped。
+
+## 验收标准
+
+1. close shipped 后 CURRENT 清除且 task.json 标记 closed。
+PLAN
 (cd "$F1" && $SHK task close --outcome shipped >/dev/null)
 check "F1 close 后 CURRENT 被清除" "[ ! -f '$F1/.harness/CURRENT' ]"
 check "F1 close 后 task.json 标记 closed" "grep -q '\"status\": \"closed\"' '$F1/docs/tasks/$TASK_ID/task.json'"

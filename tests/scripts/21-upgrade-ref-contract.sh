@@ -33,7 +33,7 @@ REMOTE="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
 case "$REMOTE" in
   *simple-harness-kit*) ;;
   *)
-    echo "  [21-upgrade-ref] SKIP: origin 不是 kit 仓库（$REMOTE）"
+    echo "  [21-upgrade-ref] SKIP: origin 不是 kit 仓库（${REMOTE}）"
     exit 0
     ;;
 esac
@@ -58,7 +58,7 @@ for want in scripts/lib/task-ledger.js scripts/shk.js; do
   if git -C "$ROOT" cat-file -e "$REF:$want" 2>/dev/null; then
     ok "$REF 的 tree 含 $want"
   elif git -C "$ROOT" rev-parse -q --verify "$REF" >/dev/null 2>&1; then
-    bad "$REF 的 tree 缺 $want——升级后提示的 shk task migrate 会 MODULE_NOT_FOUND"
+    bad "$REF 的 tree 缺 ${want}——升级后提示的 shk task migrate 会 MODULE_NOT_FOUND"
   else
     echo "  [21-upgrade-ref] SKIP tree 检查: 本地没有 $REF 对象（先 git fetch --tags）"
   fi

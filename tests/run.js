@@ -189,6 +189,10 @@ function setupTempDir(scenario) {
       execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpDir, stdio: 'ignore' });
       execFileSync('git', ['config', 'user.name', 'test'], { cwd: tmpDir, stdio: 'ignore' });
       execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'fixture base'], { cwd: tmpDir, stdio: 'ignore' });
+      // 场景里的 push 目标写死 origin master（VH 时代 fixture 约定）。
+      // git init 默认分支随 init.defaultBranch 变化（main/master），delivery target
+      // 绑定按分支名解析 revision，分支缺失即 fail-closed。显式固定为 master。
+      execFileSync('git', ['branch', '-M', 'master'], { cwd: tmpDir, stdio: 'ignore' });
       if (Array.isArray(gs.create)) {
         for (const f of gs.create) {
           const full = path.join(tmpDir, f);
