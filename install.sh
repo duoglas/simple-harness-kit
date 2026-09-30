@@ -221,7 +221,7 @@ if $install_codex; then
             echo "alias codex='$codex_alias_cmd'"
             echo "$alias_marker_end"
           } >> "$rcfile"
-          echo "  已添加到 $rcfile。新 shell 生效，或现在: source $rcfile"
+          echo "  已添加到 ${rcfile}。新 shell 生效，或现在: source $rcfile"
           ;;
         n|N|no)
           echo ""
