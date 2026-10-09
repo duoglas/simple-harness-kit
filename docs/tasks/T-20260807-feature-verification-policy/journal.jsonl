@@ -5,3 +5,5 @@
 {"t":"2026-08-07T02:04:30.000Z","agent":"codex","stage":"VERIFY","kind":"evidence","text":"Focused 验证通过：verification-policy 12/12；脚本语法通过；task spec READY。开发阶段未重复运行完整 full。"}
 {"t":"2026-08-07T02:04:31.000Z","agent":"codex","stage":"VERIFY","kind":"commit","text":"逻辑提交已拆分：73c6729 task contract；23ed19b policy implementation；903e2eb tests；81ee753 guidance and install wiring。冻结前不再修改产品、测试或说明内容。"}
 {"t":"2026-08-07T02:04:32.000Z","agent":"codex","stage":"VERIFY","kind":"stage","text":"进入 VERIFY：冻结最终候选后仅执行一次 exact-candidate full，不额外机械运行 coord。"}
+{"t":"2026-10-09T04:40:54.111Z","agent":"codex:01a0f100","stage":"FEEDBACK","kind":"handoff","text":"Shipped v0.15.1 @8df2691; full native release READY, pre-release 10/10 PASS, complete independent Claude/Codex source reviews PASS. https://github.com/duoglas/simple-harness-kit/releases/tag/v0.15.1"}
+{"t":"2026-10-09T04:40:54.146Z","agent":"codex:01a0f100","stage":null,"kind":"stage","text":"任务关闭：shipped"}

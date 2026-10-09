@@ -1,16 +1,22 @@
 {
   "id": "T-20260930-release-admission-fix",
   "title": "修复验证复用与交付目标边界并完成补丁发布",
-  "status": "open",
+  "status": "closed",
   "risk": "high",
-  "stage": "VERIFY",
+  "stage": "FEEDBACK",
   "created": "2026-09-30T06:41:01.254Z",
   "started_at": "2026-09-30T06:41:01.254Z",
-  "closed": null,
-  "outcome": null,
+  "closed": "2026-10-09T04:40:54.061Z",
+  "outcome": "shipped",
   "supersedes": null,
   "agents": [
     "codex:01a0f100"
   ],
-  "commits": []
+  "commits": [],
+  "uncommitted_at_close": 1,
+  "release": {
+    "version": "v0.15.1",
+    "commit": "8df2691fc99a63154b13f90283ab3b65d08a869e",
+    "url": "https://github.com/duoglas/simple-harness-kit/releases/tag/v0.15.1"
+  }
 }
