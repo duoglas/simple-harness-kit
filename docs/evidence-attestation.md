@@ -73,7 +73,68 @@ shk verify --risk medium --phase integration
 - `final` reuses an exact trusted baseline when one already exists. Otherwise it runs one full verification for the frozen candidate and, when evidence is written and READY, atomically records `.harness/verification-baseline.json` (or the configured baseline path).
 - `integration` never manufactures replacement evidence. It reuses only an exact candidate baseline; a missing, stale, partial, tampered, or incompatible baseline is rejected.
 
+Reuse is scoped to the requested risk and required checks, including their actual
+verdict semantics. A low-risk READY result cannot authorize a release check.
+Configured runner, verdict and scheduler inputs must be present and unchanged.
+Explicit `require_review` and `require_frozen_candidate` prerequisites apply
+before both execution and reuse. Baselines produced before this scope binding
+must be refreshed once; ordinary verification without a phase still runs checks.
+
+Delivery hooks also bind the effective Git worktree and Git directory. Static
+`git -C` or `env -C` commands are accepted only when they still select the
+verified repository. Unresolvable contexts and wrappers that change execution
+identity are rejected. Each `env` wrapper supports a single `-C`/`--chdir`
+option; repeated directory options in one wrapper are rejected. Directory
+resolution follows filesystem symlinks before applying parent-path components.
+`--follow-tags` and an enabled `push.followTags` may publish
+extra references and are rejected; use an explicit single refspec with
+`--no-follow-tags`, or validate and push each reference separately.
+
 Older evidence without `provenance.verification.test_manifest_digest` remains readable under existing compatibility policies, but it cannot act as a trusted verification baseline. This is deliberately fail-closed.
+
+### Explicit check applicability
+
+Projects may explicitly mark only `build`, `types`, `lint`, or `coverage` as
+`NOT_APPLICABLE` in `verification_policy.applicability`. Every declaration must
+include a concrete reason. For example, a source-only toolkit without a build step:
+
+```json
+{
+  "verification_policy": {
+    "applicability": {
+      "build": {
+        "status": "NOT_APPLICABLE",
+        "reason": "This toolkit distributes its source files directly; no compiled build artifact is produced."
+      }
+    }
+  }
+}
+```
+
+N/A is displayed separately from PASS and remains a limitation. Missing commands
+without an explicit declaration retain their existing blocking behavior at release
+risk. A detected or configured command conflicts with an N/A declaration and is
+rejected. Required tests, security, E2E, runtime, browser/dogfood and other release
+proofs cannot be declared N/A. A missing lint or coverage tool must be described as
+unconfigured; it is not inherently inapplicable to JavaScript or shell code.
+
+The normalized declarations, reasons, effective commands, complete iteration spec and verification scope
+are part of the protected verification contract. Baseline and delivery consumers
+compare it to current project configuration. Adding or removing a declaration,
+changing its reason, introducing a real command, or changing requirements/design/
+acceptance in an ignored legacy spec invalidates old N/A evidence. Binding only
+`test_plan` is insufficient: all spec inputs that determine proof must match.
+N/A evidence without an attestation or the required contract cannot authorize
+delivery, including during an upgrade when a required verifier is unavailable.
+
+`quality status` is explicitly a capability snapshot, and `spec status` assesses
+the current spec. Neither consumes an old verification report to authorize delivery.
+Standalone `test effectiveness` runs the current E2E command with a fresh token;
+its internal existing-run argument is used by an ongoing verification run. These
+assessments must remain usable to repair stale evidence. `evidence verify`, doctor,
+baseline admission and delivery/stage gates are authoritative evidence consumers
+and reject a mismatched protected contract. A capability `READY` cannot make stale
+evidence valid or replace a fresh verification run.
 
 Projects may declare real suite containment in `.harness/config.json`:
 
@@ -92,3 +153,15 @@ The declaration means the containing command actually executes the included suit
 ## Reviewer evidence policy
 
 The normal reviewer action is **audit and probe**: verify the exact candidate and attestation, inspect the original final evidence, confirm that the worktree and test manifest have not drifted, and independently run targeted probes for the change's highest risks. A reviewer requests a full rebuild only when the evidence is not auditable, the candidate changed, the environment cannot be trusted, or the change touches verification control areas such as the runner, verdict logic, scheduler, or test manifest.
+
+契约字段存在的新式证据即使全部检查为 PASS，也必须校验当前完整契约；只有完全不带该字段且无 N/A 的旧式证据沿用兼容规则。普通增量缓存与 full admission 共用 runner/verdict/scheduler 内容身份，控制文件变化、缺失或不可读均不能复用旧 PASS。
+
+release 验证内的 `doctor --environment-only` 只评估当前环境，避免上一份陈旧或失败证据阻止生成新证据。独立 `doctor` 默认仍检查当前 evidence；`tests/pre-release-check.sh` 使用默认完整检查，新证据没有通过时不能发布。
+
+所有带项目上下文的证据 reader 都比较已配置的 runner/verdict/scheduler 原始字节摘要；文件变化、缺失或不可读时拒绝。摘要不经过 UTF-8 解码，避免不同非法字节被替换成相同字符。该检查也适用于没有新式契约字段、但声明了控制身份的旧证据。`identity_inputs` 必须是这些控制域到文件路径数组的映射，错误类型和空路径不能静默关闭绑定。独立 doctor 同时比较当前 Git commit、tree 与 candidate digest；只检查签名内部一致性不足以授权当前候选。
+
+Git 交付门禁保留空参数并解析实际仓库和引用目标。Git 可执行配置及 shell 启动、追踪和 prompt 回调必须在身份探测前通过校验；未绑定的 Git 扩展（如 subtree）拒绝。推送 tag 源或 `refs/tags/*` 目标要求 release 证据。fetch 只支持禁用 tag 跟随且目标为 FETCH_HEAD 或 remote-tracking refs 的形式。门禁不会分析任意外部程序的副作用，因此不支持的 Git 执行形式会明确拒绝。
+
+Git 身份探测禁用 pager、fsmonitor、外部 diff、textconv、索引可选刷新和 hooks。配置了非空 clean/process filter 的仓库（含已填充子模块）目前返回身份不可用；SHK 不执行这些用户程序来计算证据，也不声称支持这类过滤器的候选证明。
+
+进程继承的 `GIT_DIR`、`GIT_COMMON_DIR` 覆盖目前不受支持，门禁在 Git 探测前拒绝；共享身份读取返回不可用，不能生成有效的 Git 交付证明。未设置这些覆盖的普通仓库和 linked worktree 仍受支持。

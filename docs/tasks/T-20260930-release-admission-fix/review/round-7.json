@@ -1,0 +1,93 @@
+{
+  "round": 7,
+  "verdict": "FAIL",
+  "candidate_head": "ff00b68241aacddf68d21f4a59554f843930574f",
+  "frozen_files": 28,
+  "start_and_end_hashes": "both reviewers matched 28/28",
+  "reviewers": [
+    {
+      "tool": "Claude Code",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 343,
+          "severity": "high",
+          "summary": "textconv 回调只在 diff/log/show/status/commit 时检查。git cat-file --textconv、git blame、git grep --textconv 会直接执行 diff.<driver>.textconv 配置的任意程序，gate 却放行（exit 0）。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 336,
+          "severity": "high",
+          "summary": "签名回调检测漏掉了两种情况：git tag -v（短选项 -v 不匹配 --verify 正则），以及 log.showSignature=true 配置。两者都会执行 gpg.program 指定的任意程序，gate 却放行。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 368,
+          "severity": "high",
+          "summary": "命令行参数里显式给出的可执行程序没有被识别。第一种是 git grep -O<cmd>（--open-files-in-pager），会通过 shell 执行任意命令。第二种是 --exec-path：gitInvocation 在 252–253 行放行它，repositoryContextProblem 在 973 行只对交付操作拒绝 exec-path，所以 git --exec-path=<dir> ls-remote https://… 会执行 <dir>/git-remote-https。两者 gate 均返回 exit 0。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 346,
+          "severity": "high",
+          "summary": "编辑器回调的检查不完整。① editing 只覆盖 commit/tag，git branch --edit-description 会执行 core.editor，gate 放行。② 前置赋值的 EDITOR=/VISUAL= 不属于 assignmentMayRewriteGit（586–594 行），而环境回调检查（359–366 行）只读取 hook 自身的 process.env。因此 `EDITOR='<cmd>' git commit` 不会被判为 ambiguous，只要证据有效就放行，编辑器程序便可对 repo B 执行交付。GIT_EDITOR= 则会被正确拒绝，两者行为不一致。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 418,
+          "severity": "high",
+          "summary": "fetchTargetProblem 在没有位置参数时硬编码远端为 'origin'，没有按 branch.<当前分支>.remote 展开。git fetch --no-tags 实际使用的是上游远端的 fetch refspec（例如 +refs/tags/*:refs/tags/*），会创建本地 tag，违反“fetch 只能更新 remote-tracking refs”的要求。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 261,
+          "severity": "medium",
+          "summary": "常规命令出现实质性回归。① 新增的 SUPPORTED_GIT_COMMANDS 白名单会拒绝 git rm、mv、rev-list、worktree list、submodule status、apply --check 等日常只读或本地命令（报 unsupported Git extension），基线版本不拦截这些命令。② 359–366 行在 hook 环境中只要存在 PAGER=less 就拒绝 log/diff/show/branch，但没有考虑两点：GIT_PAGER=cat 的优先级更高；Bash 工具没有 TTY 时根本不会启动 pager。③ 339 行对 `git tag -l` 也按 editing 处理，而 Claude Code 默认设置 GIT_EDITOR=true，于是 tag 列表命令被拒绝。这与“安全 pager 和常规配置应保持正向行为”的要求相违背。"
+        }
+      ]
+    },
+    {
+      "tool": "Codex",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 359,
+          "severity": "HIGH",
+          "summary": "回调环境检查只读取 hook 的 process.env，没有合并待执行命令的临时环境。assignmentMayRewriteGit 又未包含 PAGER、EDITOR、VISUAL、SSH_ASKPASS。例如 env PAGER='git -C /B push origin HEAD' git -p rev-parse --show-toplevel 被解析为非交付命令，1150 行直接返回，完全不检查证据；实际 Git pager 可以执行另一仓库的交付。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 329,
+          "severity": "HIGH",
+          "summary": "Git 回调判定没有覆盖实际选项语义。git grep --open-files-in-pager=callback 和带 core.editor 的 git branch --edit-description 均直接放行；git commit -m x --edit 因存在 -m 被误判为不启动 editor。此外签名只识别字符串 true 和部分未组合选项，tag.gpgSign=yes 或 git tag -sm 可绕过 gpg.program 检查。这些是明确的 Git 执行入口，不属于任意外部程序副作用分析。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 418,
+          "severity": "HIGH",
+          "summary": "fetch 的实际引用集合未被完整展开。421 行有显式源参数时完全忽略 remote.<name>.fetch，但 Git 仍使用该配置映射目标，因此 --no-tags 不能阻止分支被映射到 refs/tags/*。默认 remote 被硬编码为 origin，未处理当前分支 upstream 或 fetch.all。递归检查也遗漏默认 on-demand 和 yes/1 布尔值，可能访问未绑定子模块。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 345,
+          "severity": "MEDIUM",
+          "summary": "安全 pager 正向兼容性回归：白名单仅接受 cat/false/no/0，普通 core.pager=less 或 less -FRX 会使 git log、diff 等常用只读命令被拒绝；非交互输出也会受到影响。这不符合普通安全 pager 应保持可用的边界要求。"
+        }
+      ]
+    }
+  ],
+  "automated_evidence": {
+    "high": "NOT_READY",
+    "unit": "257 PASS, 2 FAIL, 1 optional SKIP",
+    "task_e2e": "FAIL before browser: inherited PAGER rejected a valid diff positive control",
+    "evidence_focused": "46/46 PASS",
+    "git_gate_quality": "17/18; non-Git tag deletion fixture requires real Git repository",
+    "identity_callbacks": "4/4 PASS",
+    "applicability": "18/18 before final callback hardening",
+    "policy": "19/19 before final callback hardening",
+    "templates": "34/34 PASS"
+  },
+  "disposition": "Continue authorized repair cycle as round 8; no publication. Preserve failed candidate and all earlier reports."
+}

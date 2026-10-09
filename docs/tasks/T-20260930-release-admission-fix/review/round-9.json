@@ -1,0 +1,163 @@
+{
+  "round": 9,
+  "verdict": "FAIL",
+  "candidate_head": "ff00b68241aacddf68d21f4a59554f843930574f",
+  "frozen_files": 30,
+  "start_and_end_hashes": "Both reviewers and root matched 30/30; no source mutation during reviews or high verification. Follow-up constraints and status documents were updated afterward.",
+  "reviewers": [
+    {
+      "tool": "Claude Code",
+      "verdict": "FAIL",
+      "checks": [
+        {
+          "criterion": "1",
+          "result": "PASS",
+          "detail": "已抽查 verification-policy.js：baselineIntegrityAssessment 在传入 risk 时会绑定 risk、required_checks 与 proof 状态；baselineAssessment 把 runner/verdict/scheduler_digest 纳入必需身份字段；CANDIDATE_NOT_FROZEN/REVIEW_NOT_COMPLETE 已移到 VALID 分支之前，因此同时约束 RUN 和 REUSE。verification-contract.controlIdentity 在文件缺失或不可读时返回 null，evidenceProblem 会报 CONTROL_IDENTITY_UNAVAILABLE；identity_inputs 格式错误时报 APPLICABILITY_CONTRACT_INVALID。本轮没有为这一项单独写探测脚本。"
+        },
+        {
+          "criterion": "2",
+          "result": "PASS",
+          "detail": "valuesAtPath 遇到空数组或空对象的 '*'、以及缺失的字段时，都会生成一行 value=undefined 并保留下来，所以合法的同级条目无法掩盖缺失或为空的分支。只做了代码审阅，没有做探测。"
+        },
+        {
+          "criterion": "3",
+          "result": "FAIL",
+          "detail": "仓库、cwd 和 git-dir 的绑定，以及 follow-tags、包装命令、启动文件的处理，按测试中的正向和反向用例看是成立的。但有四类问题已在一次性仓库中实测复现：(a) push 只检查命令行 refspec，没有展开配置里的目标映射（remote.<name>.push，以及 push.default=upstream 配合 branch.<b>.merge），只有 medium 证据也能在远端创建 tag；(b) commit --fixup=amend:/reword: 会打开编辑器，门控却按“不开编辑器”处理；(c) tag.forceSignAnnotated 与 push.gpgSign 会真实调用 gpg.program，门控的签名判定只看 tag.gpgsign 和 --signed；(d) git config edit 子命令会打开编辑器，而门控只拦截 -e/--edit。"
+        },
+        {
+          "criterion": "4",
+          "result": "PASS",
+          "detail": "resolveContract 只允许 build/types/lint/coverage 声明 NOT_APPLICABLE，并要求给出具体理由；检测到的命令或配置的命令（包括空白覆盖）不能声明 N/A；suite_includes 的父项和子项都不能是 N/A；applicableException 会拒绝 cached/inherited/included_by/inherited_from 标记。evidenceProblem 对 contract-bound 证据会比对当前合约摘要，摘要中包含整个 spec。delivery-gate、stage-guard、verification-gate 在缺少 verifier 时，遇到 applicability、identity_inputs、git_identity 或 N/A 一律拒绝。verify-cache 的指纹已加入合约摘要和控制文件摘要，控制文件不可读时返回 null，不复用缓存。只做了代码审阅。"
+        },
+        {
+          "criterion": "5",
+          "result": "PASS",
+          "detail": "21-upgrade-ref-contract.sh 用 ls-remote 拿到的远端 SHA 绑定内容；补取对象时使用 --no-tags --no-write-fetch-head，不移动本地 ref。离线时输出的 'SKIP:' 会被 pre-release 的 status_from_log 判为 SKIP 并计入阻断。DEFAULT_REF 仍是已发布的 v0.15.0。required-wiring 和 init-prompt 都列出了 verification-contract.js，update.sh 会同步整个 scripts/lib。"
+        },
+        {
+          "criterion": "6",
+          "result": "FAIL",
+          "detail": "因准则 3 中可复现的绕过而判 FAIL：配置映射的远端 tag 推送不需要 release 证据，另有三类回调可在门控放行后执行。未发现虚构 API 或敏感数据。现有测试缺少这几类的反向用例。"
+        }
+      ],
+      "issues": [
+        {
+          "severity": "high",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 1317,
+          "finding": "pushRequiresRelease/pushSourceRevision 只看命令行 refspec。git 对不带冒号的 refspec 会用 remote.<name>.push 映射目标（refspec_append_mapped），在 push.default=upstream 时还会使用 branch.<b>.merge。于是 'git push origin master' 实际会创建远端 refs/tags/*，门控却判为非 release，只要 medium 证据就放行。pushConfigurationProblem 只检查 followTags 和 recurseSubmodules。"
+        },
+        {
+          "severity": "medium",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 455,
+          "finding": "commit 的 editor 判定把带 --fixup 的情况一律视为不开编辑器，但 --fixup=amend:<c> 和 --fixup=reword:<c> 都会启动编辑器。core.editor、VISUAL、EDITOR 回调因此没有被检查。"
+        },
+        {
+          "severity": "medium",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 450,
+          "finding": "签名回调判定不完整：tag 只看 tag.gpgsign 和 -s/-u，忽略了 tag.forceSignAnnotated（带 -m 的附注 tag 会被强制签名）；push 只看 --signed，忽略了 push.gpgSign=true/if-asked。两种情况下 gpg.program 都会在门控放行后执行。"
+        },
+        {
+          "severity": "low",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 489,
+          "finding": "config 的编辑器拦截只认 -e/--edit。Git 2.46 起新增的 'git config edit' 子命令只有 1 个位置参数，因此被放行，而它会启动 GIT_EDITOR/core.editor。"
+        }
+      ]
+    },
+    {
+      "tool": "Codex",
+      "verdict": "FAIL",
+      "checks": [
+        {
+          "criterion": "1",
+          "result": "PASS",
+          "detail": "定向探针确认风险、必需检查、proof 状态及 runner/verdict/scheduler 身份约束复用；冻结和 review 前置条件同时约束 RUN、REUSE。"
+        },
+        {
+          "criterion": "2",
+          "result": "PASS",
+          "detail": "通配字段保留缺失、空容器及嵌套无效分支；有效兄弟项不能掩盖缺项，draft 和完整内容正对照通过。"
+        },
+        {
+          "criterion": "3",
+          "result": "FAIL",
+          "detail": "发现 fixup=reword 候选树绕过、配置驱动的 push 签名回调漏检、凭据助手 alias 回调绕过，以及 fetch -n 正常命令回归。"
+        },
+        {
+          "criterion": "4",
+          "result": "FAIL",
+          "detail": "现代契约、完整 spec、控制文件原始字节及 N/A 标记校验通过定向探针；但三个 hook 漏识别 provenance.git 形式的 legacy 身份声明。独立 doctor 与验证内 environment-only doctor 的职责分离正确。"
+        },
+        {
+          "criterion": "5",
+          "result": "PASS",
+          "detail": "源码及只读安装计划确认共享依赖覆盖 init/install/repair/update；升级证明按远端 SHA 检查，SKIP 阻断发布，默认引用推进顺序正确。未进行联网发布验证。"
+        },
+        {
+          "criterion": "6",
+          "result": "FAIL",
+          "detail": "检查了清单对应的全部 30 个变更文件及相关当前源码。现有正反测试未覆盖以下具体反例，候选尚不满足交付边界要求；未将缺少全量 QA 重跑作为阻断理由。"
+        }
+      ],
+      "issues": [
+        {
+          "severity": "HIGH",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 458,
+          "finding": "未拒绝 commit --fixup=reword:HEAD。Git 将它解释为 --fixup=amend:HEAD --only，忽略已暂存改动；即使 index 与已验证 worktree 完全一致，也可能提交另一棵树。门禁只检查显式 --only 和 pathspec，没有检查 fixup 的值。"
+        },
+        {
+          "severity": "HIGH",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 464,
+          "finding": "push 的签名能力只取决于 CLI 是否出现 --signed，忽略有效 push.gpgSign 配置。配置为 true 或 if-asked 时，普通 push 仍可能执行 gpg.program 等回调，当前回调检查却将其放行。"
+        },
+        {
+          "severity": "HIGH",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 327,
+          "finding": "manager 等凭据助手仅按名称获得信任，未绑定实际执行入口。Git 可将 credential-manager 解析为 shell alias；因此白名单名称仍能执行任意未验证回调。该反例已通过真实 hook 和离线 Git 命令确认。"
+        },
+        {
+          "severity": "HIGH",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 1668,
+          "finding": "legacy 身份保护仅识别顶层 git_identity，漏掉 verifier 实际消费的 provenance.git。没有 attestation/applicability 的 READY 证据即使声明陈旧 provenance.git，三个 hook 仍返回无问题；验证器缺失时也错误降为无保护 legacy。相同遗漏位于 delivery-gate.js:238、253 和 harness-stage-guard.js:987、1002。CLI doctor 已识别 provenance.git，读者行为不一致。"
+        },
+        {
+          "severity": "MEDIUM",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 613,
+          "finding": "正常 fetch -n 被误认为未禁用标签跟随。-n 已列入支持选项，但检查仅识别 --no-tags；短选项簇 -nv 同样受影响。"
+        }
+      ]
+    }
+  ],
+  "root_confirmation": {
+    "all_reported_issue_groups": "Reproduced with actual disposable Git repositories or hook entrypoints.",
+    "fixup_reword": "Gate exit 0; actual temporary commit exit 0; commit tree differs from verified index tree.",
+    "legacy_provenance_git": "All three actual hooks incorrectly allow stale provenance.git, with and without verifier; corresponding git_identity cases reject; unprotected legacy controls pass.",
+    "credential_alias": "Gate exit 0; offline credential fill executes the fixture alias callback.",
+    "fetch_short_option": "Long --no-tags hook input allows; -n/-nv reject, though all actual local dry-runs succeed."
+  },
+  "automated_evidence": {
+    "high": "NOT_READY",
+    "run_id": "run-85b7ea29-f318-4cc6-81e3-751053c57d28",
+    "unit": "259 PASS / 0 FAIL / 1 optional SKIP / 260 total",
+    "install_previously_blocked": "1/1 PASS after permissions restored",
+    "guarded_process_selftest": "29/29 PASS after permissions restored",
+    "applicability": "19/19 PASS",
+    "verification_policy": "19/19 PASS",
+    "upgrade_ref": "7/7 PASS",
+    "task_e2e": "FAIL at missing browser dependency; the recorded integrated run was not rewritten.",
+    "browser_followup": "PASS after restoring the tool and source archive; real TodoMVC browser mutation caught. This is a separate run, not a replacement integrated high verdict.",
+    "security": "PASS: 0 findings",
+    "release": "NOT_RUN; independent reviews prohibit publication."
+  },
+  "disposition": "Authorized rounds 7-9 have reached the Santa three-round limit. No round 10 product-code repair has begun. Await a human decision on continuing repairs; retain all release gates.",
+  "publication": "No new project commit, push, tag or Release. v0.15.0 remains unchanged.",
+  "recorded_at": "2026-10-08T00:18:44.535009+00:00"
+}

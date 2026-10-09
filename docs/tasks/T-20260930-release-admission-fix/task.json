@@ -1,0 +1,16 @@
+{
+  "id": "T-20260930-release-admission-fix",
+  "title": "修复验证复用与交付目标边界并完成补丁发布",
+  "status": "open",
+  "risk": "high",
+  "stage": "VERIFY",
+  "created": "2026-09-30T06:41:01.254Z",
+  "started_at": "2026-09-30T06:41:01.254Z",
+  "closed": null,
+  "outcome": null,
+  "supersedes": null,
+  "agents": [
+    "codex:01a0f100"
+  ],
+  "commits": []
+}

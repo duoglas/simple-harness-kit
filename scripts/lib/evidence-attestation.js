@@ -53,8 +53,63 @@ function digestEvidence(evidence) {
   return `${DIGEST_ALGORITHM}:${crypto.createHash(DIGEST_ALGORITHM).update(canonical, 'utf8').digest('hex')}`;
 }
 
+// Identity probes must not execute configured callbacks or refresh the index.
+function identityGitArgs(args) {
+  const command = args[0] === 'diff' ? ['diff', '--no-ext-diff', '--no-textconv', ...args.slice(1)] : args;
+  // Local replacement views cannot attest the raw objects named by a commit.
+  return ['--no-replace-objects', '--no-pager', '--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...command];
+}
+function identityGit(args, options) { return spawnSync('git', identityGitArgs(args), options); }
+
+function identityConfigurationSafe(root, visited = new Set()) {
+  // An inherited ref-storage override cannot define the expected repository.
+  if (process.env.GIT_DIR !== undefined || process.env.GIT_COMMON_DIR !== undefined) return false;
+  // Unlike status/diff, `git config` alone honors GIT_CONFIG. Refuse this
+  // mismatched probe context before a hidden clean/process filter can run.
+  if (process.env.GIT_CONFIG !== undefined) return false;
+  let realRoot;
+  try { realRoot = fs.realpathSync(root); } catch { return false; }
+  if (visited.has(realRoot) || visited.size >= 64) return false;
+  visited.add(realRoot);
+  // Even read-only status/diff may invoke clean/process filters. Do not run
+  // user programs merely to discover candidate identity. config --list itself
+  // reads configuration without invoking those callbacks.
+  const result = identityGit(['config', '--null', '--list'], {
+    cwd: root, encoding: 'utf8', timeout: 3000, maxBuffer: 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (result.status !== 0) return false;
+  const effective = new Map();
+  for (const entry of String(result.stdout || '').split('\0').filter(Boolean)) {
+    const separator = entry.indexOf('\n');
+    const parts = (separator < 0 ? entry : entry.slice(0, separator)).split('.');
+    parts[0] = parts[0].toLowerCase();
+    parts[parts.length - 1] = parts[parts.length - 1].toLowerCase();
+    const key = parts.join('.'); // Git subsection names are case-sensitive.
+    effective.set(key, separator < 0 ? '' : entry.slice(separator + 1));
+  }
+  if ([...effective].some(([key, value]) => /^filter\..+\.(?:clean|process)$/.test(key) && value.trim())) return false;
+  // Parent status can recurse into populated submodules before candidateDigest
+  // examines a changed gitlink. Inspect their configuration first as well.
+  const tracked = identityGit(['ls-files', '--stage', '-z'], {
+    cwd: root, encoding: 'utf8', timeout: 3000, maxBuffer: 16 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (tracked.status !== 0) return false;
+  for (const entry of String(tracked.stdout || '').split('\0').filter(Boolean)) {
+    const match = entry.match(/^160000 [0-9a-f]+ [0-3]\t([\s\S]+)$/);
+    if (!match) continue;
+    const child = path.join(root, match[1]);
+    try { fs.lstatSync(path.join(child, '.git')); }
+    catch (error) { if (error.code === 'ENOENT') continue; return false; }
+    if (!identityConfigurationSafe(child, visited)) return false;
+  }
+  visited.delete(realRoot);
+  return true;
+}
+
 function git(root, args) {
-  const result = spawnSync('git', args, {
+  const result = identityGit(args, {
     cwd: root,
     encoding: 'utf8',
     timeout: 3000,
@@ -72,13 +127,14 @@ const CANDIDATE_EXCLUDES = Object.freeze([
 ]);
 
 function isGeneratedEvidencePath(rel) {
-  const normalized = String(rel || '').replace(/\\/g, '/');
-  if (CANDIDATE_EXCLUDES.includes(normalized)) return true;
-  return /^docs\/tasks\/[^/]+\/(?:evidence\/)?verify-evidence\.(json|md)$/.test(normalized);
+  // Git emits '/' separators; a POSIX backslash is part of the filename.
+  const gitPath = String(rel || '');
+  if (CANDIDATE_EXCLUDES.includes(gitPath)) return true;
+  return /^docs\/tasks\/[^/]+\/(?:evidence\/)?verify-evidence\.(json|md)$/.test(gitPath);
 }
 
 function indexEntryForPath(root, rel) {
-  const result = spawnSync('git', ['ls-files', '-s', '-z', '--', rel], {
+  const result = identityGit(['ls-files', '-s', '-z', '--', rel], {
     cwd: root,
     encoding: null,
     timeout: 3000,
@@ -118,11 +174,12 @@ function gitlinkHead(root, rel) {
 }
 
 function candidateDigest(root, commit) {
+  if (!identityConfigurationSafe(root)) return null;
   // Hash the final working-tree candidate, not Git's index representation. This
   // keeps the digest stable when the same files move from unstaged/untracked to
   // staged while still binding path, type, executable bit, content, deletion,
   // and the checked-out OID of every changed gitlink.
-  const changed = spawnSync('git', ['diff', '--name-only', '-z', 'HEAD', '--', '.'], {
+  const changed = identityGit(['diff', '--name-only', '-z', 'HEAD', '--', '.'], {
     cwd: root,
     encoding: null,
     timeout: 10000,
@@ -131,7 +188,7 @@ function candidateDigest(root, commit) {
   });
   if (changed.status !== 0) return null;
 
-  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+  const untracked = identityGit(['ls-files', '--others', '--exclude-standard', '-z'], {
     cwd: root,
     encoding: null,
     timeout: 5000,
@@ -200,11 +257,12 @@ function decodeNulPaths(output) {
 }
 
 function indexWorktreeMismatchPaths(root) {
+  if (!identityConfigurationSafe(root)) return null;
   // The evidence digest deliberately follows the final working-tree snapshot so
   // it stays stable across `git add`. Before a commit, however, Git consumes the
   // index. Refuse a split index/worktree candidate instead of letting a verified
   // working-tree snapshot authorize different staged bytes.
-  const changed = spawnSync('git', ['diff', '--name-only', '-z', '--', '.'], {
+  const changed = identityGit(['diff', '--name-only', '-z', '--', '.'], {
     cwd: root,
     encoding: null,
     timeout: 10000,
@@ -212,7 +270,7 @@ function indexWorktreeMismatchPaths(root) {
     stdio: ['ignore', 'pipe', 'ignore'],
   });
   if (changed.status !== 0) return null;
-  const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+  const untracked = identityGit(['ls-files', '--others', '--exclude-standard', '-z'], {
     cwd: root,
     encoding: null,
     timeout: 5000,
@@ -226,6 +284,12 @@ function indexWorktreeMismatchPaths(root) {
 }
 
 function readGitIdentity(root) {
+  if (!identityConfigurationSafe(root)) {
+    return {
+      available: false, commit: null, tree: null, dirty: null, candidate_digest: null,
+      index_matches_worktree: null, index_mismatch_paths: [],
+    };
+  }
   const commit = git(root, ['rev-parse', '--verify', 'HEAD']);
   const tree = git(root, ['rev-parse', '--verify', 'HEAD^{tree}']);
   if (!commit || !tree) {
@@ -334,6 +398,17 @@ function verifyEvidence(evidence, policy = {}) {
   }
 
   const provenance = evidence.provenance && typeof evidence.provenance === 'object' ? evidence.provenance : {};
+  if (policy.project_root || Object.prototype.hasOwnProperty.call(provenance, 'applicability')
+      || Object.values(evidence.checks || {}).some(check => check && check.status === 'NOT_APPLICABLE')) {
+    try {
+      const contract = require('./verification-contract');
+      const problem = contract.evidenceProblem(evidence, policy.project_root);
+      if (problem) addFailure(problem.code, problem.message);
+      else addPass('APPLICABILITY_CONTRACT_VALID', 'Evidence matches the current verification contract');
+    } catch (error) {
+      addFailure('APPLICABILITY_VERIFIER_UNAVAILABLE', `applicability verification failed: ${error.message}`);
+    }
+  }
   const gitIdentity = provenance.git && typeof provenance.git === 'object' ? provenance.git : {};
 
   if (policy.expected_commit !== undefined) {

@@ -1,0 +1,277 @@
+{
+  "round": 10,
+  "verdict": "FAIL",
+  "head": "ff00b68241aacddf68d21f4a59554f843930574f",
+  "frozen_files": 33,
+  "start_end_hashes": "Both reviewers and root matched 33/33 bytes and modes",
+  "high": {
+    "round": 10,
+    "exit": 0,
+    "started_at": "2026-10-08T00:36:43.031718+00:00",
+    "completed_at": "2026-10-08T00:44:47.330316+00:00",
+    "run_id": "run-63157a9b-2aa0-478b-89e8-22b16bcb8354",
+    "overall": "READY",
+    "checks": {
+      "quality_gate": {
+        "status": "PASS",
+        "detail": "这次按 high 风险做准出检查。已找到测试入口：node tests/run.js --unit。已找到 E2E 入口：SHK_BROWSER_E2E_REQUIRED=1 bash docs/tasks/T-20260930-release-admission-fix/verify-flow-e2e.sh。当前准出入口状态：READY。这只是能力快照，还没有跑测试；最终能不能交付要看 `shk verify --write-evidence` 的 fresh evidence。"
+      },
+      "build": {
+        "status": "NOT_APPLICABLE",
+        "detail": "Source-distributed Node.js and Bash toolkit; no build artifact or build command is defined."
+      },
+      "types": {
+        "status": "NOT_APPLICABLE",
+        "detail": "The project ships JavaScript and Bash sources and defines no static type-check command."
+      },
+      "lint": {
+        "status": "NOT_APPLICABLE",
+        "detail": "No lint tool or lint command is configured for this release; lint validation is not claimed."
+      },
+      "tests": {
+        "status": "PASS",
+        "detail": ""
+      },
+      "coverage": {
+        "status": "NOT_APPLICABLE",
+        "detail": "No coverage collection command is configured; no coverage percentage or threshold attainment is claimed."
+      },
+      "e2e": {
+        "status": "PASS",
+        "detail": ""
+      },
+      "security": {
+        "status": "PASS",
+        "detail": ""
+      },
+      "diff": {
+        "status": "PASS",
+        "detail": "CHANGELOG.md                                       |   29 +\n docs/TODO.md                                       |   20 +-\n docs/constraints.md                                |   20 +-\n docs/evidence-attestation.md                       |   68 +\n docs/release-process.md                            |   15 +-\n docs/tasks/INDEX.md                                |    1 +\n init-prompt.md                                     |   10 +-\n scripts/hooks/delivery-gate.js                     |   14 +-\n scripts/hooks/harness-stage-guard.js               |   14 +-\n scripts/hooks/verification-gate.js                 | 1048 +++++++++++--\n scripts/lib/evidence-attestation.js                |   80 +-\n scripts/lib/verification-policy.js                 |   63 +-\n scripts/lib/verify-cache.js                        |   11 +-\n scripts/shk.js                                     |  204 +--\n skills/harness-init/resources/init-prompt.md       |   10 +-\n skills/harness-init/resources/required-wiring.json |    1 +\n tests/evidence-attestation.test.js                 | 1601 ++++++++++++++++++++\n tests/pre-release-check.sh                         |   10 +-\n tests/quality-suite.test.js                        |   27 +-\n tests/required-wiring.json                         |    1 +\n tests/run.js                                       |   33 +-\n tests/scripts/21-upgrade-ref-contract.sh           |   56 +-\n tests/verification-policy.test.js                  |  215 ++-\n upgrade.sh                                         |    5 +-\n 24 files changed, 3289 insertions(+), 267 deletions(-)"
+      },
+      "spec": {
+        "status": "PASS",
+        "detail": "迭代 spec 是有效的：需求、方案、风险、测试计划、流量路径和验收标准都有明确映射。"
+      },
+      "santa": {
+        "status": "SKIP",
+        "detail": "santa requires agent/human review"
+      },
+      "runtime": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "runtime_selftest": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "doctor": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "dogfood_oss": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "upstream_dogfood": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "browser_e2e_dogfood": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "clean_tree": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "upstream": {
+        "status": "SKIP",
+        "detail": "not required or not configured"
+      },
+      "e2e_sufficiency": {
+        "status": "PASS",
+        "detail": "E2E 不只是跑过了，也覆盖了本次风险、正向路径、阻断路径和结构化证据。"
+      },
+      "spec_status": {
+        "status": "PASS",
+        "detail": "迭代 spec 是有效的：需求、方案、风险、测试计划、流量路径和验收标准都有明确映射。"
+      },
+      "test_effectiveness": {
+        "status": "PASS",
+        "detail": "测试有效性足够：它不是只证明“跑过”，而是映射到了 spec 的需求、风险、流量路径、断言、负向场景和 mutation/fault 证据。运行真实性是 PASS。"
+      }
+    }
+  },
+  "reviewers": [
+    {
+      "tool": "Claude Code",
+      "verdict": "FAIL",
+      "checks": [
+        {
+          "criterion": "1",
+          "result": "PASS",
+          "detail": "fullAdmissionPolicy 把 risk、risk_checks、proof_checks、evaluate_checks 和已配置的 runner/verdict/scheduler 摘要字段都传给 baselineAssessment。evaluateFullAdmission 先检查 freeze 和 review 前置条件，未满足时 REUSE 和 RUN 都被拒绝。控制文件缺失时 controlIdentity 返回 null，compareIdentity 会把该字段计为 missing，比较不会因此变宽。只做源码审读，没有为本项单独跑 CLI 探针。"
+        },
+        {
+          "criterion": "2",
+          "result": "PASS",
+          "detail": "verification-policy.js 里 valuesAtPath 的通配分支现在会保留空数组、空对象和缺失字段，作为 value: undefined 继续参与判定，有效的同级条目不会把它们掩盖。只看了 diff，没有单独探测。"
+        },
+        {
+          "criterion": "3",
+          "result": "FAIL",
+          "detail": "上下文绑定本身成立：repositoryContextProblem 比较实际 cwd 与 ROOT 的 toplevel 和 absolute-git-dir；input.cwd、tool_input.cwd 和 workdir 不一致时拒绝；git -C \"\" commit 被识别为 commit。但回调可达性有两个已复现的绕过，见 critical_issues：(1) 子模块自身配置中的 core.fsmonitor 会被已放行的 git status/diff 执行；(2) 用 $'...' 或 $\"...\" 书写的 grep -O 选项被当作位置参数，git grep 被放行后会执行任意外部程序。另外 commit --trailer 是允许的选项，但 trailer.<token>.cmd 不在回调检查范围内。"
+        },
+        {
+          "criterion": "4",
+          "result": "PASS",
+          "detail": "verification-contract.js 只允许 build/types/lint/coverage 声明 NOT_APPLICABLE，并且要求具体理由。探测到的命令或非空覆盖命令不能被 N/A 掩盖。applicableException 拒绝 cached、inherited、included_by 和 inherited_from 标记。合约摘要包含完整 spec。CLI evidence、doctor、baseline 以及三个 hook 都传入 project_root；verifier 模块缺失时，有 git 身份、有合约声明、有 identity_inputs 或含 N/A 的证据都会 fail-closed。只做源码审读。"
+        },
+        {
+          "criterion": "5",
+          "result": "PASS",
+          "detail": "update.sh 复制全部 scripts/lib/*.js，两份 required-wiring.json 都加入了 verification-contract.js，installDependenciesForScript 改为递归解析 require。21-upgrade-ref-contract.sh 以 ls-remote 返回的 SHA 为准，补取对象时使用 --no-tags、--no-write-fetch-head、--no-recurse-submodules，并直接以 URL 作为 fetch 来源，不会移动本地 ref。离线时输出的 SKIP 经 run_required_command 计为阻断项。upgrade.sh 保留已发布的 DEFAULT_REF=v0.15.0。pre-release 调用默认 doctor（含证据检查），所以 --environment-only 不会削弱最终发布门禁。没有执行在线检查。"
+        },
+        {
+          "criterion": "6",
+          "result": "FAIL",
+          "detail": "第 3 项存在可复现的绕过：被放行的命令可以触发未绑定的回调，并在没有证据、且处于 EXECUTE 阶段时完成实际推送。没有发现编造的 API、密钥或内部数据。"
+        }
+      ],
+      "critical_issues": [
+        {
+          "severity": "high",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 574,
+          "finding": "gitCallbackProblem 只检查父仓库的生效配置（effectiveGitConfiguration 在第 297 行）。git status/diff 会递归进入已检出的子模块，并按子模块自身 .git/modules/<name>/config 中的 core.fsmonitor 执行程序，但 gate 从不读取这份配置。父仓库里同样的设置会被拒绝，子模块里的却被放过。",
+          "reproduction": "在 /tmp/shk10a 中建立 superproject S（含已检出的子模块 sub）、bare 远端 remote.git，并把 scripts/hooks 与 scripts/lib 复制进 S，.harness/current-stage.json 设为 EXECUTE。执行 git -C sub config core.fsmonitor /tmp/shk10a/cb.sh；cb.sh 是一次性回调脚本，向 marker 文件追加一行。先用 stdin JSON {\"tool_input\":{\"command\":\"git status\"}} 运行 verification-gate.js，结果 exit=0，命令被放行。再在 S 中实际执行 git status，marker 中出现两行 CALLBACK RAN。在同一次性仓库中，让回调额外推送一个 tag 后，remote.git 出现 refs/tags/pwned-by-callback；当时 stage 为 EXECUTE，且没有任何证据文件。对照：直接对 gate 提交 git push origin HEAD:refs/tags/v1，exit=2 被拒绝。"
+        },
+        {
+          "severity": "high",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 105,
+          "finding": "shellTokens 把 $'...' 和 $\"...\" 编码为 SHELL_ENCODED_WORD_MARKER 前缀。词首变成标记后不再以 '-' 开头，gitArgumentInfo 把它当作位置参数，第 512 行的 has('-O') 检查因此失效。只读命令的参数不做 hasDynamicShellSyntax 检查，git grep 被放行，真实 shell 却把它解析成 -O<程序>，作为 pager 执行。",
+          "reproduction": "在一次性仓库 T 中，gate 判定结果为：'git grep -O/tmp/shk10a/grepcb.sh -e a' → rc=2（grep external pager execution is not supported）；\"git grep $'-O/tmp/shk10a/grepcb.sh' -e a\" → rc=0；'git grep $\"-O/tmp/shk10a/grepcb.sh\" -e a' → rc=0。随后在 T 中用 bash -c 和 zsh -fc 各执行一次 ANSI 引号版本，grep-marker 均记录到 GREP-PAGER-CB args=a，说明外部程序已被执行。"
+        },
+        {
+          "severity": "medium",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 391,
+          "finding": "commit 允许 --trailer（valueLong 白名单），但 gitCallbackProblem 不检查 trailer.<token>.cmd 和 trailer.<token>.command。这与 hooks、editor、gpg 属于同一类提交期回调，却没有对应的拒绝逻辑。",
+          "reproduction": "在一次性仓库 T 中执行 git config trailer.x.cmd '<向 trailer-marker 追加一行的命令>'。gate 对 'git commit --trailer \"X: y\" -m m' 返回的是阶段消息，不是回调拒绝；回调检查发生在阶段检查之前，说明这个回调没有被识别。实际执行 git commit --trailer \"X: y\" -m m 后 trailer-marker 被写入；不带 --trailer 的普通 commit 不触发。"
+        }
+      ],
+      "suggestions": [
+        "父仓库和每个已检出的子模块都应检查回调配置（参照 identityConfigurationSafe 的递归方式），或者在命令可能递归进子模块时直接拒绝。",
+        "git 参数中任何词带有 SHELL_ENCODED_WORD_MARKER 或其他动态 shell 语法时，统一判为 ambiguous，不限于 subcommand、prefixArgs 和交付目标。",
+        "把 trailer.*.cmd 和 trailer.*.command 纳入 commit 回调检查。",
+        "非阻断说明：复制或改名后的 git 二进制、bash script.sh 这类调用属于任意外部程序，不在本次支持的静态 shell 语法范围内。"
+      ],
+      "validation": {
+        "start_hashes": "33 个冻结文件的 sha256 与 file_modes 全部一致，HEAD=ff00b68241aacddf68d21f4a59554f843930574f，round-10.patch sha256=51cbe853d890d8f3a5d40b980b9ca677043df93759963383e17eebe2ed672092",
+        "end_hashes": "结束时复核：33/33 一致，HEAD 不变，patch sha256 不变，项目 git status 条目数保持 29",
+        "probes": [
+          "/tmp/shk10a/S：子模块 core.fsmonitor 回调经被放行的 git status 执行，并在一次性 bare 远端创建了 tag",
+          "/tmp/shk10a/T：ANSI-C 和 $\"...\" 引号形式的 grep -O 被 gate 放行，并在 bash 和 zsh -f 下实际执行",
+          "/tmp/shk10a/T：trailer.x.cmd 未被 gate 识别，git commit --trailer 时实际执行",
+          "对照组：git log、git stash show -p、git config get/查询、git tag -l、带 --no-tags --no-recurse-submodules 的 fetch（含 -nv）均放行；push 到 refs/tags 和 git -C \"\" commit 被拦截"
+        ]
+      }
+    },
+    {
+      "tool": "Codex",
+      "verdict": "FAIL",
+      "checks": [
+        {
+          "criterion": "1",
+          "result": "PASS",
+          "detail": "复用比较风险、必需检查、证明状态和配置的控制身份；review/freeze 前置条件同时约束 RUN 与 REUSE。独立内存探针确认正常复用、风险升级重跑、缺失前置条件拒绝，以及不可读控制文件不能命中缓存。"
+        },
+        {
+          "criterion": "2",
+          "result": "PASS",
+          "detail": "缺字段、空数组及嵌套 wildcard 的无效分支均保留并拒绝完成；有效兄弟项不能掩盖失败。完整内容与 draft 正控通过。"
+        },
+        {
+          "criterion": "3",
+          "result": "FAIL",
+          "detail": "存在候选变更后仍沿用旧准入、shell 通配符展开未绑定、继承 GIT_EXEC_PATH 未约束三类缺口；另确认两项正常命令误拦。"
+        },
+        {
+          "criterion": "4",
+          "result": "PASS",
+          "detail": "整份 spec、当前命令和配置参与合约；N/A 限定四项并拒绝 cached/inherited/included_by 标记。原始字节漂移、不可读控制及畸形映射均拒绝。三个 hook 的缺失验证器与 legacy 身份探针符合要求。环境 doctor 与默认证据 doctor 的分离未发现削弱发布门禁。"
+        },
+        {
+          "criterion": "5",
+          "result": "PASS",
+          "detail": "源码与安装计划确认新依赖进入 init/install/repair/update；远端证明使用解析后的 origin SHA，缺对象获取不提供本地目标 refspec，离线 SKIP 由 pre-release 阻断。DEFAULT_REF 保留 v0.15.0，文档分开发 tag 与推进默认入口。本次未联网验证远端状态。"
+        },
+        {
+          "criterion": "6",
+          "result": "FAIL",
+          "detail": "已有正负控制覆盖大量指定边界，但下述独立反例仍破坏交付约束或正常命令兼容性。未发现本次改动引入真实密钥或私有业务数据。"
+        }
+      ],
+      "critical_issues": [
+        {
+          "severity": "P1",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 1174,
+          "finding": "checkout/reset/switch 等会改变候选的 Git 操作不加入 operations。组合命令因此只按后面的 push 检查一次执行前 HEAD；前面的操作执行后，实际推送对象已经不同。1414 行的多操作限制无法捕获这种组合。",
+          "reproduction": "只调用解析器或 hook，不执行交付字符串：git checkout --detach HEAD~1 && git push origin HEAD:refs/heads/review-probe。真实源码加只读 Git 查询得到 kinds=[push]、operation_count=1、target=null；使用当前有效签名 READY/REVIEW 的完整内存夹具，hook 返回 0。实际执行语义会先切换到父提交，再推送该父提交。正控 git status && git push origin HEAD:refs/heads/review-probe 放行；反控 git commit -m fixed && git push origin HEAD 被拒绝。可用 validation.probes 中的解析器命令复现。"
+        },
+        {
+          "severity": "P1",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 1126,
+          "finding": "Git 参数中的未引用 glob 被当作字面参数验证。git commit -m * 被解析成仅一个消息参数，因此绕过 485 行的路径提交限制；真实 shell 展开后，后续文件名成为 pathspec，可提交不同于已验证完整 index 的树。",
+          "reproduction": "在仅含 a.txt、b.txt 两个可见文件且两者均有已暂存修改的临时仓库中，向 hook 提交 git commit -m *。解析器没有 ambiguity，完整签名证据内存夹具返回 0。实际 argv 为 commit,-m,a.txt,b.txt，Git 将只提交 b.txt。无需执行 commit：bash --noprofile --norc -c 'git rev-parse --sq-quote commit -m *' 可安全观察展开；本次已实际执行该只读探针。显式 git commit -m fixed README.md 反控正确拒绝，普通固定消息正控放行。"
+        },
+        {
+          "severity": "P1",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 521,
+          "finding": "允许 git submodule status 时未验证实际辅助程序入口。显式 --exec-path 和前置 GIT_EXEC_PATH 赋值被拒绝，但继承的 GIT_EXEC_PATH 没有对应检查，可以选择任意 git-submodule。当前 Apple Git 2.50.1 的 submodule 不是 builtin，因此该入口实际可达。",
+          "reproduction": "将 GIT_EXEC_PATH=/tmp/untrusted-git-core 放入 hook 进程环境，向 verification-gate.js stdin 输入 {\"tool_input\":{\"command\":\"git submodule status\"}}；实际 hook 返回 0。相同环境下 git subtree --version 返回 2。可在一次性目录放置可执行 git-submodule，其内容仅为 exec /usr/bin/git -C \"$OTHER_REPO\" rev-parse --show-toplevel，再用 git submodule status 演示入口替换，无需真实交付。本次实际验证了 hook 放行及 submodule_builtin=false，未创建或执行替换程序。"
+        },
+        {
+          "severity": "P2",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 462,
+          "finding": "log/show/rev-list 的 signature 能力无条件为 true，未处理 --no-show-signature。因此配置普通 gpg.program 的用户即使显式关闭签名显示，仍在 579 行被拒绝，违反显式签名覆盖和正常只读命令兼容要求。",
+          "reproduction": "在子进程环境设置 GIT_CONFIG_COUNT=1、GIT_CONFIG_KEY_0=gpg.program、GIT_CONFIG_VALUE_0=/usr/bin/false，将 git log --no-show-signature --no-walk --format=%H HEAD 作为 hook 输入。实际 hook 返回 2：unverified callback gpg.program；相同环境下真实只读 git --no-pager log --no-show-signature --no-walk --format=%H HEAD 返回 0 并输出当前 HEAD。未修改 Git 配置文件。"
+        },
+        {
+          "severity": "P2",
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 194,
+          "finding": "commandSubstitutions 在判断 single-quote 状态之前处理反斜杠，错误地将单引号内的反斜杠视为转义。合法字符串以字面反斜杠结束时，会跳过结束引号并误报未闭合；影响普通路径、消息以及只读命令。",
+          "reproduction": "向 hook 输入命令 git rev-parse --sq-quote 'Windows C:\\'。实际 hook 返回 2：unterminated shell quote in tool command。由 bash --noprofile --norc 执行同一只读命令返回 0，正确保留末尾反斜杠。双引号中的普通反斜杠正控 git commit -m \"Windows C:\\q\" 能被解析。"
+        }
+      ],
+      "suggestions": [],
+      "validation": {
+        "start_hashes": "33/33 文件 SHA-256 与 file_modes 匹配清单；HEAD=ff00b68241aacddf68d21f4a59554f843930574f 匹配。round-10.patch SHA-256=51cbe853d890d8f3a5d40b980b9ca677043df93759963383e17eebe2ed672092。",
+        "end_hashes": "33/33 文件 SHA-256 与 file_modes 再次全部匹配；HEAD 与 patch SHA-256 均与起始相同。未修改项目文件或状态。",
+        "probes": [
+          "执行环境禁止 /tmp 写入，因此采用内存夹具、真实 hook 的无写入路径及只读 Git 查询；未执行真实 commit/push/tag、网络/浏览器/模型调用或完整 QA。",
+          "可执行只读解析器复现：在仓库根目录运行 node -e 'const fs=require(\"fs\"),vm=require(\"vm\"),cp=require(\"child_process\"),{createRequire}=require(\"module\");const f=process.cwd()+\"/scripts/hooks/verification-gate.js\";const c=vm.createContext({require:createRequire(f),process:{cwd:()=>process.cwd(),env:process.env,stdin:{setEncoding(){},on(){}}},Buffer});vm.runInContext(fs.readFileSync(f,\"utf8\"),c);c.cmd=process.argv[1];c.head=cp.execFileSync(\"git\",[\"rev-parse\",\"HEAD\"],{encoding:\"utf8\"}).trim();console.log(vm.runInContext(\"(()=>{const r=commandDeliveryInfo(cmd);return JSON.stringify({kinds:[...r.kinds],count:r.operations.length,ambiguous:r.ambiguous,target:deliveryTargetProblem(r.operations,{commit:head})})})()\",c));' 'git checkout --detach HEAD~1 && git push origin HEAD:refs/heads/review-probe'。末尾参数只是待检查字符串，不会执行 checkout 或 push；替换为 'git commit -m *' 可复现第二项。",
+          "完整 hook 内存夹具：当前签名 READY、REVIEW、完整 index 下，checkout→push 和 glob commit 均返回 0；多次交付及显式路径提交反控返回 2。",
+          "独立配置/解析矩阵 39/39 符合预期，覆盖 fetch -n/-nv、pruneTags、配置目标映射、递归、clone template、fixup、签名覆盖、config get/list/edit、回调、shell startup、extglob、git-core 和普通 wrapper；该矩阵不抵消已发现反例。",
+          "合约内存探针覆盖 wildcard 缺失分支、完整/draft 正控、整份 spec 漂移、all-PASS 合约、N/A 继承标记、非法声明、原始字节变化、不可读控制、缓存指纹及风险/review/freeze 准入。",
+          "三个 hook 分别验证现代空合约、legacy Git 身份、畸形声明、缺失验证器和真正无保护 legacy；正常与失败结果符合预期。",
+          "实际 hook 正控包含已安装 osxkeychain 凭据助手、git config get user.name、git stash show -p；仅检查命令，未执行网络操作。安装计划确认包含 verification-contract.js 及其依赖。"
+        ]
+      }
+    }
+  ],
+  "root_confirmed": [
+    "submodule fsmonitor callbacks via status/diff",
+    "ANSI and locale quoted grep -O",
+    "trailer cmd/command callbacks",
+    "variable/glob-generated grep -O",
+    "single-quoted trailing backslash falsely rejected"
+  ],
+  "next": "Continue authorized repair cycle with round11; full high READY does not authorize publication because both independent reviews failed. No project commit/push/tag/release."
+}

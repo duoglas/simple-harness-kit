@@ -1,0 +1,36 @@
+{
+  "round": 12,
+  "completed_at": "2026-10-08T02:11:09.591012+00:00",
+  "high": "READY",
+  "units": {
+    "pass": 259,
+    "fail": 0,
+    "optional_skip": 1
+  },
+  "browser": "PASS with mutation caught",
+  "review_a_reported": "PASS",
+  "review_a_accepted": false,
+  "review_a_limit": "criteria 2 and 5 explicitly not reviewed, and other limitations in original report",
+  "review_b": "FAIL",
+  "verdict": "NOT_RELEASE_READY",
+  "confirmed_findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "scripts/hooks/verification-gate.js",
+      "line": 344,
+      "finding": "配置探针继承 GIT_CONFIG，但该变量只影响 git config，不影响实际 commit/push 等命令。GIT_CONFIG=/dev/null 因而使 config --list 返回空配置，掩盖真实 fsmonitor、hooks、签名或其他回调。1451 行的 follow-tags 查询存在同样问题：实际 push.followTags=true 的 push 被当成普通单分支推送。scripts/lib/evidence-attestation.js:71 同样受影响，配置了禁止的 clean filter 时，身份读取可从 unavailable 变成 available。",
+      "reproduction": "已执行无文件写入探针：继承 GIT_CONFIG_COUNT=1、GIT_CONFIG_KEY_0=push.followTags、GIT_CONFIG_VALUE_0=true，加载当前 verification-gate.js 到 VM（截取到 '\\nlet raw =' 前，require 使用 createRequire 指向原文件），调用 commandDeliveryInfo('git push origin HEAD:refs/heads/review', 0, 仓库路径)，再调用 deliveryTargetProblem(operations, {commit: 当前 rev-parse HEAD})。不设置 GIT_CONFIG 时返回 GIT_DELIVERY_TARGET_UNBOUND；设置 GIT_CONFIG=/dev/null 后返回 null，releaseRisk=false。--no-follow-tags 正控返回 null。另以 core.fsmonitor=/usr/bin/false 和 core.hooksPath=/tmp/unverified-hooks 做同样对照，遮蔽后 status/commit 的 ambiguous 均为空。实际 Git 语义用以下无害命令验证：env GIT_CONFIG=/dev/null GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.showctx 'GIT_CONFIG_VALUE_0=!git rev-parse --show-toplevel' git showctx；别名仍执行并输出真实仓库，而同环境 git config --null --list 返回空。未执行真实交付或回调。"
+    },
+    {
+      "severity": "HIGH",
+      "file": "scripts/hooks/verification-gate.js",
+      "line": 583,
+      "finding": "apply 只要包含 --stat/--check/--numstat/--summary 就被视作只读，遗漏 --apply 可重新启用写入的语义；gitChangesDeliveryState 也没有记录 apply。因此 git apply --stat --apply --index patch && git commit 可以消费操作前证据，却提交 apply 后的新 index/tree。",
+      "reproduction": "无写入复现：在仓库目录运行 node -e 'const fs=require(\"fs\"),vm=require(\"vm\"),p=require(\"path\"),f=p.resolve(\"scripts/hooks/verification-gate.js\"),s=fs.readFileSync(f,\"utf8\");vm.runInNewContext(s.slice(0,s.indexOf(\"\\nlet raw =\"))+\"\\nconst d=commandDeliveryInfo(\\\"git apply --stat --apply --index /tmp/change.patch && git commit -m review\\\");console.log(JSON.stringify({kinds:[...d.kinds],mutations:d.candidateMutations,ambiguous:d.ambiguous}));\",{require:require(\"module\").createRequire(f),process,console,Buffer});'。实测输出 kinds=[\"commit\"]、mutations=[]、ambiguous=[]。普通 git apply --stat 正控保持只读；git add README.md && git commit 负控被拒绝。本地 git-apply 手册明确说明 --apply 放在统计选项之后会同时应用补丁，--index 更新工作树和索引。提供可应用补丁及操作前有效证据即可提交未经验证的新树；遵守限制，未执行实际 apply 或 commit。"
+    }
+  ],
+  "frozen_files_checked": 33,
+  "all_hashes_modes_match": true,
+  "publication": "No project commit/push/tag/Release",
+  "continuation_authorized": "User selected ongoing minimum-scope repair until pass; no further 3-round escalation required"
+}

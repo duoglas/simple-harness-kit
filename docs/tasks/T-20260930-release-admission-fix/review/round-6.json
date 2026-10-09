@@ -1,0 +1,73 @@
+{
+  "round": 6,
+  "verdict": "FAIL",
+  "candidate_head": "ff00b68241aacddf68d21f4a59554f843930574f",
+  "frozen_files": 26,
+  "start_and_end_hashes": "both reviewers matched 26/26",
+  "reviewers": [
+    {
+      "tool": "Claude Code",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 643,
+          "severity": "HIGH",
+          "summary": "git 的 -c 全局配置只拦截 alias.*，不检查会执行命令的配置项，例如 core.fsmonitor（以及 core.pager、diff.external 等）。子命令为 status/log 这类非交付命令时 gate 直接放行，但 Git 会通过 shell 执行配置里的命令，包括在 B 仓库执行 push。这违反 C-GATE-38“Git-affecting 配置必须保留并校验”：一次对 A 放行的调用实际在 B 仓库完成了交付。子命令为 commit 时同理：A 仓库的 commit 验证通过，fsmonitor 却在 B 仓库执行 push。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 413,
+          "severity": "HIGH",
+          "summary": "assignmentMayRewriteGit/shellStartupEnvironment 只把 PATH/HOME/GIT_*/BASH_ENV/ENV/ZDOTDIR/BASH_FUNC_* 视为危险赋值，没有覆盖 PS4 和 SHELLOPTS。bash 开启 xtrace（-x 或通过 SHELLOPTS=xtrace，此时命令行里不出现 -x）时，会对 PS4 做命令替换。PS4 放在单引号里，commandSubstitutions 不会展开；hasDynamicShellSyntax 的正则也不匹配 '$('；contextProblems 为空，unparsedDeliveryHint 于是不会被评估。结果是嵌套 shell 内的 git push 被当作非交付命令放行，可以推任意 ref，也可以推其他仓库。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 669,
+          "severity": "HIGH",
+          "summary": "只有 commit/tag/push 及 result-creating、plumbing 子命令被视为交付；其他子命令只做 alias 检查，无 alias 就放行。git subtree push（以及独立入口 git-subtree）会真实执行 git push，目标 ref 和源提交都不受绑定。protectedGitEntrypoint 与 GIT_CORE_DELIVERY_COMMANDS 同样没有收录 subtree。这违反“显式 Git 入口未绑定时必须失败关闭”。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 1118,
+          "severity": "HIGH",
+          "summary": "requiredRisk = isTag ? 'release' : 'low'，其中 isTag 只来自本地 `git tag` 创建。用 git push <remote> HEAD:refs/tags/vX 在远端直接创建发布 tag 时只要求 low 风险证据，也不检查 releaseEvidenceBlockers（E2E/runtime）。用 git fetch . HEAD:refs/tags/vX 创建本地 tag 则完全不经过门禁，之后 git push origin vX 同样只需要 low。结果是 low 风险的 READY 证据能够授权对外发布 tag，与 C-GATE-31 新增的“低风险或缺检查的 READY 不得授权 release”相悖。该问题可能在本轮之前就存在，但属于本轮评审准则 1 和 3 的范围。"
+        }
+      ]
+    },
+    {
+      "tool": "Codex",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 84,
+          "severity": "CRITICAL",
+          "summary": "shellTokens 仅保留非空 token，丢弃合法的空引号参数。git -C '' push 被解析为 ['git','-C','push']，push 被当作 -C 的值，最终没有 delivery operation；第 934 行直接放行，连 runtime cwd、默认推送引用和 evidence 都不检查。Git 实际将空 -C 视为保留当前目录；存在默认推送目标时会正常推送。git -C '' commit、command 包装和嵌套 bash 同样漏判。"
+        },
+        {
+          "file": "scripts/lib/verification-contract.js",
+          "line": 143,
+          "severity": "HIGH",
+          "summary": "readContract 只记录 identity_inputs 路径；evidenceProblem 没有比较当前 controlIdentity 与证据中的 runner/verdict/scheduler_digest。忽略目录中的控制文件改变、删除或 EACCES 后，baseline 会 INVALID，但共享 verifier 仍 PASS，doctor 的 verify-evidence 仍 PASS，三个 hook 的 attestation reader 均返回 null。全 PASS 新式证据也受影响。"
+        },
+        {
+          "file": "scripts/shk.js",
+          "line": 1932,
+          "severity": "HIGH",
+          "summary": "独立 doctor 使用 evidenceConsumerAttestationProblem，却未向 verifyEvidence 传 expected_commit/tree/candidate_digest。当前契约不变而 Git 候选改变时，旧 READY 的 verify-evidence 仍 PASS。tests/pre-release-check.sh 第 109 行调用这个默认 doctor，环境检查齐全时不能靠它阻断陈旧候选证据。内嵌 environment-only doctor 的恢复设计本身正常；问题在消费旧证据的独立路径。"
+        }
+      ]
+    }
+  ],
+  "automated_evidence": {
+    "high": "READY but INVALIDATED_FOR_RELEASE",
+    "unit": "259 PASS, 0 FAIL, 1 optional SKIP",
+    "task_e2e": "PASS including real Playwright",
+    "policy": "19/19",
+    "applicability": "14/14",
+    "evidence": "36/36",
+    "quality": "106/106"
+  },
+  "disposition": "Three review rounds after scope expansion failed. Escalated to user; no additional repair round or publication pending authorization."
+}

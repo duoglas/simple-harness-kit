@@ -117,13 +117,20 @@
 | C-GATE-28 | **所有权威 evidence consumer 必须绑定读取瞬间的当前 Git identity**：verification、delivery、stage 等关键 reader 调用 verifier 时必须传入 freshly-read 的 expected commit、tree、candidate digest，并在 commit 场景确认 index/worktree 一致；identity 不可用、candidate 不一致或 verifier 无法完成比较时一律 fail-closed | 只验证 evidence 自身摘要与 freshness，不能证明它对应当前待交付候选 | 陈旧 READY evidence 冒充当前代码，阶段切换或交付在候选变化后仍被放行 |
 | C-GATE-29 | **升级边界探测和项目受管目标写入必须全路径 no-follow 且失败关闭**：`update.sh` 对 hook/lib/runner/CLI/skill 等所有受管目标，不仅 leaf，还必须逐级 lstat/no-follow 校验项目根到 target parent 的每个已有组件；任一 parent symlink/type-change 即使 force 也阻断。普通升级拒绝 leaf symlink/type-change；显式 force 只能原子替换 leaf symlink 本身，目录及其他非普通 leaf 必须继续失败关闭，禁止把临时文件移动进目录后假成功。写入使用同目录临时文件，替换前重新验证 parent，禁止跟随任何链接写到项目外。`upgrade.sh` 的 kit status 或任何写前边界探测只要返回非零必须立即中止，fetch/checkout/copy 均不得执行 | 只 lstat 最终文件仍会跟随 `project/scripts -> 外部目录`；`mv temp directory-target` 会把文件放进目录却返回成功；把 status 错误折叠为空会把“无法确认安全”误当“干净” | 升级越界覆盖项目外文件、形成假成功/部分升级，或在源树污染状态未知时继续 fetch/checkout 造成数据损坏 |
 | C-GATE-30 | **运行器只要任一 cleanup/discovery 采样出现 uncertainty，结构化终态不得为 PASS**：即使后续采样恢复 clean，曾出现 signal/discovery/token/pipe 不确定性也必须输出 INTERNAL_ERROR（或等价非 PASS）、非零 runner exit code、空 completed_steps，并保留 `cleanup_uncertain=true` 供诊断 | 后续 clean 不能反证瞬时发现失败期间没有遗漏进程；PASS 与 uncertainty 同时出现会制造假成功 | 孤儿进程或不可观测后代被掩盖，runtime evidence 错误宣称任务成功 |
-| C-GATE-31 | **验证必须按 focused/final/integration 生命周期准入**：开发修复阶段只跑受影响专项；只有 attestation 有效、READY、full/seal、无 cached check、身份完整、manifest/控制面兼容且 baseline commit 可达并为当前 HEAD 祖先的证据，才可为 focused 复用未受影响 PASS。候选冻结后只对 exact candidate 跑一次 final full；integration 只复用 exact final baseline，失配直接拒绝，不得静默重建 | 设计未稳定时反复 full 会产生很快失效的昂贵证据；但无可信基线的“增量复用”又会漏跑必要检查 | 完整门禁过早过多、集成阶段重复测试，或陈旧/伪造 baseline 抑制必要检查形成假绿 |
+| C-GATE-31 | **验证必须按 focused/final/integration 生命周期准入**：开发修复阶段只跑受影响专项；只有 attestation 有效、READY、full/seal、无 cached check、身份完整、manifest/控制面兼容且 baseline commit 可达并为当前 HEAD 祖先的证据，才可为 focused 复用未受影响 PASS。候选冻结后只对 exact candidate 跑一次 final full；integration 只复用 exact final baseline，失配直接拒绝，不得静默重建。复用必须同时满足本次请求的风险等级、必需检查集合及状态语义；低风险或缺检查的 READY 不得授权 release。候选冻结和 review 等显式前置条件必须在 RUN 与 REUSE 两条路径共同执行 | 设计未稳定时反复 full 会产生很快失效的昂贵证据；但无可信基线的“增量复用”又会漏跑必要检查；候选相同不代表验证范围相同（VH-38） | 完整门禁过早过多、集成阶段重复测试，或陈旧/范围不足的 baseline 抑制必要检查形成假绿 |
 | C-GATE-32 | **Suite inclusion 必须声明式解析且 fail-closed**：只有包含命令真实执行了被包含 suite 时才可声明；传递闭包只执行根 suite 一次，并记录 inherited provenance。cycle、未知 parent/child、非法值、无 owner 或多 owner 歧义必须拒绝，不得猜测执行计划 | 命令名称无法证明包含关系；字符串约定和选中顺序会导致重复执行或漏执行 | 同一 suite 被机械双跑浪费资源，或多个 suite 互相“包含”后全部跳过并伪造 PASS |
 | C-GATE-33 | **Candidate rewrite 必须使旧 approval 与 verification evidence 失效**：review/evidence 的 commit、tree、candidate digest、test-manifest digest 以及配置的 runner/verdict/scheduler identity 必须与当前候选比较；任一必填身份缺失或变化均视为 stale | 文件存在和历史绿灯不能证明仍对应当前候选；amend/rebase/config change 会保留路径却改变语义 | 旧 review 和旧 full evidence 授权未审阅、未验证的新候选 |
 | C-GATE-34 | **Reviewer 默认 evidence audit + independent risk probe，不机械重跑可信 full**：实现者负责 exact-candidate final full；Reviewer 核对 attestation/身份/环境/工作树并独立运行高风险专项。仅当 evidence 不可审计、candidate 漂移、环境不可信或修改触及 runner/verdict/scheduler/test manifest 控制面时要求 full rebuild | 重复 full 很少增加独立信息；针对性 probe 更容易发现原测试建模之外的协议、竞态和跨环境问题 | Reviewer 成为昂贵的测试复制器，真正风险缺少独立建模；或在证据已失效时错误复用 |
-| C-GATE-35 | **需求进入完成态前必须机械拒绝必填缺失与 placeholder**：结构化字段和 Markdown 必填章节必须按配置检查；空值以及 TODO/TBD/（补充）/待补充等占位内容在 implemented/done/completed/shipped/closed 等完成态 fail-closed，draft/open 等非完成态允许继续编辑 | 编号、状态和零散计划不能替代可读的背景、范围与客观验收标准；占位需求会让实现、review 和汇报失去单一入口 | “已完成”的需求无法解释做了什么、为什么做、怎样算完成，后续只能从提交和聊天中反推 |
+| C-GATE-35 | **需求进入完成态前必须机械拒绝必填缺失与 placeholder**：结构化字段和 Markdown 必填章节必须按配置检查；空值以及 TODO/TBD/（补充）/待补充等占位内容在 implemented/done/completed/shipped/closed 等完成态 fail-closed，draft/open 等非完成态允许继续编辑。通配字段必须逐分支校验，任何数组元素缺字段、空容器或嵌套分支缺失都不能被其他有效元素掩盖（VH-38） | 编号、状态和零散计划不能替代可读的背景、范围与客观验收标准；只检查匹配结果非空会丢失部分缺字段元素 | “已完成”的需求仍包含未定义内容，后续只能从提交和聊天中反推 |
 | C-GATE-36 | 结构化 evidence 的消费策略必须由同一配置契约决定：trusted baseline 准入始终要求 attestation；delivery/stage/verification hooks 仅在 `evidence.require_attestation=true` 时拒绝无 attestation 的 legacy evidence。无论配置如何，只要 evidence 已含 attestation、启用 strict、或声明 Git identity，verifier 不可用、摘要错误或候选身份不匹配都必须 fail-closed | baseline 复用和交付兼容是不同信任边界；把单个 hook 硬编码为 strict 会与其余 consumer 和公开文档冲突，而把已 attested evidence 降级为 legacy 又会吞掉可信性故障（VH-37） | 同一份配置在不同交付入口得到相反结论，或损坏/错候选 evidence 被错误放行 |
 | C-GATE-37 | 验证缓存只有在 Git 变更发现命令明确成功时才可复用 regular cache 或 trusted baseline；`git status`、baseline diff、untracked discovery 任一步失败都必须标记 `change-discovery-failed` 并强制执行可缓存检查，禁止把失败折叠成“零变更” | 空变更集既可能表示 clean，也可能表示 Git 命令失败；二者不区分会让旧 PASS 在无法确定当前输入面时被复用（VH-37） | Git 故障或环境异常下制造假绿，跳过本应重新执行的构建、测试与安全检查 |
+| C-GATE-38 | **交付 evidence 必须绑定实际执行仓库与全部推送引用**：工具请求的 cwd/workdir、Git 的 -C/--git-dir/--work-tree、wrapper chdir/chroot 和 Git-affecting 配置必须保留并校验；command/builtin 等包装归一化后必须再次识别目录、环境和命令解析状态变更，不能只检查首个 executable；无法证明有效仓库等于证据仓库时拒绝。shell stdin/动态拼写/未知包装内交付不得静默当非交付；空引号参数不得丢失，tag 消息值不得被当作只读选项。shell tracing/prompt 与 Git 可执行配置回调必须在只读入口和身份探测前校验；无法绑定的 Git 扩展入口拒绝。远端 tag 目标或 tag 源同样要求 release 风险，fetch 不得隐式或显式写 tag。显式 --follow-tags、有效 push.followTags 或递归子模块等隐式扩展推送集合不得仅校验一个 HEAD 后放行；未实现逐 ref 校验前必须拒绝，且不可把配置读取失败视为 false | 解析参数后丢失执行上下文会让 A 仓证据授权 B 仓；单 source refspec 不能证明实际只推一个引用（VH-38） | 未验证仓库或历史 tag 被旧证据授权发布 |
+| C-GATE-39 | **项目检查的 N/A 必须显式、有限且绑定当前契约**：仅 build/types/lint/coverage 可声明 NOT_APPLICABLE 并提供具体原因；有有效命令、未知检查、非法声明或占位原因必须拒绝。报告与 limitations 单列 N/A，不计作 PASS；无声明保持原缺项策略。规范化声明、有效命令、完整 spec 和风险范围进入受保护契约；N/A 必须拒绝实际 suite 的 inherited/included_by 标记，baseline 和所有权威 consumer 比较当前契约及已配置控制文件的原始字节摘要，漂移、缺失、不可读及缺验证器失败关闭；默认 doctor 还须比较当前 Git commit/tree/candidate | 模板允许 N/A 而 release 实现只认 PASS 会形成无工具项目的自锁；把 N/A 当 PASS 或忽略配置变化又会绕过真实检查（VH-39） | 合理项目无法验证，或关键发布证明被无依据豁免 |
+| C-GATE-40 | **升级引用证明绑定远端实际对象并传播缺证据状态**：解析 origin 的准确 ref/SHA，校验该对象中的普通必需文件；本地同名 ref 不能作证，缺对象只获取对象且不改本地引用。离线或无远端 SKIP 必须阻塞发布汇总。候选默认引用保留已发布版本，通过验证创建新 tag 后再独立更新默认入口，不提前创建未经验证的 tag、不移动旧 tag | 本地 tag 与远端同名不等于同对象；exit 0 的 SKIP 不等于 PASS；新 tag 自引用与发布前门禁形成顺序循环（VH-39） | 发布使用未验证版本、缺证据被计绿，或升级入口暂时指向不存在的引用 |
+
+交付边界补充（VH-44）：C-GATE-22 的 index/worktree 一致性不能授权 `commit --only`、默认按路径提交或外部 pathspec 文件产生另一棵树。C-GATE-38 的 shell 解码必须保留双引号内非特殊字符前的反斜杠；Git 能力按子命令变体判断，覆盖 reflog/stash 的展示选项、受保护配置中的 upload-pack 回调、alternate refs、自动维护钩子及 pruneTags 展开的标签集合。pruneTags 的标签展开不以 prune 开启为前提，`--no-prune` 不能替代 `--no-prune-tags`。凭据助手的可信性不能只由可执行文件 basename 决定。C-GATE-39 的新契约证据即使移除 attestation、没有 N/A，也不能在验证器不可用时降为 legacy；真正无契约旧证据的兼容行为保留。
+
+交付边界补充（VH-45）：C-GATE-22 同时约束隐含部分提交的选项组合，例如 `--fixup=reword:` 不能忽略已验证的暂存改动。C-GATE-38 的目标集合必须包含 remote push 映射及 upstream 配置；编辑、签名和凭据助手的能力判定必须包含配置、子命令、选项值和 Git alias 的实际执行入口。等价短选项按子命令归一化，不能将正常 `fetch -n` 误判为开启标签跟随。C-GATE-39 的 legacy 身份判定须与共享 verifier 的格式一致，顶层 `git_identity` 与 `provenance.git` 都需要当前身份绑定；缺少验证器时不得降级为无保护 legacy。
 
 ## [JC-06: 初始化流程]
 
@@ -214,3 +221,122 @@
 | VH-35 | 2026-08-05 | 第五轮发布前双独立 Santa 审查发现：(1) 静态 Git alias、未知 wrapper、shell 控制结构、glob executable、续行和重定向仍可绕过交付识别，且 `commit && push` 用旧 HEAD 授权新提交；(2) delivery/stage reader 未绑定当前 candidate；(3) staged gitlink OID 与 checkout OID 分叉可摘要碰撞；(4) update 跟随项目 managed target symlink 越界写；(5) upgrade 吞掉 status 失败后继续 fetch；(6) runner 可输出 PASS 同时 cleanup_uncertain=true | 安全模型仍在若干边界把“未识别/后续恢复/文件存在”当作安全结论；关键 evidence consumer、Git index 语义、no-follow 文件系统事务和 transient uncertainty 缺少端到端负向测试 | C-GATE-27, C-GATE-28, C-GATE-29, C-GATE-30 |
 | VH-36 | 2026-08-05 | 第六轮发布前双独立 Santa 审查发现：(1) backslash-newline 与黏连重定向虽能被识别为 commit，但在 fresh evidence 有效时仍会获授权，没有按约束判为 parser ambiguity；(2) update 只校验受管 leaf，`project/scripts` 等 parent symlink 可把 hook/lib/runner/CLI 写到项目外；(3) force 面对目录型 leaf 时 `mv` 会把临时文件放进目录并误报更新成功 | 负向测试只在“缺 evidence”条件下证明命令被阻断，没有证明 ambiguity 本身不可授权；文件安全模型没有覆盖完整 ancestor chain，也没有验证成功后的 leaf 类型 | C-GATE-27, C-GATE-29 |
 | VH-37 | 2026-08-07 | 合并请求审查发现三处控制面契约缺口：(1) PLAN 阶段终端 `apply_patch` 接受未加引号 heredoc，body 中 `$()`、反引号和 `${...}` 会先被 shell 展开；(2) verification gate 硬编码强制 attestation，与 delivery/stage hook 及公开兼容策略不一致；(3) verify-cache 把 Git 变更发现失败折叠成空列表，可复用旧 cache/baseline PASS | 安全兼容路径只校验了命令外形，没有建模 shell heredoc 展开；多个 evidence consumer 各自实现策略导致契约漂移；变更发现 API 没有区分“成功且为空”和“执行失败” | C-HOOK-13, C-GATE-36, C-GATE-37 |
+| VH-38 | 2026-09-30 | 发布收尾双独立审查复现：(1) 同候选 low full baseline 可授权 release REUSE；(2) 配置的控制面摘要漂移与未满足 review/freeze 前置条件仍可复用；(3) requirements 通配字段混合有效和缺失元素时允许结项；(4) Git/wrapper 改目录后的交付命令仍消费原仓 evidence，follow-tags 可额外推送未绑定引用 | 准入只绑定候选而未绑定请求范围；早退跳过前置条件；通配遍历丢弃缺失分支；命令解析丢失执行上下文和隐式引用集合 | C-GATE-31, C-GATE-33, C-GATE-35, C-GATE-38 |
+| VH-39 | 2026-09-30 | 发布流程审计发现：模板允许项目工具 N/A 但 CLI/baseline 无对应契约；DEFAULT_REF 新 tag 自引用与发布前必须验证远端存在相互锁死；版本检查只相信本地同名 tag，且离线 SKIP 的 exit 0 被汇总成 PASS。用户明确授权纳入本轮修复 | 适用性规则未在 producer/consumer 统一实现；远端身份与状态强度在分层汇总中丢失；版本推进顺序自相矛盾 | C-GATE-39, C-GATE-40 |
+| VH-40 | 2026-09-30 | 第四轮双独立审查复现：删除原始命令兜底后 shell stdin/包装静默放行；runtime cwd、env 导出函数、tag 消息和子模块递归配置未完整绑定；legacy ignored spec 仅绑定 test_plan，N/A 继承校验字段与实际结果结构不一致 | 解码结果为空不等于非交付；工具执行上下文不能用 hook 自身目录代替；证明输入和继承状态须采用真实生产结构 | C-GATE-38, C-GATE-39 |
+
+| VH-41 | 2026-09-30 | 第五轮双独立审查复现：shell -c 后继续选项、tag 显示选项、Git 独立入口/底层操作与 extglob 漏判；全 PASS 新式契约没有比较当前输入；普通缓存只存控制文件路径；release doctor 读取上一轮失败证据形成自锁 | 选项不能仅按名称猜语义，无法绑定的 Git 执行入口应拒绝；契约保护不取决于 N/A；所有复用路径绑定控制内容；生成证据与消费旧证据须分离 | C-GATE-38, C-GATE-39 |
+| VH-42 | 2026-09-30 | 第六轮双独立审查仍 FAIL：空参数丢失、shell/Git 执行回调、subtree、远端 tag 风险等级漏检；控制文件校验只覆盖复用路径；独立 doctor 未绑定当前 Git 身份 | 支持的语法边界不够明确；交付风险须由实际引用决定；所有权威 reader 必须共用完整候选与控制内容校验，不能把局部 cache/baseline 修复当作全链路修复。三轮扩展复审后升级人工，未发布 | C-GATE-31, C-GATE-38, C-GATE-39 |
+| VH-43 | 2026-09-30 | 第七轮双独立审查复现 Git textconv/签名/editor/pager 回调漏检、临时环境未合并、fetch 默认远端与配置目标映射遗漏；回调黑名单同时误拦正常 pager 和常用命令，完整 high 返回 NOT_READY | 同一参数在多处分别猜测语义，未按命令变体统一建模；回调取值必须遵循实际环境优先级，fetch 的 source 和目标配置不能割裂检查；安全负控必须配套真实环境的正常正控 | C-GATE-38 |
+| VH-44 | 2026-09-30 | 第八轮双审及真实隔离探针发现：双引号反斜杠改变仓库绑定，reflog/upload-pack/alternate refs/自动维护回调漏检，任意路径的 gh 凭据助手误获信任，pruneTags 隐式写标签，按路径提交产物偏离完整候选；新契约移除 attestation 后在缺验证器时误降级，stash show --patch 被误拦 | 参数语义必须等价于实际 shell/Git；回调与隐式引用须覆盖子进程和受保护配置；可信程序须绑定实际身份；候选一致性须约束实际提交方式；legacy 回退必须由证据格式界限决定。自动 high 为 NOT_READY，E2E/browser 通过不抵消这些反例 | C-GATE-22, C-GATE-38, C-GATE-39 |
+| VH-45 | 2026-10-08 | 第九轮双审均 FAIL：配置可将普通 push 映射为标签；fixup 的编辑器和隐含 only 语义漏检；强制签名、config edit、凭据助手 alias 可执行未检查的程序；三个 Hook 漏绑定 provenance.git 旧身份；正常 fetch -n/-nv 被误拦。主执行者均以真实临时 Git/Hook 入口复现 | 命令风险不能只由显式选项名或可执行文件名称决定，必须覆盖配置、变体与别名；不同 reader 必须识别相同的身份格式。三轮授权周期已结束，待人工决定后续修复；未发布 | C-GATE-22, C-GATE-38, C-GATE-39 |
+
+交付边界补充（VH-46）：C-GATE-38 的 Git 参数检查须在能力分类前保留实际 shell 语义，覆盖编码引号、变量和通配符展开，同时保留引号/转义字面量以及单引号内反斜杠；只检查子命令名或交付目标不足以阻断只读入口的回调。父仓库操作可访问已检出的子模块配置，回调检查须覆盖实际子仓库；继承的 Git 程序搜索路径与 trailer 回调也必须绑定或拒绝。C-GATE-22 的执行前候选证明不能授权组合命令中先 checkout/reset/switch/add 等改变 HEAD、index、工作树或引用后再交付，已知 Git 状态变更与交付须分开验证。签名能力判断应尊重显式关闭展示的真实优先级，保留普通未验证签名的只读正控。
+
+| VH-46 | 2026-10-08 | 第十轮 high READY（259 PASS、0 FAIL、1 optional SKIP；E2E/browser mutation PASS），但双审均 FAIL：子模块回调、编码/动态 Git 参数、trailer 回调、先变更候选再交付、继承程序搜索路径仍有缺口，关闭签名展示及单引号反斜杠存在误拦。主执行者已独立复现回调、变量/glob与反斜杠；其余报告须以新回归确认后修复 | Git 能力分类必须以真实展开后的参数及实际子仓库/子程序为边界；执行前证明不能跨越已知候选变更复用。修复仍在用户继续授权范围内，未发布 | C-GATE-22, C-GATE-38 |
+
+交付边界补充（VH-47）：C-GATE-38 的 lexer 必须保留“引用后的普通参数”和“真实 shell 操作符”的类型区别，不能把参数内的分号、括号或管道符重新切成命令；shell 注释不能向 Git 选项分类注入 dry-run 等伪选项。Zsh 的 EQUALS 与 bare glob qualifier 等可执行文件展开须拒绝或绑定。trailer 程序检查同时覆盖 commit 和附注 tag，普通无程序 trailer 保持可用。C-GATE-39 同时适用于消费旧 evidence 并以 READY 决定成功退出的 qa report；报告必须校验当前候选与契约，不能把生成新验证的恢复豁免套在旧证据报告上。
+
+| VH-47 | 2026-10-08 | 第十一轮双审均 FAIL：zsh 可执行文件展开、引用后分隔符丢类型和注释伪造选项造成漏检；tag trailer 回调仍遗漏；qa report 直接信任旧 READY。high 为 NOT_READY（258 PASS、1 FAIL、1 optional SKIP），旧标签列表夹具使用未引用通配符且 --list=value 不符合本机 Git 语法。当前 Codex required runtime 与坏 Hook 自测均 PASS，不抵消产品反例 | shell 词法信息必须保留到命令分类结束，回调要覆盖同能力的所有入口，所有旧证据成功报告须统一校验。已确认反例先写规则，未独立实测项须以临时仓库复现后修复；仍未发布 | C-GATE-22, C-GATE-38, C-GATE-39 |
+
+交付边界补充（VH-48）：C-GATE-38 的配置探针和实际 Git 操作必须使用一致语义；只影响 `git config` 的继承环境不能遮蔽真实回调、目标映射或 follow-tags。身份安全检查同样须在计算候选前拒绝无法可靠读取配置的环境。C-GATE-22 的候选变更分类须按选项最终状态判断，报告/检查选项不能覆盖显式恢复写入的 apply 语义；不绑定的辅助写入路径须拒绝。保留真实只读报告和独立本地修改正控。
+
+| VH-48 | 2026-10-08 | 第十二轮 high READY（259 PASS、0 FAIL、1 optional SKIP，E2E/browser mutation PASS）；A 自报 PASS 但部分条目未核实，B 发现继承 GIT_CONFIG 遮蔽配置和 apply 报告选项恢复写入后复用旧证据。隔离真实 Git 回归确认配置隐藏可触发 clean filter，apply 最终选项状态决定实际写入 | 配置查询与实际命令的环境语义不一致；只按出现过的只读选项分类，未追踪最终写入状态。用户已授权按最小方案持续修复复审，质量要求保留，尚未发布 | C-GATE-22, C-GATE-38 |
+
+对象身份补充（VH-49）：C-GATE-22 的 commit/tree 和 HEAD 基线必须对应实际 Git 对象，不能采用仅存在于本地的 refs/replace 视图。所有用于身份、目标对象和已验证基线的权威 Git 对象读取均须禁用替代对象语义；SHA1/SHA256、正常引用与无替换正控保持可用。
+
+| VH-49 | 2026-10-08 | 私有分批工具审查发现 refs/replace 可替换 HEAD 基线和最终树；随后的公开入口真实隔离探针在 SHA1/SHA256 均复现：证据看到 good tree，实际推送到本地 bare remote 却得到同一 commit ID 下的 bad tree，移除替换后旧证据被正常拒绝 | Git 对象读取使用本地替代视图，commit OID 不变而 tree 内容语义已变，远端不携带替代引用。须读取实际对象后重新验证，不能用替代视图作交付证明 | C-GATE-22 |
+
+交付边界补充（VH-50）：C-GATE-38 的静态 shell 解析须识别未引用的波浪号路径展开，不能把 shell 将展开的路径作为字面目录作仓库绑定；引用和转义后的真实字面量保持可用。C-GATE-22/VH-49 的原始对象要求同时覆盖 focused baseline 的对象存在、祖先关系和变更发现；C-GATE-40 的远端升级内容校验也必须按同一原始对象语义读取。局部 identity 修复不能替代所有权威对象读取的一致性。
+
+| VH-50 | 2026-10-08 | 第十三轮 high READY，双独立复审仍 FAIL：shell 的未引用波浪号与门禁字面路径语义不一致；focused baseline 和升级文件检查仍读取 replacement 视图。focused 错误缓存未越过 final/seal 门禁，但不得自报有效缓存。审查者分别提供无交付的本地对象与路径语义检查 | 词法展开识别和原始对象约束未覆盖所有使用点；下一轮只修这三个已确认范围，并保留正反对照与原失败证据 | C-GATE-22, C-GATE-38, C-GATE-40 |
+
+交付边界补充（VH-51）：C-GATE-22 的 Git 候选变更识别也覆盖显式输出文件的选项；通常用于查看的命令一旦能改写文件，就不能在同一次调用中凭操作前证据继续交付。
+
+| VH-51 | 2026-10-08 | 第十四轮 high READY、A 全项 PASS，B 最终发现：“门禁放行了 git diff --output source.txt && git commit -am ...，但前半条命令会覆盖源码”。本地源码复核发现 gitChangesDeliveryState 未检查 output 选项 | 命令名只读分类未涵盖输出副作用；下一轮仅在私有副本以旧红新绿确认后修复该问题，原失败证据保留 | C-GATE-22, C-GATE-38 |
+
+交付边界补充（VH-52）：C-GATE-38 的静态词法检查必须保留普通 Git reflog/upstream 引用中的字面花括号，不能把单词内部的字面量误当 shell 控制块；实际花括号展开与控制结构仍按不支持语法拒绝。C-GATE-22 的输出副作用分类须遵循各子命令的真实分隔符语义，不能假定所有 Git 命令在 `--` 后都停止处理输出选项。
+
+| VH-52 | 2026-10-08 | 第十六轮完整单测 259 PASS、0 FAIL、1 optional SKIP；双审分别确认普通未引用 stash/reflog/upstream 字面量被误拦，以及 blame 在分隔符后仍处理输出参数并改写候选。两份审查失败后停止其余 high 检查，记录 INTERRUPTED，未报告完整 READY | 统一词法与选项模型忽略了真实子命令语义；只修已确认的兼容和输出边界，下一候选重新完成全部门禁 | C-GATE-22, C-GATE-38 |
+
+交付边界补充（VH-53）：C-GATE-22/C-GATE-38 的选项取值规则须按具体 Git 子命令确定。某一命令的布尔开关不能沿用其他命令的取值规则，吞掉后续具有输出副作用的选项；同名选项在其他命令中真正需要的字面量值仍须保留。
+
+| VH-53 | 2026-10-08 | 第十七轮 A 发现 shortlog --committer 被误按日志筛选参数取值，隐藏后续 --output；主执行者在临时仓库复现受跟踪文件被改写而 parser writesOutput=false。high 在完整完成前停止并记录 INTERRUPTED；第二份审查仍保持独立 | 通用选项表没有覆盖子命令同名选项的语义差异；下一轮最小修复该已确认问题并保留真实 Git 正反对照，未提交或发布 | C-GATE-22, C-GATE-38 |
+
+交付边界补充（VH-54）：C-GATE-38 的 wrapper 目录绑定须使用已经通过词法检查的静态目录；不能在解码后将引用、转义或单词内部的字面波浪号再次当作 shell 展开。真实展开继续在词法阶段拒绝，目录解析后的实际仓库身份仍须匹配。
+
+| VH-54 | 2026-10-08 | 第十七轮 B 完整审查发现 env -C './~'、env -C '~' 和 env -C .git/literal~ 被误拒绝，而实际 rev-parse 与对应 git -C 都绑定同一仓库；主执行者复跑 6 个对照确认，其中 3 个 env 字面目录误拒绝 | wrapper 在丢失引号后的目录字符串上重复匹配波浪号，混淆静态字面量和真实展开；按已授权最小范围补兼容正控及展开/错仓负控，未发布 | C-GATE-38 |
+
+交付边界补充（VH-55）：C-GATE-38 的 wrapper cwd 必须与实际 chdir 一致，覆盖重复目录选项与符号链接后的父路径。不同平台对重复选项语义不一致或无法准确建模时应明确拒绝，不能依次叠加猜测。物理路径解析不得先按字面量消除 `..`，从而忽略已穿过的符号链接；真实仓库身份仍须逐次绑定。
+
+| VH-55 | 2026-10-08 | 第十八轮 A 完整审查发现重复 env -C 及 link/.. 使 gate 认为目标在仓库 A，但实际 Git 运行于 B；主执行者在独立临时仓库复现两个错绑和两个正常对照。完整 high 提前停止记 INTERRUPTED，B 仍独立审查冻结源码 | cwd 模型使用顺序叠加和先 path.resolve 后 realpath，与 env 最终选项和物理 chdir 不等价；在私有副本最小修复，未提交或发布 | C-GATE-38 |
+
+交付边界补充（VH-56）：C-GATE-38 的签名回调能力须覆盖支持签名格式的 shortlog 等查看入口；格式显式请求签名信息时，不能因默认命令通常只读而跳过可执行配置校验。普通无签名格式仍须保持可用，并按实际子命令决定是否继承日志显示配置。
+
+| VH-56 | 2026-10-08 | 第十八轮 B 发现配置 gpg.program 时 shortlog --format='%G?' 及其后接 push 的门禁输入仍通过，log 对照被拒绝；主执行者复跑确认，移除回调配置后的 unsigned 真实 shortlog 解析该格式。未执行外部回调或交付 | 签名格式分类遗漏 shortlog 能力；须补正反回归，不能把门禁输入放行误称真实回调已执行 | C-GATE-38 |
+
+交付边界补充（VH-57）：C-GATE-38 的动态语法判断应使用 lexer 保留的展开信息，不能对已解码的引用或转义字面量再次按字符猜测展开。Git 和 env 的静态目录参数应保持同一语义，真实变量、通配和进程替换仍须拒绝。
+
+| VH-57 | 2026-10-08 | 第十八轮 B 复现 git -C 的引用/转义美元号目录，以及 env -C 的字面美元号、星号目录误拒绝；主执行者复跑 7 个对照，实际只读命令均选择证据仓库但 4 个门禁输入被误拒绝 | 在 lexer 解码后重新匹配动态字符，丢失原有引用语义；按已确认范围修复并配套真实展开和错仓负控 | C-GATE-38 |
+
+交付边界补充（VH-58）：C-GATE-38/VH-55 的物理目录要求同样适用于运行时 `input.cwd`、`tool_input.cwd` 和 `tool_input.workdir`，包括相对覆盖路径与冲突检查。所有决定实际执行仓库的目录入口须遵循同一文件系统解析语义，不能仅修命令内的 env 包装器。
+
+| VH-58 | 2026-10-08 | 第十九轮 B 探针发现运行时 cwd/workdir 的 symlink/.. 错绑；主执行者用 fresh modern READY 夹具复跑 9 个对照：三个入口均错误放行实际指向 B 的路径，普通 A 放行、普通 B 拒绝。仅运行 rev-parse 和门禁输入，未交付；本轮 high 提前停止记 INTERRUPTED | toolCommandContext 仍先 path.resolve 后 realpath，未与已修 env 入口统一物理语义；核查同类仓库绑定入口后最小修复，双审继续读取冻结源码 | C-GATE-38 |
+
+交付边界补充（VH-59）：C-GATE-38/VH-56 的格式回调检查须覆盖 shortlog 的 `--group=format:<fmt>` 及分离取值语法；重复或组合格式选项应按 Git 实际累计/覆盖语义处理，不能用普通分组掩盖仍会执行的签名格式。普通作者、提交者和 trailer 分组保持可用。Git 实际接受的分组选项缩写及清空形式须在取值与能力分类前统一语义，不能仅检查完整拼写。
+
+| VH-59 | 2026-10-08 | 第十九轮 A 完整审查发现 shortlog 分组格式漏过签名检查；主执行者复跑 attached/separate 两个误放行与 --format、-s 正反对照。带占位 gpgsig 的临时对象使真实 Git 尝试启动不存在的签名程序，证明可达性但未执行任何回调代码 | 只检查 --format/--pretty，未覆盖同样解析签名占位符的 --group=format；只修该已确认格式入口并补累计语义回归，未交付 | C-GATE-38 |
+
+VH-59 补验：主执行者在第二十轮临时补丁上确认 `--grou`、`--gr`、`--g` 三个分组缩写仍漏检；真实 Git 均尝试启动不存在的签名程序。此补丁未合入，缩写归一与否定清空形式纳入同一最小修复后再完整验证。
+
+交付边界补充（VH-60）：C-GATE-38/VH-56/VH-59 的签名格式能力判定须遵循 Git pretty-format 的实际占位符语法，覆盖 +、-、空格修饰符；分组格式须按实际 Git 的显式/隐式格式识别规则分类：包含百分号的分组值可能按格式串解释，即使没有小写 format: 前缀；trailer: 的实际优先级及字面含义仍须保留。保留百分号转义、普通字段、分组清空及字面格式的正控，不能把未执行的签名回调当作已绑定。
+
+| VH-60 | 2026-10-08 | 第二十轮 A 完整审查发现签名占位符修饰符和分组前缀大小写/空白漏检；主执行者独立临时仓库复现 7 个误放行与 2 个正反对照，真实 Git 尝试启动不存在的 verifier，但 gate 返回 0。只运行只读查看及 Hook 输入，无回调代码或交付执行 | 按字符串精确匹配格式片段，未覆盖相同格式语言的有效语义；在私有副本最小修复，公开冻结候选等待另一份独立审查结束 | C-GATE-38 |
+
+VH-60 语义复核：32 个实际 unsigned 格式探针和 10 个分组解释对照显示，Git 并不折叠或裁剪 format: 前缀；无百分号的 FORMAT:ordinary 和前置空白形式会报错。此前误放行来自含百分号的隐式格式识别；大写/空白前缀本身保留为字面输出。修复按此实测语义实现，不采纳前缀归一的静态推断。
+
+测试执行补充（VH-61）：完整真实 Git/CLI 回归须保留有限时限，并按实测耗时为完整测试及并行负载留出余量。子进程异常结束须同时记录 status、signal 与 error code，不能仅凭 exit null 断言超时原因，也不能把放宽时限算作测试通过。
+
+| VH-61 | 2026-10-08 | 第二十轮完整测试中的证据套件返回 exit null；后续同一冻结源码的 122 项独立运行全部通过，实测 332.824 秒，接近当前 360 秒上限。原失败未记录底层 error/signal，原因不能追溯确定；下一轮新增 4 项真实回归 | 测试增长后原有限时余量不足，且失败日志省略诊断信息；将此套件上限调整为有限 600 秒并记录异常元数据，仍必须重新完整验证 | C-GATE-38 |
+
+交付边界补充（VH-62）：C-GATE-38 的 pretty 格式别名解析须与实际 Git 匹配规则一致，覆盖大小写不敏感的前缀、最短匹配、内置格式及链式别名，并适用于显式 --format/--pretty 和有效 format.pretty 默认值。显式格式和普通无签名别名保持实际行为；循环/未知别名不得掩盖实际可达回调。
+
+| VH-62 | 2026-10-08 | 第二十一轮 A 完整审查发现 pretty 别名前缀/大小写漏过签名回调；主执行者复现 4 个误放行，精确别名被拒绝、内置 short 正常通过。真实 Git 只尝试不存在的 verifier，无回调代码和真实交付执行 | gate 仅按精确配置键递归解析别名，与 Git 前缀匹配不同；下一轮在私有副本最小修复该格式解析边界，公开候选仍供 B 独立审查 | C-GATE-38 |
+
+升级证明补充（VH-63）：C-GATE-40 的缺失对象获取必须显式隔离有效 remote 的配置目标映射，不能认为 URL 字符串或仅源 refspec 一定绕过 remote.<name>.fetch。即使远端名称恰好与相对 URL 相同，也不得移动本地分支、标签或 remote-tracking 引用；对象仍须按实际远端 SHA 校验，FETCH_HEAD 保持不变。
+
+| VH-63 | 2026-10-08 | 第二十一轮 B 用本地相对 URL 与同名配置 remote 复现对象获取移动既有分支，检查仍报告 3 passed、exit 0；主执行者复跑确认有映射时 branch 被移动，无映射正控保持不变。此反例不同于已否定的 pruneTags 静态推断 | 仅源 refspec 并未清空同名 remote 的有效 fetch 目标映射；按实际执行边界隔离对象获取目标，补 refs/FETCH_HEAD 不变与对象可读取正反回归 | C-GATE-40 |
+
+格式兼容补充（VH-64）：C-GATE-38/VH-62 的有效 pretty 格式不仅由 --format/--pretty 和默认配置决定，还须按实际选项顺序处理 --oneline 等已支持的格式快捷选项。快捷选项关闭默认签名格式时不得误触发签名回调拒绝；后续显式恢复签名格式仍须检查。
+
+| VH-64 | 2026-10-08 | 主执行者在第二十二轮冻结候选上复现：配置 format.pretty=signinfo 时，真实 git log/show --oneline 不尝试 verifier，但 gate 返回 unverified callback 拒绝；--format=short 及未覆盖默认值的签名调用正反对照符合预期。只在临时仓库执行只读查看，无回调代码或交付 | 有效格式循环仅处理 --format/--pretty，漏掉标准 --oneline 快捷选项；下一轮私有最小修复覆盖格式优先级，当前冻结源码保持不变供审查 | C-GATE-38 |
+
+格式别名补充（VH-65）：C-GATE-38/VH-62 须区分显式空格式与别名链中的空目标；空字符串若在 Git 实际解析中继续参与前缀查找，不能直接视为不含签名格式而退出。保持最短/声明顺序、内置格式及循环终止语义，直接 --format= 的真实空输出正控应保留。
+
+控制文件路径补充（VH-66）：C-GATE-31/C-GATE-39 声明的 runner/verdict/scheduler 路径必须按宿主文件系统的实际字符和解析语义读取，不能无条件把合法反斜杠改成分隔符，也不能在穿过符号链接前词法消除 ..。摘要要绑定实际声明文件的原始字节；文件改变、删除或不可读均须使全部权威 reader、准入及缓存拒绝旧证明。普通路径和平台适用的兼容路径保留，不能只修一个 reader。
+
+| VH-66 | 2026-10-08 | 第二十二轮 B 完整审查发现反斜杠控制文件被替换成另一斜杠路径；主执行者复跑真实 CLI：声明 runner 改为 exit9 或删除后，evidence/QA/integration/缓存/push Hook 仍放行，而修改替代文件才拒绝。主执行者另确认 symlink/.. 控制路径实际 Bash runner 返回9，但摘要不变。无真实交付 | 读取前进行了非宿主路径替换和词法归一，绑定了错误控制文件；私有最小修复共享读取器并覆盖三类控制与实际消费者 | C-GATE-31, C-GATE-39 |
+
+| VH-65 | 2026-10-08 | 第二十二轮 A 完整审查发现别名链空值绕过；主执行者复现 pretty.q 指向签名、pretty.z 为空时 z/Z 会在 Git 中选中 q 并尝试不存在的 verifier，但 gate 放行。直接 q 拒绝、直接空 --format= 正常通过。仅临时对象和只读查看，无回调代码或交付 | 别名递归循环以字符串真值作为条件，提前结束具有有效解析语义的空前缀；纳入下一轮同一最小有效格式修复 | C-GATE-38 |
+
+
+候选路径补充（VH-67）：C-GATE-22/C-GATE-31/C-GATE-39 的生成证据排除必须匹配实际 Git 路径，不能把 POSIX 文件名中的字面反斜杠改成斜杠后排除普通源码。候选摘要与 index/worktree 一致性检查必须保留这类文件；修改或暂存后，权威 reader 与复用、交付入口都应拒绝旧证明。真实生成报告的既有排除仍须正常工作。
+
+| VH-67 | 2026-10-08 | 第二十三轮 B 完整审查发现普通文件 docs\verification-report.md 被改写为报告路径后排除；主执行者以真实 fresh CLI 复现：修改并暂存后摘要不变，evidence、QA、doctor、三类 Hook 与 integration REUSE 仍接受旧证明；普通 README 改动则正确拒绝。A 全项 PASS，单测259/0/1可选，不能抵消反例；high后续已停止且无残留进程 | 生成报告排除在 Git 路径上做了非宿主字符替换，漏掉实际候选内容 | C-GATE-22, C-GATE-31, C-GATE-39 |
+
+引用字面量补充（VH-68）：C-GATE-38/VH-57 同时约束 push 目标、refspec 与 tag 名称或目标。词法器已确认的引用、转义字面字符不能在解码后再次按美元符号猜测为 shell 展开；真实变量和命令替换仍须拒绝，实际 Git 引用、候选及风险绑定不得减弱。
+
+| VH-68 | 2026-10-08 | 第二十三轮 B 完整审查发现带字面美元号的合法 push 引用误拒绝；主执行者确认 Git check-ref-format 与无害参数探针接受 reviewed$HOME，普通 push Hook 正控通过，而引用及转义两种等价输入均被判动态参数。未执行真实 push | 目标分类对已解码字符串重做展开猜测，丢失 lexer 保存的静态语义 | C-GATE-38 |
+
+
+展开识别补充（VH-69）：C-GATE-22/C-GATE-38/VH-57 须在词法阶段识别实际 bash/zsh 算术及参数展开，包括双引号内的 $[expr] 与 zsh 的 $+name、$=name、$~name、$^name；不能用展开前字面值绑定目录或源修订号。相同语义应用于直接命令、wrapper、嵌套 shell、目录和 push/tag 参数。单引号及正确转义的字面量仍保留，不能在解码后重新按字符误判。
+
+| VH-69 | 2026-10-08 | 第二十四轮 A 完整审查发现 $[0] 与 zsh $+HOME 绕过词法展开识别；主执行者以真实 CLI low READY 证明复现：门禁绑定已验证提交，但 bash/zsh rev-parse 得到另一个提交；git/env -C 的同类参数使 A 仓证据授权 B 仓 commit/push。仅执行无害 rev-parse 与 Hook JSON，没有真实交付 | 展开前缀集合不完整，静态绑定与真实 shell 语义不一致；单测259/0/1可选不能抵消反例，后续high已停止且清理确定 | C-GATE-22, C-GATE-38 |
+
+赋值字面量补充（VH-70）：C-GATE-38/VH-57 同样适用于普通前置环境赋值。词法器已确认引用或转义的 $ 字面量应与等价 env 赋值保持一致；真实展开、影响 Git 行为或 shell 启动的赋值仍须拒绝，不能为了修复误拦而放宽这些边界。
+
+| VH-70 | 2026-10-08 | 第二十四轮 B 完整审查发现 FOO='$BAR'、FOO="\$BAR"、FOO=\$BAR 被拒绝，而等价 env 赋值正常；主执行者复跑真实 CLI low READY 与无害 bash/Git 路径检查，三种前置赋值实际都选择同一仓库，却均被 Hook 误判为动态。无真实 commit | leadingAssignments 对已解码内容再次按美元号猜测展开，丢失词法引用信息 | C-GATE-38 |
+
+继承仓库环境补充（VH-71）：C-GATE-38 的实际仓库绑定必须覆盖进程继承的 GIT_DIR 与 GIT_COMMON_DIR。不能让预期与实际身份查询共同继承同一个外部目录后误认为相等，也不能漏掉实际共享引用目录。无法绑定这些覆盖时应在相关 Git 配置及身份探测前明确拒绝；普通无覆盖仓库和真实 linked worktree 保持可用，不扩大 shell 或 legacy 支持范围。
+
+| VH-71 | 2026-10-09 | 第二十五轮 B 完整审查发现继承 GIT_DIR/GIT_COMMON_DIR 漏绑定；主执行者用真实 fresh CLI low READY 独立复现四次错误放行，实际无害 rev-parse 显示工作树 A、Git 目录或共享引用目录 B。显式 env 同类赋值正确拒绝。A 全项 PASS、原生 high READY 不能抵消具体反例，未提交或发布 | 预期和实际仓库查询均受同一继承环境覆盖，且未比较共享引用存储；进程继承与命令内显式环境处理不一致 | C-GATE-38 |

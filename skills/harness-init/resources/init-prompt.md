@@ -32,7 +32,7 @@ AI 会自动扫描项目（package.json、技术栈、目录结构），不需�
 | 安全防护 | `scripts/hooks/safety-guard.js` | 拦截 rm -rf、force push 等危险命令 |
 | Session 结束收尾 | `scripts/hooks/session-end.js` | SessionEnd 时归档 observations + 写结束标记 |
 | Stage since 自愈 | `scripts/hooks/stage-since-autofill.js` | `since:"auto"/"now"` sentinel 自动覆写为真实 ISO |
-| Hook 共享依赖 | `scripts/hooks/find-root.js` / `scripts/lib/spec-quality.js` | hook 通过 `require('./find-root')` 定位项目根目录，通过 `require('../lib/spec-quality')` 共用 spec 质量判定。**AI 漏复制会导致 hook 报 MODULE_NOT_FOUND 或 hook/CLI 判定不一致**，必须与 hook 同步复制 |
+| Hook 共享依赖 | `scripts/hooks/find-root.js` / `scripts/lib/*.js` | hook 共用根目录、spec、证据签名和 applicability 合约判定；`verification-contract.js` 必须随 `evidence-attestation.js`、`task-ledger.js` 一起复制。**AI 漏复制会导致 hook 报 MODULE_NOT_FOUND 或拒绝无法校验的证据**，必须与 hook 同步复制 |
 | Hooks 配置 | `.claude/settings.json` | 注册所有 Hook 到 Claude Code |
 | 项目说明 | `CLAUDE.md` | 项目级指令，指向 rules |
 | 约束系统 | `docs/constraints.md` | 初始约束模板 |
@@ -46,7 +46,7 @@ AI 会自动扫描项目（package.json、技术栈、目录结构），不需�
 
 1. 先创建目录：`.claude/rules`、`scripts/hooks`、`scripts/lib`、`docs`、`.harness`，需要 Codex 时再创建 `.codex`。
 2. 读取 `tests/required-wiring.json` 的 `required_files`，先复制其中所有 `scripts/hooks/*.js` 和 `scripts/lib/*.js` 和 `scripts/shk.js` 到目标项目；不得只复制旧的 6 个 hook。
-3. 必须在写 `.claude/settings.json` 前确认 `scripts/lib/spec-quality.js` 已存在。`harness-stage-guard.js` 会 `require('../lib/spec-quality')`；Claude Code 写入 settings 后，同一轮后续工具调用就可能立即触发该 hook。
+3. 必须在写 `.claude/settings.json` 前确认所有 required 共享库已存在，至少包括 `spec-quality.js`、`task-ledger.js`、`evidence-attestation.js`、`verification-contract.js`。`harness-stage-guard.js` 会 `require('../lib/spec-quality')`；证据读取入口会加载 applicability 校验依赖。Claude Code 写入 settings 后，同一轮后续工具调用就可能立即触发 hook。
 4. 再生成 rules、`docs/constraints.md`、`CLAUDE.md`、`AGENTS.md` 等非 runtime 配置。
 5. 最后写 `.claude/settings.json`；如适用，再由它生成 `.codex/hooks.json`。
 
@@ -67,12 +67,12 @@ AI 会自动扫描项目（package.json、技术栈、目录结构），不需�
 
 ## 生成后必须验证（C-INIT-03 + C-SKILL-03）
 
-init 完成后，做 **5 项用户层完整性检查**（不要跑 kit 的 76 项 CI 工具 `e2e-acceptance-validate.sh`，那是 kit 维护者的工具，用户不需要看）：
+init 完成后，做 **5 项用户层完整性检查**（不要跑 kit 的 CI 工具 `e2e-acceptance-validate.sh`，那是 kit 维护者的工具，用户不需要看）：
 
 1. **必选文件存在**: 以 `tests/required-wiring.json.required_files` 为准，确认所有必选文件存在；不得用旧的“6 个 hook”清单代替真实源。最低必须包含 `.claude/settings.json`、4 个 `.claude/rules/*.md`、全部 required `scripts/hooks/*.js`、`scripts/lib/spec-quality.js`、`docs/constraints.md`、`CLAUDE.md`
 2. **settings.json JSON 有效**: `node -e "JSON.parse(require('fs').readFileSync('.claude/settings.json','utf8'))"`
 3. **hook 脚本存在**: settings.json 里每个 `command` 引用的 .js 都有对应文件
-4. **hook 本地 require 依赖存在**: 对 settings.json 引用的每个 hook，扫描 `require('./...')` / `require('../...')` 这类本地依赖，确认目标文件存在；例如 `harness-stage-guard.js` 的 `require('../lib/spec-quality')` 必须对应 `scripts/lib/spec-quality.js`。缺依赖会导致新 session 一触发 hook 就 `MODULE_NOT_FOUND`，不能放行。
+4. **hook 本地 require 依赖存在**: 对 settings.json 引用的每个 hook，递归扫描 `require('./...')` / `require('../...')` 这类本地依赖，确认目标文件存在；例如 `harness-stage-guard.js` 的 `require('../lib/spec-quality')` 必须对应 `scripts/lib/spec-quality.js`，`evidence-attestation.js` 依赖的 `verification-contract.js` 也必须存在。缺依赖会导致 hook 无法校验，不能放行。
 5. **CLAUDE.md 非空**: 大于 200 bytes，且是项目定制的（不是空模板）
 
 全部通过 → 输出:
@@ -441,7 +441,7 @@ settings.json 必须至少包含以下 Hook 注册。**真实源是 `tests/requi
 
 ## 可选 Hook 与最小集的关系
 
-**`tests/required-wiring.json` 是最小集（20 wirings），上面的 JSON 块严格等于这个最小集**。
+**`tests/required-wiring.json` 是最小集，上面的 JSON 块严格等于这个最小集**。
 
 **`templates/settings-json.tmpl` 是完整 superset**（最小集 + 下面 7 个可选 wiring），适合"想一次启用全部 optional 的项目"。
 

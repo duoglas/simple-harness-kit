@@ -23,6 +23,7 @@
     "scripts/lib/verify-cache.js",
     "scripts/lib/evidence-attestation.js",
     "scripts/lib/verification-policy.js",
+    "scripts/lib/verification-contract.js",
     "scripts/shk.js",
     "scripts/run-guarded.sh",
     "scripts/lib/run_guarded.py",

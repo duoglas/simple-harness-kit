@@ -20,6 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const verificationContract = require('./verification-contract');
 const { spawnSync } = require('child_process');
 
 const CACHE_REL = '.harness/verify-cache.json';
@@ -153,7 +154,7 @@ function discoverChangedFilesSince(root, commit, gitRunner = spawnSync) {
     return discoverChangedFiles(root, gitRunner);
   }
   const noise = ledgerNoiseMatchers(root);
-  const changed = gitRunner('git', ['diff', '--name-only', '-z', String(commit), '--', '.'], {
+  const changed = gitRunner('git', ['--no-replace-objects', 'diff', '--name-only', '-z', String(commit), '--', '.'], {
     cwd: root, encoding: null, maxBuffer: 16 * 1024 * 1024,
   });
   const untracked = gitRunner('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
@@ -246,15 +247,16 @@ function relevantFilesForCheck(check, config, changed) {
  * 检查项指纹。输入 = HEAD + 该检查关心的变更文件的 (path,size,mtime)。
  * HEAD 进指纹是必要的：切分支/新 commit 后工作树可能干净，但被验证的内容已经不同。
  */
-function fingerprint(root, check, config, changed) {
+function fingerprint(root, check, config, changed, contractDigest = '') {
   const relevantFiles = relevantFilesForCheck(check, config, changed);
-  if (relevantFiles === null) return null;
+  const controls = verificationContract.controlIdentity(root, config);
+  if (relevantFiles === null || Object.values(controls).some(value => value === null)) return null;
   const relevant = relevantFiles
     .map(f => `${f}@${fileStamp(root, f)}`)
     .sort();
   const head = git(root, ['rev-parse', 'HEAD']) || 'no-head';
   return crypto.createHash('sha1')
-    .update(`${check}|${head}|${relevant.join(',')}`)
+    .update(`${check}|${head}|${relevant.join(',')}|${contractDigest}|${verificationContract.digest(controls)}`)
     .digest('hex')
     .slice(0, 16);
 }
@@ -284,7 +286,7 @@ function createContext(root, opts = {}) {
 
   function decide(check) {
     if (decisions[check]) return decisions[check];
-    const fp = fingerprint(root, check, config, changed);
+    const fp = fingerprint(root, check, config, changed, opts.contract_digest || '');
     const before = prev[check];
     let d;
     if (seal || fp === null) {
@@ -328,6 +330,7 @@ function createContext(root, opts = {}) {
     seal,
     changedFiles: changed,
     shouldRun(check) { return decide(check).run; },
+    invalidate(check) { delete prev[check]; delete next[check]; },
     reasonFor(check) { return decide(check).reason; },
     cachedResult(check) {
       const d = decide(check);

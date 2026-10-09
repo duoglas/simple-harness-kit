@@ -168,6 +168,12 @@ bash tests/pre-release-check.sh
 
 `shk verify --risk release` 使用同一套 release-ready 证据口径。它会在 evidence 中列出 `runtime_selftest`、`doctor`、`dogfood_oss`、`upstream_dogfood`、`browser_e2e_dogfood`，并且 release required check 只接受 `PASS`。
 
+项目工具的适用性须单独声明：仅 build/types/lint/coverage 可按 [applicability 契约](evidence-attestation.md#explicit-check-applicability) 显式记为 `NOT_APPLICABLE` 并说明原因。N/A 不计入 PASS；已配置命令不能声明 N/A，未声明的缺项仍阻断。上述 runtime、E2E、安全及其他关键发布证明不受此例外影响。
+
+升级版本检查必须使用 origin 解析的实际 SHA 校验普通文件，不能借本地同名 tag 作证。离线、无远端等 SKIP 必须由汇总层传播并阻塞发布。
+
+**默认版本与标签顺序**：候选中的 `upgrade.sh DEFAULT_REF` 保留一个已发布、真实存在的版本。候选提交并与 upstream 同步，通过完整门禁后才创建及推送新 tag。随后以独立提交将 master 上的默认入口更新到新 tag，并单独验证该提交；不移动既有 tag。这意味着新 tag 内的 bootstrap 可能默认指向前版，推荐入口仍是 README 中 master URL 的一键升级命令，或显式使用 `--ref <新 tag>`。
+
 **紧急豁免**:
 
 - `SKIP_SYNC_CHECK=1` 仅允许本地诊断继续跑后续检查；它会记录为 `SKIP` 并阻塞 release-ready，不得用于真实 release。
@@ -249,7 +255,7 @@ git tag -a vX.Y.Z -m "vX.Y.Z: 一句话摘要
 git diff --quiet vX.Y.Z^{}..origin/master
 ```
 
-即 tag 指向的树与最终默认分支树完全一致；否则删除/重打 tag，避免 GitHub Release 指向的源码和默认分支不一致。
+此检查在独立推进默认入口之前执行，要求 tag 指向的树与当时默认分支树完全一致；后续默认入口提交有意与 tag 不同。未发布的候选 tag 可修正，已推送的 tag 必须保留并用补丁版本承接差异，避免改写使用者已经获取的版本。
 
 ### Step 6: Push commit + tag
 
@@ -258,15 +264,16 @@ git push origin master
 git push origin vX.Y.Z
 ```
 
-或一次推所有 tag:
+每次只推一个明确、已验证的引用。若 Git 配置启用了 `push.followTags`，显式禁用附带标签：
 
 ```bash
-git push origin master --follow-tags
+git push --no-follow-tags origin master
+git push --no-follow-tags origin vX.Y.Z
 ```
 
 ### Step 7: GitHub Release
 
-每个公开 tag 都应创建或更新 GitHub Release，即使没有资产（screenshots / 二进制 / patch 文件）。Release body 以 CHANGELOG 中本版本内容为 source of truth，但必须在发布前复核：
+验证通过的公开 tag 应创建或更新 GitHub Release，即使没有资产（screenshots / 二进制 / patch 文件）。如果已推 tag 在收尾审查中发现阻断问题，保持该 tag 不变，以补丁版本承接修复，并明确记录原 tag 的问题。Release body 以 CHANGELOG 中本版本内容为 source of truth，但必须在发布前复核：
 
 1. release body 的测试数字与最终 tag/head 实测一致
 2. post-review 修复和安全 hardening 不遗漏

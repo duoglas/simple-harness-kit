@@ -1,0 +1,99 @@
+{
+  "round": 3,
+  "verdict": "FAIL",
+  "format": "summarized independent reviewer reports",
+  "candidate": {
+    "base": "ff00b68241aacddf68d21f4a59554f843930574f",
+    "sha256": {
+      "scripts/lib/verification-policy.js": "78dcd8fef89066705c2021de9c92f40ebb50e64adf2f4a3c5fc6d2256310805f",
+      "scripts/shk.js": "164277a550ceb9ef3968941683e3083921c331dbd23db2bf615ce3a52e126069",
+      "scripts/hooks/verification-gate.js": "c342cf7c4a51b7e70178295ba19dc8206623180226f28aebd18b4f62d8be0103",
+      "tests/verification-policy.test.js": "ba2494966ef561aebd34cbfd2ebdd4f0d456091674f16a57dd95dcc9112ba838",
+      "tests/evidence-attestation.test.js": "e67abebd6351c8572615ab80058a7c1fc3f60715c13cdab3996d3286681c62f9",
+      "tests/quality-suite.test.js": "68748d3e93cf37ddc17d49c358703e54846df05d2debb597e73b192fa262fd4b",
+      "docs/tasks/T-20260930-release-admission-fix/verify-flow-e2e.sh": "c4cf2747e8fbaed28818c61ad258377c6f543f74a61e2d9b2ec6564fa675d7a9"
+    }
+  },
+  "reviewers": [
+    {
+      "reviewer": "A",
+      "verdict": "FAIL",
+      "start_hash_check": "7/7 MATCH",
+      "end_hash_check": "7/7 MATCH",
+      "passing_criteria": [
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8
+      ],
+      "failing_criteria": [
+        5
+      ],
+      "issues": [
+        "R3-A-01",
+        "R3-A-02"
+      ]
+    },
+    {
+      "reviewer": "B",
+      "verdict": "FAIL",
+      "start_hash_check": "7/7 MATCH",
+      "end_hash_check": "7/7 MATCH",
+      "passing_criteria": [
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8
+      ],
+      "failing_criteria": [
+        5
+      ],
+      "issues": [
+        "R3B-01"
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "ids": [
+        "R3-A-01"
+      ],
+      "severity": "high",
+      "file": "scripts/hooks/verification-gate.js",
+      "line": 392,
+      "title": "raw-text mayReachDelivery misses shell-equivalent quoting and escaping",
+      "reproduction": "command cd <B> && g'it' push origin HEAD",
+      "hook_exit": 0,
+      "expected_exit": 2,
+      "readonly_proof": "shell rev-parse resolves B with a different HEAD"
+    },
+    {
+      "ids": [
+        "R3-A-02",
+        "R3B-01"
+      ],
+      "severity": "high",
+      "file": "scripts/hooks/verification-gate.js",
+      "line": 335,
+      "title": "BASH_ENV startup script can change the actual Git repository",
+      "reproduction": "env BASH_ENV=<startup-containing-cd-B> bash -c 'git push origin HEAD'",
+      "hook_exit": 0,
+      "expected_exit": 2,
+      "readonly_proof": "bash reads startup before -c; rev-parse resolves B with a different HEAD"
+    }
+  ],
+  "limitations": [
+    "no real delivery commands executed",
+    "no network or browser/model requests in reviews",
+    "reviewers audited evidence and ran small independent probes rather than full suites",
+    "automated high READY does not override these reproduced blockers"
+  ],
+  "decision": "No release; user decision pending after the three-round review limit."
+}
+

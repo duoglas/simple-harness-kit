@@ -82,6 +82,7 @@ function baselineIntegrityAssessment(baseline, options = {}) {
   }
 
   const verification = evidenceAttestation.verifyEvidence(baseline, {
+    project_root: options.project_root,
     require_attestation: options.require_attestation !== false,
     min_trust: options.min_trust || 'local-self',
     authenticated_trust_level: options.authenticated_trust_level,
@@ -97,6 +98,29 @@ function baselineIntegrityAssessment(baseline, options = {}) {
     .map(([name]) => name);
   const cached = unique([...incrementalCached, ...cachedChecks]);
   if (cached.length > 0) reasons.push('BASELINE_NOT_FULLY_EXECUTED');
+
+  // Legacy primitive callers without a risk contract retain identity-only
+  // admission. The CLI supplies its current risk, check set and verdict rules.
+  if (options.risk !== undefined) {
+    const requiredChecks = options.risk_checks && options.risk_checks[options.risk];
+    if (!Array.isArray(requiredChecks) || requiredChecks.length === 0) {
+      reasons.push('BASELINE_SCOPE_POLICY_MISSING');
+    } else {
+      if (baseline.risk !== options.risk) reasons.push('BASELINE_RISK_MISMATCH');
+      const checks = baseline.checks || {};
+      const proofChecks = unique(options.proof_checks);
+      const required = unique([...requiredChecks, ...proofChecks]);
+      if (required.some(name => !checks[name] || typeof checks[name] !== 'object')) {
+        reasons.push('BASELINE_REQUIRED_CHECK_MISSING');
+      }
+      const knownStatus = required.every(name => checks[name] && ['PASS', 'SKIP', 'WARN', 'NOT_APPLICABLE'].includes(checks[name].status));
+      const proofsPass = proofChecks.every(name => checks[name] && checks[name].status === 'PASS');
+      const ready = typeof options.evaluate_checks === 'function'
+        ? options.evaluate_checks(checks, options.risk) === 'READY'
+        : required.every(name => checks[name] && checks[name].status === 'PASS');
+      if (!knownStatus || !proofsPass || !ready) reasons.push('BASELINE_CHECKS_NOT_READY');
+    }
+  }
 
   const identity = evidenceIdentity(baseline);
   const requiredIdentity = options.required_identity_fields || DEFAULT_IDENTITY_FIELDS;
@@ -116,11 +140,18 @@ function baselineIntegrityAssessment(baseline, options = {}) {
 }
 
 function baselineAssessment(baseline, candidate, options = {}) {
-  const integrity = baselineIntegrityAssessment(baseline, options);
+  const baselineIdentity = evidenceIdentity(baseline);
+  const controlFields = ['runner_digest', 'verdict_digest', 'scheduler_digest']
+    .filter(field => candidate && Object.prototype.hasOwnProperty.call(candidate, field) || baselineIdentity[field]);
+  const fields = options.identity_fields || unique([...DEFAULT_IDENTITY_FIELDS, ...controlFields]);
+  const integrity = baselineIntegrityAssessment(baseline, {
+    ...options,
+    required_identity_fields: unique([...DEFAULT_IDENTITY_FIELDS, ...(options.required_identity_fields || []), ...fields]),
+  });
   if (!integrity.identity) return { ...integrity, comparison: null };
   const reasons = [...integrity.reason_codes];
   const identity = integrity.identity;
-  const comparison = compareIdentity(candidate, identity, options.identity_fields || DEFAULT_IDENTITY_FIELDS);
+  const comparison = compareIdentity(candidate, identity, fields);
   if (comparison.status !== 'MATCH') reasons.push('BASELINE_IDENTITY_MISMATCH');
 
   return {
@@ -138,6 +169,16 @@ function evaluateFullAdmission({ phase = 'final', candidate, baseline, prerequis
     return { status: 'FAIL', action: 'REJECT', phase, reason_codes: ['FULL_PHASE_INVALID'] };
   }
   const assessment = baselineAssessment(baseline, candidate, policy);
+  const unmetPrerequisites = [];
+  if (policy.require_frozen_candidate && prerequisites.candidate_frozen !== true) unmetPrerequisites.push('CANDIDATE_NOT_FROZEN');
+  if (policy.require_review && prerequisites.review_complete !== true) unmetPrerequisites.push('REVIEW_NOT_COMPLETE');
+  if (unmetPrerequisites.length > 0) {
+    return {
+      status: 'FAIL', action: 'REJECT', phase,
+      reason_codes: unique([...assessment.reason_codes, ...unmetPrerequisites]),
+      baseline: assessment,
+    };
+  }
   if (assessment.status === 'VALID') {
     return {
       status: 'PASS',
@@ -157,15 +198,11 @@ function evaluateFullAdmission({ phase = 'final', candidate, baseline, prerequis
     };
   }
 
-  const reasons = [...assessment.reason_codes];
-  if (policy.require_frozen_candidate && prerequisites.candidate_frozen !== true) reasons.push('CANDIDATE_NOT_FROZEN');
-  if (policy.require_review && prerequisites.review_complete !== true) reasons.push('REVIEW_NOT_COMPLETE');
-  const blocked = reasons.includes('CANDIDATE_NOT_FROZEN') || reasons.includes('REVIEW_NOT_COMPLETE');
   return {
-    status: blocked ? 'FAIL' : 'PASS',
-    action: blocked ? 'REJECT' : 'RUN',
+    status: 'PASS',
+    action: 'RUN',
     phase,
-    reason_codes: unique(reasons),
+    reason_codes: assessment.reason_codes,
     baseline: assessment,
   };
 }
@@ -311,13 +348,17 @@ function valuesAtPath(document, pattern) {
     const next = [];
     for (const row of rows) {
       if (part === '*') {
-        if (Array.isArray(row.value)) {
+        if (Array.isArray(row.value) && row.value.length > 0) {
           row.value.forEach((value, index) => next.push({ path: `${row.path}[${index}]`, value }));
-        } else if (row.value && typeof row.value === 'object') {
+        } else if (row.value && typeof row.value === 'object' && Object.keys(row.value).length > 0) {
           Object.entries(row.value).forEach(([key, value]) => next.push({ path: row.path ? `${row.path}.${key}` : key, value }));
+        } else {
+          next.push({ path: row.path ? `${row.path}.*` : '*', value: undefined });
         }
       } else if (row.value && typeof row.value === 'object' && Object.prototype.hasOwnProperty.call(row.value, part)) {
         next.push({ path: row.path ? `${row.path}.${part}` : part, value: row.value[part] });
+      } else {
+        next.push({ path: row.path ? `${row.path}.${part}` : part, value: undefined });
       }
     }
     rows = next;

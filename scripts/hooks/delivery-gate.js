@@ -3,7 +3,7 @@
 
 /**
  * Delivery Gate Hook — AI 输出文字前的合规检查
- * @version 0.12.0 (evidence-attestation: READY 证据摘要校验 + strict policy)
+ * @version 0.15.1 (evidence-attestation: 校验当前 applicability 合约)
  * 触发: Stop
  *
  * 在 AI 生成回复但还未展示给用户之前触发。
@@ -232,11 +232,16 @@ function structuredEvidenceAttestationProblem(evidence) {
   const required = Boolean(config && config.evidence && config.evidence.require_attestation === true);
   if (!evidence) return null;
   const hasAttestation = Boolean(evidence.attestation && typeof evidence.attestation === 'object');
+  const hasGitIdentity = Object.prototype.hasOwnProperty.call(evidence, 'git_identity')
+    || Object.prototype.hasOwnProperty.call(evidence.provenance || {}, 'git');
+  const hasContract = Boolean(evidence.provenance && Object.prototype.hasOwnProperty.call(evidence.provenance, 'applicability'));
+  const hasConfiguredControls = Boolean(config.verification_policy && Object.prototype.hasOwnProperty.call(config.verification_policy, 'identity_inputs'));
   if (!evidenceAttestation) {
-    if (hasAttestation || required) {
+    if (hasAttestation || hasContract || hasConfiguredControls || hasGitIdentity || required
+        || Object.values(evidence.checks || {}).some(check => check && check.status === 'NOT_APPLICABLE')) {
       return {
         code: 'ATTESTATION_VERIFIER_UNAVAILABLE',
-        message: 'attestation verifier module is unavailable while attested or strict evidence is being consumed',
+        message: 'attestation verifier module is unavailable for protected evidence or configured controls',
       };
     }
     return null;
@@ -247,7 +252,7 @@ function structuredEvidenceAttestationProblem(evidence) {
       message: 'attestation is required by policy but missing',
     };
   }
-  const mustBindCurrent = hasAttestation || required || Boolean(evidence.git_identity);
+  const mustBindCurrent = hasAttestation || required || hasGitIdentity;
   let currentGit = null;
   if (mustBindCurrent) {
     currentGit = evidenceAttestation.readGitIdentity(ROOT);
@@ -259,6 +264,7 @@ function structuredEvidenceAttestationProblem(evidence) {
     }
   }
   const result = evidenceAttestation.verifyEvidence(evidence, {
+    project_root: ROOT,
     require_attestation: required,
     allow_legacy: !required,
     ...(mustBindCurrent ? {

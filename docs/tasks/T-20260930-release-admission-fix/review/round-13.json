@@ -1,0 +1,139 @@
+{
+  "status": "FAIL",
+  "high": "READY",
+  "a": {
+    "verdict": "FAIL",
+    "checks": [
+      {
+        "criterion": "1",
+        "result": "PASS",
+        "detail": "已检查的代码：scripts/shk.js:1425-1500 的 fullAdmissionPolicy、verificationIdentity、trustedBaseline 和 cmdVerify 准入入口；scripts/lib/verification-policy.js 的 baselineIntegrityAssessment、baselineAssessment、evaluateFullAdmission。结论：risk、risk_checks、proof_checks 和 evaluate_checks 在配置展开之后写入，配置无法覆盖。identity_fields 和 required_identity_fields 都会强制并入 commit、tree、candidate_digest、test_manifest_digest 以及已配置的 runner/verdict/scheduler 摘要。review/freeze 前置条件不满足时，RUN 和 REUSE 之前都会先 REJECT。控制文件缺失或不可读时，controlIdentity 返回 null，比较结果为 missing，准入失败。配置里写 require_attestation:false 也不能放行无 attestation 的 evidence，因为还要求 allow_legacy===true。round13 相关：设置了 GIT_CONFIG 时，readGitIdentity 返回 available:false，身份字段全部为空，REUSE 不会成立。"
+      },
+      {
+        "criterion": "2",
+        "result": "PASS",
+        "detail": "已检查 verification-policy.js:344-440 的 valuesAtPath 和 evaluateRequirementCompleteness。通配符 * 遇到空数组、空对象或缺失字段时会生成一个 value 为 undefined 的行，这一行记为 REQUIRED_CONTENT_MISSING。每个兄弟元素都单独检查，合法的兄弟元素掩盖不了非法条目。不处于 completed 状态（draft）时返回 NOT_APPLICABLE/allowed，完整文档返回 PASS。本轮没有改动这部分，只做了静态复核。"
+      },
+      {
+        "criterion": "3",
+        "result": "PASS",
+        "detail": "已检查 verification-gate.js 的 gitInvocation、explicitGitConfigurationProblem、effectiveGitConfiguration（338-372）、gitArgumentInfo、gitCommandProfile（494-609，其中 apply 分支在 589-599）、gitChangesDeliveryState（1088-1111）、commandDeliveryInfo、repositoryContextProblem、pushSourceRevision、bindPushDestination、pushRequiresRelease、resolveCommit，以及主流程 catch 的 exit 2。round13 实测：(a) GIT_CONFIG 无论来自继承环境、前置赋值、env 包装还是 export，都会判为 ambiguous；身份读取也会拒绝。(b) git apply 的判定与真实 git 2.50 在 15 种参数组合下逐一比对，结果一致：--check、--stat --no-apply、--check --reject、--apply --no-apply --stat 为只读；--stat --no-stat、--stat --apply、--check --apply 和不带参数时会写入。apply 后接 commit/tag/push 一律判为 ambiguous。单独执行 apply 和只读报告仍然放行。--build-fake-ancestor 被拒绝；--chec 这类缩写会抛错，最终 INTERNAL_ERROR exit 2，属于 fail-closed。(c) 在 SHA1 和 SHA256 仓库中，用 .git/refs/replace 把 HEAD 和注释标签替换成其他对象后，resolveCommit 仍读取原始对象：vB 解析为真实的 B，vA 返回 MISMATCH；pushRequiresRelease 对标签源仍判定为 release 风险。(d) 正/负对照：=git、zsh -fc '=git …'、$g、-- 后的 pathspec、--follow-tag 缩写、--follow-tags 后再加 --no-follow-tags、-c push.followTags=true、update-ref、git-receive-pack、git replace 都被拒绝；带引号的分号、\"git\"、\\git、command/env 包装、注释里的 --dry-run、-C \"\"、stash show -p、tag -l 'v*'、log 这些正常命令保持原有行为。"
+      },
+      {
+        "criterion": "4",
+        "result": "PASS",
+        "detail": "已检查 scripts/lib/verification-contract.js 全文和 evidence-attestation.js 中的 verifyEvidence。NOT_APPLICABLE 只允许用于 build、types、lint、coverage，而且必须给出具体理由（占位词会被拒绝）。只要有探测到的命令或配置的命令（包括空白和 null 覆盖），就不能声明 N/A。声明了 N/A 的检查不能提供、也不能继承 suite_includes 中的执行结果。applicableException 拒绝 cached、inherited、included_by、inherited_from。proof 检查必须 PASS；release 风险下其余必需检查也必须 PASS。完整的 spec 参与合约摘要计算。控制摘要按原始字节的 base64 计算，文件被删除或不可读时为 null，结果是 CONTROL_IDENTITY_UNAVAILABLE。没有合约字段的 legacy evidence 仍可兼容，但要受已配置控制身份的约束。verify-cache 的 fingerprint 绑定了合约摘要和控制摘要，控制文件不可读时返回 null，强制重跑。局限：没有逐个运行 doctor、qa report、stage hook 这些读取方，只确认它们都经过 verifyEvidence/evidenceProblem。"
+      },
+      {
+        "criterion": "5",
+        "result": "FAIL",
+        "detail": "已检查 upgrade.sh 的差异、tests/scripts/21-upgrade-ref-contract.sh、tests/pre-release-check.sh 中对 SKIP 的传播，以及 required-wiring.json 和 update.sh 对 scripts/lib 的同步。新增的共享库 verification-contract.js 已列入两份 required-wiring.json，update.sh 会同步整个 scripts/lib。pre-release 把 SKIP 计为阻塞项。发布顺序为保留 v0.15.0，验证后再创建新 tag，最后另行推进默认入口，这一顺序在注释和流程里是自洽的。缺陷在于：21 号契约脚本第 79、86、91 行检查远端 SHA 时用的是 cat-file -e 和 ls-tree，没有加 --no-replace-objects。本地的 refs/replace/<远端SHA> 可以让一个缺少 scripts/lib/task-ledger.js 的远端 DEFAULT_REF 通过内容检查。这违反了“以实际 origin SHA 为准，本地视图不能代为作证”和 round13“读取原始 Git 对象”的要求。复现见 critical_issues。"
+      },
+      {
+        "criterion": "6",
+        "result": "FAIL",
+        "detail": "除准则 5 中那个真实存在的绕过外，没有发现编造的 API、密钥、内部公司数据或私有流程。各处错误路径都是 fail-closed（主流程 catch 的结果是 exit 2）。新增测试有正负对照，但没有任何测试覆盖 21 号脚本在 replace 视图下的行为（tests/upgrade-ref-contract.test.js 中没有 replace 相关用例）。"
+      }
+    ],
+    "critical_issues": [
+      {
+        "severity": "high",
+        "file": "tests/scripts/21-upgrade-ref-contract.sh",
+        "line": 91,
+        "finding": "升级引用契约没有按原始对象校验远端 SHA。第 79、86 行的 `git -C \"$ROOT\" cat-file -e \"$REMOTE_SHA^{commit}\"` 和第 91 行的 `git -C \"$ROOT\" ls-tree \"$REMOTE_SHA\" -- \"$want\"` 都没有加 --no-replace-objects，读到的是本地 replacement 视图。远端 DEFAULT_REF 实际指向的 commit 缺少 scripts/lib/task-ledger.js 和 scripts/shk.js，但只要本地 .git/refs/replace/<远端SHA> 指向一个含这两个文件的 commit，契约就输出 3 passed, 0 failed，pre-release 的升级证明随之放行。远端对象原本不在本地时，fetch 会拉取它，但随后的 ls-tree 仍按 replace 视图判断，照样通过。这违反了“以实际 origin SHA 为准，过期的本地视图不能作证”以及 round13“身份和目标剥离必须读取原始对象、不受本地 replacement 视图影响”的要求。修复方向：在这三处调用中加入 --no-replace-objects（或设置 GIT_NO_REPLACE_OBJECTS=1），并补一个负向测试。",
+        "reproduction": "全程离线，只用本地 file 远端：\nB=/tmp/shk13a/up; mkdir -p $B; cd $B; git init -q --bare simple-harness-kit-remote.git; git init -q kit; cd kit; git config user.email a@b; git config user.name t\nmkdir -p methodology manifests tests/scripts; echo '{}' > manifests/shk-profiles.json; echo x > methodology/a.md; printf 'DEFAULT_REF=\"v0.15.0\"\\n' > upgrade.sh\ncp <repo>/tests/scripts/21-upgrade-ref-contract.sh tests/scripts/; git add -A; git commit -qm rel; BADC=$(git rev-parse HEAD); git tag -a -m rel v0.15.0\ngit remote add origin $B/simple-harness-kit-remote.git; git push -q origin HEAD:refs/heads/main refs/tags/v0.15.0\nmkdir -p scripts/lib; echo 1>scripts/lib/task-ledger.js; echo 1>scripts/shk.js; git add -A; git commit -qm lib; GOOD=$(git rev-parse HEAD)\nbash tests/scripts/21-upgrade-ref-contract.sh   # 对照组：2 failed（远端 tree 缺这两个文件）\nmkdir -p .git/refs/replace; echo $GOOD > .git/refs/replace/$BADC\nbash tests/scripts/21-upgrade-ref-contract.sh   # 实际结果：PASS [2] v0.15.0 远端 tree 含 scripts/lib/task-ledger.js ... 3 passed, 0 failed\ngit --no-replace-objects ls-tree $BADC -- scripts/lib/task-ledger.js | wc -l   # 0，说明原始远端对象确实没有这个文件\n第二个场景 /tmp/shk13a/up2：远端对象原本不在本地，结果同样是 3 passed。"
+      }
+    ],
+    "suggestions": [
+      "scripts/lib/verify-cache.js:157 的 discoverChangedFilesSince，以及 scripts/shk.js:1480-1484 的 baseline 检查（cat-file -e、merge-base --is-ancestor），都没有使用 --no-replace-objects。replace 视图可能缩小 focused 阶段相对 baseline 的变更集，或者伪造祖先关系。但 baseline 复用的检查会计入 cached，整体状态只能是 INCREMENTAL_GREEN，必须封盘重跑才能变成 READY，所以不构成交付层面的绕过。建议统一改为按原始对象读取，以保持一致。",
+      "如果 hook 进程本身继承了 GIT_CONFIG，所有 git 命令（包括 git status、git log）都会被判为 ambiguous 并阻断。这是保守做法，可以接受。建议在错误信息里明确提示“请清除 GIT_CONFIG 环境变量”，便于排查。",
+      "git apply 遇到未知缩写或值形式（如 --chec、--stat=1）时会抛异常，最终是 INTERNAL_ERROR exit 2。这样做是 fail-closed，但提示信息不够友好，可以改为结构化的 ambiguous 原因。"
+    ],
+    "validation": {
+      "start_hashes": "33/33 个 frozen 文件 sha256 与 round-13-candidate.json 一致；HEAD=ff00b68241aacddf68d21f4a59554f843930574f；工作区状态为 24 个修改、5 个未跟踪",
+      "end_hashes": "33/33 个仍然一致，HEAD 不变，git status 仍为 29 行，项目内没有 refs/replace；未修改项目文件",
+      "probes": [
+        "P1 apply 判定：把 gate 复制到 /tmp/shk13a/kit 并导出内部函数，测试 19 条命令，同时在一次性仓库中用 bash 实测真实 git apply 在 15 种参数组合下是否写入，两者结论一致",
+        "P2 replace 视图下的身份读取：在 SHA1 和 SHA256 仓库中，把 .git/refs/replace 中的 HEAD 指向 A、vB 标签指向 vA 标签。readGitIdentity 读到的 commit 和 tree 等于原始对象；resolveCommit(vB) 等于真实的 B",
+        "P3 GIT_CONFIG：分别在 hook 进程环境中设置、作为前置赋值、通过 env 包装和 export 设置，全部判为 ambiguous；readGitIdentity 返回 available:false",
+        "P4 delivery parser 正/负对照，共 30 条命令（=git、zsh EQUALS、$g、带引号的分隔符、注释、包装器、apply 后接交付、pathspec、follow-tags 的各种写法、update-ref、git-receive-pack、git replace、只读命令）",
+        "P5 deliveryTargetProblem 在 replace 仓库中：push 和 tag 的目标都按原始对象剥离，vA 返回 MISMATCH，标签源判定为 release 风险，followTags 的各种写法全部被拒绝",
+        "P6 21 号升级契约脚本放到一次性仓库中运行，使用本地 file 远端，验证 replace 视图能让远端缺文件的检查通过（两个场景均已复现）",
+        "局限：没有运行完整 QA，没有执行真实 push、网络、回调或模型调用；doctor、qa report、stage hook 这些读取方只做了静态追踪"
+      ]
+    }
+  },
+  "b": {
+    "verdict": "FAIL",
+    "checks": [
+      {
+        "criterion": "1",
+        "result": "FAIL",
+        "detail": "风险、必需检查、proof 状态、控制身份及 review/freeze 前置条件的直接准入检查符合预期；但 focused baseline 的变更发现仍使用本地 replacement 视图，可错误复用已经失败的测试。"
+      },
+      {
+        "criterion": "2",
+        "result": "PASS",
+        "detail": "检查了通配路径遍历，并实际验证缺字段、空数组和 null 分支均失败；有效 sibling 不能掩盖缺项，完整及 draft 正控通过。"
+      },
+      {
+        "criterion": "3",
+        "result": "FAIL",
+        "detail": "完整检查了 shell/Git 解析、上下文绑定、目标扩展和回调分类；发现未引用的波浪号展开可使 A 仓 fresh READY 证据授权实际位于 B 仓的交付。其他定向探针覆盖了普通包装、apply 最终状态、fetch 映射/pruneTags、启动环境、签名及 trailer 回调和原始对象解析。"
+      },
+      {
+        "criterion": "4",
+        "result": "FAIL",
+        "detail": "N/A 限制、完整 spec 契约、控制文件字节摘要、各权威 reader 的漂移拒绝及 fresh verification 恢复路径符合检查预期；但 focused 缓存存在 replacement 导致的错误 CACHED PASS，因此缓存证明完整性未满足。"
+      },
+      {
+        "criterion": "5",
+        "result": "FAIL",
+        "detail": "实际安装和 repair 均复制了内容一致的新共享库；检查了 init/update 连线、离线 SKIP 阻断及先发布 tag 再推进 DEFAULT_REF 的顺序。升级文件检查仍受 refs/replace 影响，不能保证检查的是 origin SHA 的真实内容。"
+      },
+      {
+        "criterion": "6",
+        "result": "FAIL",
+        "detail": "六个领域均进行了当前源码审查，新增测试包含大量正负控制；未发现新增虚构 API 或敏感信息问题。下列三个可复现缺口仍需修复。历史 findings.md 仅核验哈希，未读取其审查内容；未以历史 verdict 或 authored tests 的通过结论代替独立验证。"
+      }
+    ],
+    "critical_issues": [
+      {
+        "severity": "critical",
+        "file": "scripts/hooks/verification-gate.js",
+        "line": 131,
+        "finding": "shellTokens 未识别未引用的 ~ 展开。门禁将 git -C ~ 的参数作为字面目录交给 execFileSync，而 Bash/Zsh 将其展开为 HOME。当 A/~ 是指向 A 的符号链接、HOME 指向 B 时，门禁校验 A 并放行，实际 Git 却运行于 B。已使用 CLI 新生成、带当前契约的 READY 证据复现。",
+        "reproduction": "执行 node /private/tmp/shk-santa13-b/tilde-modern-probe.js。脚本仅在 scratch 创建 A/B 仓库和 A/~ -> A，给子进程设置 HOME=B，并在 A 生成 fresh low READY evidence。向真实 hook 输入 git -C ~ push origin HEAD:refs/heads/master，返回 0；直接指定 B 的负控返回 GIT_DELIVERY_REPOSITORY_MISMATCH。实际仅执行 Bash/Zsh 的 git -C ~ rev-parse --show-toplevel，两者均输出 B；引用后的 git -C \"~\" 正控输出 A。未执行任何 push。"
+      },
+      {
+        "severity": "medium",
+        "file": "scripts/lib/verify-cache.js",
+        "line": 157,
+        "finding": "focused 的 baseline diff 没有使用 --no-replace-objects；scripts/shk.js:1480、1483 的对象及祖先检查也使用 replacement 视图。将已验证 A 的 tree 替换视图指向后续 B 的 tree 后，真实源码变化被报告为零，B 中实际失败的 tests 被记录为 baseline CACHED PASS。该缺口没有绕过最终封盘：integration 和 seal 负控仍失败。",
+        "reproduction": "执行 node /private/tmp/shk-santa13-b/object-view-probe.js。脚本在临时仓库为 A 生成 full baseline，创建改变 src.js 的后继 B；无 replacement 时 focused 的 tests=FAIL。随后写入 refs/replace/<A-tree>=<B-tree>，清除普通缓存再执行 verify --risk low --phase focused --write-evidence。结果 changed_files=0、ran=[]、tests=PASS 且 cached_from_baseline=true，overall=INCREMENTAL_GREEN；直接执行同一测试退出 7。"
+      },
+      {
+        "severity": "high",
+        "file": "tests/scripts/21-upgrade-ref-contract.sh",
+        "line": 91,
+        "finding": "虽然 REMOTE_SHA 来自远端解析，ls-tree 仍会应用本地 refs/replace。缺少必需文件的真实对象可由一个包含文件的本地 replacement 对象作证，违反升级证明必须检查 origin 实际对象的要求。",
+        "reproduction": "执行 node /private/tmp/shk-santa13-b/object-view-probe.js。脚本创建缺文件对象 M 和包含两个必需文件的对象 G，写入 refs/replace/M=G，然后以 REMOTE_SHA=M 执行从冻结源码提取的原样文件检查循环：退出 0，报告 2 passed。相同循环设置 GIT_NO_REPLACE_OBJECTS=1 后退出 1、报告 2 failed；以真实 G 为目标的正控退出 0。仅进行了本地对象一致性检查，未执行 ls-remote、fetch 或网络操作。"
+      }
+    ],
+    "suggestions": [],
+    "validation": {
+      "start_hashes": "33/33 文件 SHA-256 和权限匹配；HEAD=ff00b68241aacddf68d21f4a59554f843930574f。manifest SHA-256=752912f20023bb954af47b25d34b44f6bbb75e63cedf2f426ef3c1b7a5432324；patch SHA-256=6dd70d571c8137fb541a3fd9160eb6439a3546bf2396a3683b76d48e92b0fb37。",
+      "end_hashes": "33/33 文件 SHA-256 和权限再次匹配；HEAD、manifest 和 patch 摘要均与起始相同。",
+      "probes": [
+        "tilde-modern-probe.js：fresh 契约证据、跨仓库负控、引用路径正控及 Bash/Zsh harmless rev-parse。",
+        "object-view-probe.js：focused replacement 错误复用、无 replacement 正反控制、integration/seal 边界及升级原样文件检查循环。",
+        "contracts-probe.js：通配完整性、风险与前置条件、ignored spec 漂移、三个 hooks、evidence CLI、doctor、qa report、baseline、fresh verification 恢复及三类控制文件字节/缺失缓存检查。",
+        "parser-probe.js、boundary-probe.js：只解析交付命令；覆盖包装、空参数、路径提交、apply、fetch、启动环境、pager/signature/trailer、clone 模板声明和 Git 扩展拒绝。",
+        "SHA-1/SHA-256 本地对象探针：readGitIdentity 和 annotated target peeling 正确使用原始对象，replacement 不改变其结果。",
+        "临时项目实际执行 core install 和 repair：verification-contract.js 均存在且与冻结源码逐字节一致；init/update 和发布顺序采用静态检查。",
+        "未运行完整 QA、实际交付、Git 回调、网络、浏览器或模型请求；项目源码未修改。"
+      ]
+    }
+  },
+  "next": "Minimal round14 tilde/baseline/upgrade raw-object repair"
+}

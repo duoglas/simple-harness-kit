@@ -1,0 +1,430 @@
+{
+  "schema_version": "1.0",
+  "risk": "high",
+  "requirements": [
+    {
+      "id": "REQ-SCOPE",
+      "text": "验证复用必须覆盖本次风险与检查集合，并校验控制面身份和准入前置条件。",
+      "priority": "must",
+      "source": "independent release review"
+    },
+    {
+      "id": "REQ-COMPLETE",
+      "text": "需求完成态必须逐通配分支拒绝缺失的必填内容。",
+      "priority": "must",
+      "source": "independent release review"
+    },
+    {
+      "id": "REQ-TARGET",
+      "text": "Git 交付必须绑定实际仓库，拒绝未逐引用验证的隐式标签推送。",
+      "priority": "must",
+      "source": "independent release review"
+    },
+    {
+      "id": "REQ-APPLICABILITY",
+      "text": "Explicit applicability must be honest, narrow, conflict-free and bound to the current verification contract across all consumers.",
+      "priority": "must",
+      "source": "user-approved release workflow repair"
+    },
+    {
+      "id": "REQ-REMOTE",
+      "text": "Upgrade proof must inspect the actual remote commit and propagate missing proof instead of reporting PASS.",
+      "priority": "must",
+      "source": "user-approved release workflow repair"
+    }
+  ],
+  "design": {
+    "summary": "Bind reuse to requested verification scope and configured identities; retain missing wildcard branches; reject Git execution contexts and implicit refs that lack matching evidence.",
+    "changed_areas": [
+      "verification_policy",
+      "requirement_completeness",
+      "delivery_target",
+      "verification_contract",
+      "upgrade_remote_contract"
+    ],
+    "risk_points": [
+      {
+        "id": "RISK-SCOPE",
+        "text": "较弱或陈旧证据跳过必要验证。"
+      },
+      {
+        "id": "RISK-COMPLETE",
+        "text": "部分需求未定义却被标记完成。"
+      },
+      {
+        "id": "RISK-TARGET",
+        "text": "证据授权另一仓库或额外未验证标签。"
+      },
+      {
+        "id": "RISK-APPLICABILITY",
+        "text": "Explicit applicability must be honest, narrow, conflict-free and bound to the current verification contract across all consumers."
+      },
+      {
+        "id": "RISK-REMOTE",
+        "text": "Upgrade proof must inspect the actual remote commit and propagate missing proof instead of reporting PASS."
+      }
+    ]
+  },
+  "traffic_flows": [
+    {
+      "id": "FLOW-SCOPE",
+      "name": "scope rejection and positive control",
+      "entrypoint": "shk verify",
+      "steps": [
+        "prepare a valid control",
+        "change the protected input",
+        "assert rejection and preserved valid behavior"
+      ],
+      "covers": [
+        "REQ-SCOPE"
+      ],
+      "risks": [
+        "RISK-SCOPE"
+      ]
+    },
+    {
+      "id": "FLOW-COMPLETE",
+      "name": "complete rejection and positive control",
+      "entrypoint": "shk task close",
+      "steps": [
+        "prepare a valid control",
+        "change the protected input",
+        "assert rejection and preserved valid behavior"
+      ],
+      "covers": [
+        "REQ-COMPLETE"
+      ],
+      "risks": [
+        "RISK-COMPLETE"
+      ]
+    },
+    {
+      "id": "FLOW-TARGET",
+      "name": "target rejection and positive control",
+      "entrypoint": "verification-gate hook",
+      "steps": [
+        "prepare a valid control",
+        "change the protected input",
+        "assert rejection and preserved valid behavior"
+      ],
+      "covers": [
+        "REQ-TARGET"
+      ],
+      "risks": [
+        "RISK-TARGET"
+      ]
+    },
+    {
+      "id": "FLOW-APPLICABILITY",
+      "name": "verification_contract",
+      "entrypoint": "shk verify and evidence consumers",
+      "steps": [
+        "prepare a valid control",
+        "change the protected contract or remote ref",
+        "assert rejection and retained positive behavior"
+      ],
+      "covers": [
+        "REQ-APPLICABILITY"
+      ],
+      "risks": [
+        "RISK-APPLICABILITY"
+      ]
+    },
+    {
+      "id": "FLOW-REMOTE",
+      "name": "upgrade_remote_contract",
+      "entrypoint": "pre-release-check.sh",
+      "steps": [
+        "prepare a valid control",
+        "change the protected contract or remote ref",
+        "assert rejection and retained positive behavior"
+      ],
+      "covers": [
+        "REQ-REMOTE"
+      ],
+      "risks": [
+        "RISK-REMOTE"
+      ]
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "TEST-SCOPE",
+      "type": "integration",
+      "covers": [
+        "REQ-SCOPE"
+      ],
+      "risks": [
+        "RISK-SCOPE"
+      ],
+      "traffic_flows": [
+        "FLOW-SCOPE"
+      ],
+      "scenario": "验证复用必须覆盖本次风险与检查集合，并校验控制面身份和准入前置条件。",
+      "assertions": [
+        "valid same-context control passes",
+        "invalid scope, missing content, or foreign context returns nonzero before delivery"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "scripts/lib/verification-policy.js",
+        "scripts/shk.js",
+        "scripts/hooks/verification-gate.js",
+        "tests/verification-policy.test.js",
+        "tests/evidence-attestation.test.js"
+      ]
+    },
+    {
+      "id": "TEST-COMPLETE",
+      "type": "integration",
+      "covers": [
+        "REQ-COMPLETE"
+      ],
+      "risks": [
+        "RISK-COMPLETE"
+      ],
+      "traffic_flows": [
+        "FLOW-COMPLETE"
+      ],
+      "scenario": "需求完成态必须逐通配分支拒绝缺失的必填内容。",
+      "assertions": [
+        "valid same-context control passes",
+        "invalid scope, missing content, or foreign context returns nonzero before delivery"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "scripts/lib/verification-policy.js",
+        "scripts/shk.js",
+        "scripts/hooks/verification-gate.js",
+        "tests/verification-policy.test.js",
+        "tests/evidence-attestation.test.js"
+      ]
+    },
+    {
+      "id": "TEST-TARGET",
+      "type": "integration",
+      "covers": [
+        "REQ-TARGET"
+      ],
+      "risks": [
+        "RISK-TARGET"
+      ],
+      "traffic_flows": [
+        "FLOW-TARGET"
+      ],
+      "scenario": "Git 交付必须绑定实际仓库，拒绝未逐引用验证的隐式标签推送。",
+      "assertions": [
+        "valid same-context control passes",
+        "invalid scope, missing content, or foreign context returns nonzero before delivery"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "scripts/lib/verification-policy.js",
+        "scripts/shk.js",
+        "scripts/hooks/verification-gate.js",
+        "tests/verification-policy.test.js",
+        "tests/evidence-attestation.test.js"
+      ]
+    },
+    {
+      "id": "TEST-E2E",
+      "type": "integration",
+      "covers": [
+        "REQ-SCOPE",
+        "REQ-COMPLETE",
+        "REQ-TARGET",
+        "REQ-APPLICABILITY",
+        "REQ-REMOTE"
+      ],
+      "risks": [
+        "RISK-SCOPE",
+        "RISK-COMPLETE",
+        "RISK-TARGET",
+        "RISK-APPLICABILITY",
+        "RISK-REMOTE"
+      ],
+      "traffic_flows": [
+        "FLOW-SCOPE",
+        "FLOW-COMPLETE",
+        "FLOW-TARGET",
+        "FLOW-APPLICABILITY",
+        "FLOW-REMOTE"
+      ],
+      "scenario": "Run actual Git/CLI/hook positive and negative flows and emit fresh run-token-bound evidence.",
+      "assertions": [
+        "both previous task E2E flows pass",
+        "new policy and Git gate regressions reject invalid inputs",
+        "evidence is emitted only after every command succeeds"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "docs/tasks/T-20260930-release-admission-fix/verify-flow-e2e.sh"
+      ]
+    },
+    {
+      "id": "TEST-APPLICABILITY",
+      "type": "integration",
+      "covers": [
+        "REQ-APPLICABILITY"
+      ],
+      "risks": [
+        "RISK-APPLICABILITY"
+      ],
+      "traffic_flows": [
+        "FLOW-APPLICABILITY"
+      ],
+      "scenario": "Explicit applicability must be honest, narrow, conflict-free and bound to the current verification contract across all consumers.",
+      "assertions": [
+        "valid explicit controls pass",
+        "invalid or stale proof is rejected before delivery"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "tests/verification-applicability.test.js"
+      ]
+    },
+    {
+      "id": "TEST-REMOTE",
+      "type": "integration",
+      "covers": [
+        "REQ-REMOTE"
+      ],
+      "risks": [
+        "RISK-REMOTE"
+      ],
+      "traffic_flows": [
+        "FLOW-REMOTE"
+      ],
+      "scenario": "Upgrade proof must inspect the actual remote commit and propagate missing proof instead of reporting PASS.",
+      "assertions": [
+        "valid explicit controls pass",
+        "invalid or stale proof is rejected before delivery"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "tests/upgrade-ref-contract.test.js"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "AC-SCOPE",
+      "text": "验证复用必须覆盖本次风险与检查集合，并校验控制面身份和准入前置条件。",
+      "covers": [
+        "REQ-SCOPE"
+      ],
+      "tests": [
+        "TEST-SCOPE",
+        "TEST-E2E"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-COMPLETE",
+      "text": "需求完成态必须逐通配分支拒绝缺失的必填内容。",
+      "covers": [
+        "REQ-COMPLETE"
+      ],
+      "tests": [
+        "TEST-COMPLETE",
+        "TEST-E2E"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-TARGET",
+      "text": "Git 交付必须绑定实际仓库，拒绝未逐引用验证的隐式标签推送。",
+      "covers": [
+        "REQ-TARGET"
+      ],
+      "tests": [
+        "TEST-TARGET",
+        "TEST-E2E"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-APPLICABILITY",
+      "text": "Explicit applicability must be honest, narrow, conflict-free and bound to the current verification contract across all consumers.",
+      "covers": [
+        "REQ-APPLICABILITY"
+      ],
+      "tests": [
+        "TEST-APPLICABILITY",
+        "TEST-E2E"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "AC-REMOTE",
+      "text": "Upgrade proof must inspect the actual remote commit and propagate missing proof instead of reporting PASS.",
+      "covers": [
+        "REQ-REMOTE"
+      ],
+      "tests": [
+        "TEST-REMOTE",
+        "TEST-E2E"
+      ],
+      "must_have_evidence": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-SCOPE",
+      "title": "验证复用必须覆盖本次风险与检查集合，并校验控制面身份和准入前置条件。",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-SCOPE"
+      ],
+      "risk": "high",
+      "done": "Focused integration regression rejects the old bypass and retains valid controls."
+    },
+    {
+      "id": "TASK-COMPLETE",
+      "title": "需求完成态必须逐通配分支拒绝缺失的必填内容。",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-COMPLETE"
+      ],
+      "risk": "high",
+      "done": "Focused integration regression rejects the old bypass and retains valid controls."
+    },
+    {
+      "id": "TASK-TARGET",
+      "title": "Git 交付必须绑定实际仓库，拒绝未逐引用验证的隐式标签推送。",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-TARGET"
+      ],
+      "risk": "high",
+      "done": "Focused integration regression rejects the old bypass and retains valid controls."
+    },
+    {
+      "id": "TASK-APPLICABILITY",
+      "title": "Explicit applicability must be honest, narrow, conflict-free and bound to the current verification contract across all consumers.",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-APPLICABILITY"
+      ],
+      "risk": "high",
+      "done": "Focused regression and independent review cover current-contract positive and negative controls."
+    },
+    {
+      "id": "TASK-REMOTE",
+      "title": "Upgrade proof must inspect the actual remote commit and propagate missing proof instead of reporting PASS.",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-REMOTE"
+      ],
+      "risk": "high",
+      "done": "Focused regression and independent review cover current-contract positive and negative controls."
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "action": "push validated commits and publish patch release v0.15.1 without moving existing tags",
+      "needs_human": false,
+      "planned": "authorized follow-up after fresh release gates and independent review"
+    }
+  ]
+}

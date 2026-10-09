@@ -1,0 +1,30 @@
+{
+  "round": 11,
+  "verdict": "FAIL",
+  "review_a": "FAIL",
+  "review_b": "FAIL",
+  "frozen_files": 33,
+  "hashes_and_modes_unchanged": true,
+  "high": {
+    "overall": "NOT_READY",
+    "passed": 258,
+    "failed": 1,
+    "optional_skipped": 1,
+    "browser": "not reached after tag-list fixture failure"
+  },
+  "runtime": {
+    "codex_version": "0.161.0",
+    "smoke": "PASS",
+    "bad_hook_selftest": "PASS",
+    "scope": "frozen candidate; final release checks remain required"
+  },
+  "issues": [
+    "zsh executable expansions",
+    "quoted operators lose word identity",
+    "comments forge dry-run classification",
+    "annotated tag trailer callbacks",
+    "qa report consumes stale READY",
+    "invalid unquoted tag-list fixture"
+  ],
+  "publication": "No new commits, push, tags or Release"
+}

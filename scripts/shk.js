@@ -11,6 +11,7 @@ const ledger = require('./lib/task-ledger');
 const verifyCache = require('./lib/verify-cache');
 const evidenceAttestation = require('./lib/evidence-attestation');
 const verificationPolicy = require('./lib/verification-policy');
+const verificationContract = require('./lib/verification-contract');
 
 const KIT_ROOT = path.resolve(__dirname, '..');
 const MANIFEST_PATH = path.join(KIT_ROOT, 'manifests/shk-profiles.json');
@@ -22,16 +23,7 @@ const ALL_CHECKS = [
   'doctor', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood',
   'clean_tree', 'upstream',
 ];
-const RISK_CHECKS = {
-  low: ['build', 'tests', 'diff', 'security'],
-  medium: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e'],
-  high: ['build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa'],
-  release: [
-    'build', 'tests', 'diff', 'security', 'types', 'lint', 'coverage', 'spec', 'e2e', 'santa',
-    'runtime', 'runtime_selftest', 'doctor', 'dogfood_oss', 'upstream_dogfood',
-    'browser_e2e_dogfood', 'clean_tree', 'upstream',
-  ],
-};
+const RISK_CHECKS = verificationContract.RISK_CHECKS;
 
 const DEFAULT_MANIFEST = {
   schema_version: '1.0',
@@ -166,33 +158,7 @@ function runCommand(root, command, timeout = 120000, options = {}) {
 }
 
 function detectCommands(root) {
-  const pkg = readJson(path.join(root, 'package.json'));
-  const scripts = pkg && pkg.scripts || {};
-  // .harness/config.json 的 commands 可覆盖自动探测结果。
-  // 动机：verify 的 tests 有 6 分钟超时，而项目的完整套件可能远超（kit 自己就超过
-  // 10 分钟，撞上就是 exit 124 —— 表现成"测试失败"而实际只是被砍断，
-  // 且这会让该项目永远无法通过自己的 verify）。
-  // 正确的切法是让 tests 只跑快速反馈层、把重的留给 e2e 检查，而"哪个命令是快速层"
-  // 只有项目自己知道，探测不出来。
-  const override = (ledger.readHarnessConfig(root).commands) || {};
-  const pick = (key, detected) => (typeof override[key] === 'string' && override[key].trim())
-    ? override[key].trim() : detected;
-  const detected = {
-    build: scripts.build ? 'npm run build' : '',
-    types: scripts.typecheck ? 'npm run typecheck' : scripts.types ? 'npm run types' : '',
-    lint: scripts.lint ? 'npm run lint' : '',
-    tests: scripts.test ? 'npm test' : exists(path.join(root, 'tests/run.js')) ? 'node tests/run.js' : '',
-    coverage: scripts.coverage ? 'npm run coverage' : '',
-    e2e: scripts['test:e2e'] ? 'npm run test:e2e' : scripts.e2e ? 'npm run e2e' : exists(path.join(root, 'tests/scripts/13-e2e-sufficiency.sh')) ? 'bash tests/scripts/13-e2e-sufficiency.sh' : exists(path.join(root, 'tests/scripts/03-full-e2e.sh')) ? 'bash tests/scripts/03-full-e2e.sh' : exists(path.join(root, 'tests/e2e-acceptance-validate.sh')) ? 'bash tests/e2e-acceptance-validate.sh' : '',
-    runtime: exists(path.join(root, 'tests/codex-smoke.sh')) ? 'bash tests/codex-smoke.sh' : '',
-    runtime_selftest: exists(path.join(root, 'tests/codex-smoke-selftest.sh')) ? 'bash tests/codex-smoke-selftest.sh' : '',
-    dogfood_oss: exists(path.join(root, 'tests/scripts/17-oss-dogfood-validation.sh')) ? 'bash tests/scripts/17-oss-dogfood-validation.sh' : '',
-    upstream_dogfood: exists(path.join(root, 'tests/scripts/18-upstream-ci-dogfood.sh')) ? 'bash tests/scripts/18-upstream-ci-dogfood.sh' : '',
-    browser_e2e_dogfood: exists(path.join(root, 'tests/scripts/19-browser-e2e-dogfood.sh')) ? 'bash tests/scripts/19-browser-e2e-dogfood.sh' : '',
-  };
-  const out = {};
-  for (const [key, value] of Object.entries(detected)) out[key] = pick(key, value);
-  return out;
+  return verificationContract.readContract(root).commands;
 }
 
 function scanFiles(root, options = {}) {
@@ -1128,16 +1094,21 @@ function writeE2EPlan(root, plan) {
 }
 
 function qualityStatus(root, risk) {
-  const commands = detectCommands(root);
+  const contract = verificationContract.readContract(root, risk);
+  const commands = contract.commands;
   const e2ePlan = e2ePlanData(root);
   const req = {
     tests: { required: true, status: commands.tests ? 'READY' : 'MISSING', command: commands.tests || '' },
     lint: { required: risk === 'release', status: commands.lint ? 'READY' : (risk === 'release' ? 'MISSING' : 'OPTIONAL'), command: commands.lint || '' },
-    coverage: { required: false, status: commands.coverage ? 'READY' : 'OPTIONAL', command: commands.coverage || '' },
+    coverage: { required: risk === 'release', status: commands.coverage ? 'READY' : (risk === 'release' ? 'MISSING' : 'OPTIONAL'), command: commands.coverage || '' },
     e2e: { required: riskRequiresE2E(risk), status: e2ePlan.recommended_command ? 'READY' : (riskRequiresE2E(risk) ? 'MISSING' : 'OPTIONAL'), command: e2ePlan.recommended_command || '' },
     runtime: { required: risk === 'release', status: commands.runtime ? 'READY' : (risk === 'release' ? 'MISSING' : 'OPTIONAL'), command: commands.runtime || '' },
   };
-  const missing = Object.entries(req).filter(([, v]) => v.required && v.status !== 'READY').map(([k]) => k);
+  for (const name of verificationContract.OPTIONAL_CHECKS) {
+    if (!req[name]) req[name] = { required: risk === 'release', status: commands[name] ? 'READY' : (risk === 'release' ? 'MISSING' : 'OPTIONAL'), command: commands[name] || '' };
+    if (contract.declarations[name]) req[name] = { ...req[name], ...contract.declarations[name], command: '' };
+  }
+  const missing = Object.entries(req).filter(([, v]) => v.required && !['READY', 'NOT_APPLICABLE'].includes(v.status)).map(([k]) => k);
   const overall = missing.length === 0 ? 'READY' : 'NOT_READY';
   const parts = [];
   parts.push(`这次按 ${risk} 风险做准出检查。`);
@@ -1166,7 +1137,7 @@ function qualityGateCheck(root, risk) {
     status: q.overall === 'READY' ? 'PASS' : 'FAIL',
     command: `shk quality status --risk ${risk}`,
     risk,
-    missing: Object.entries(q.requirements).filter(([, v]) => v.required && v.status !== 'READY').map(([k]) => k),
+    missing: Object.entries(q.requirements).filter(([, v]) => v.required && !['READY', 'NOT_APPLICABLE'].includes(v.status)).map(([k]) => k),
     summary: q.human_summary,
   };
 }
@@ -1402,10 +1373,12 @@ function normalizeReleaseCommandResult(result) {
 }
 
 function doctorEvidenceCheck(root) {
-  const report = doctorReport(root);
+  // Evidence is being produced now; do not recursively require an older proof.
+  const report = doctorReport(root, { environment_only: true });
   return {
     status: report.overall,
-    command: 'node scripts/shk.js doctor --format json',
+    command: 'node scripts/shk.js doctor --environment-only --format json',
+    scope: 'environment',
     release_required: true,
     checks: report.checks.map(c => ({ id: c.id, status: c.status, message: c.message })).slice(0, 50),
     summary: report.overall === 'PASS'
@@ -1429,11 +1402,12 @@ function isAgentReviewPlaceholder(name, check) {
 // - 任何检查真实 FAIL / DEGRADED → 失败
 // - release 必需项非 PASS（真实跑出的 SKIP/WARN 也算）→ 失败，宁可拦
 // - 例外：agent/human review 占位 SKIP（如 santa）不阻断，否则 release 恒 NOT_READY 自锁
-function computeEvidenceOverall(checks, risk) {
+function computeEvidenceOverall(checks, risk, contract = null) {
   const notSufficient = Object.values(checks).some(c => c && c.overall === 'NOT_SUFFICIENT');
   const releaseRequired = new Set(risk === 'release' ? RISK_CHECKS.release : []);
   const failed = Object.entries(checks).some(([name, c]) => {
     if (!c) return false;
+    if (c.status === 'NOT_APPLICABLE') return !verificationContract.applicableException(name, c, contract);
     if (c.status === 'FAIL' || c.status === 'DEGRADED') return true;
     if (!releaseRequired.has(name) || c.status === 'PASS') return false;
     return !isAgentReviewPlaceholder(name, c);
@@ -1446,31 +1420,39 @@ function digestObject(value) {
   return `sha256:${crypto.createHash('sha256').update(evidenceAttestation.canonicalStringify(value), 'utf8').digest('hex')}`;
 }
 
-function verificationIdentity(root, config = {}) {
-  const gitIdentity = evidenceAttestation.readGitIdentity(root);
-  const policy = config.verification_policy || {};
-  const spec = readJson(iterationSpecPath(root));
-  const testManifest = {
-    commands: config.commands || {},
-    check_inputs: config.check_inputs || {},
-    suite_includes: policy.suite_includes || {},
-    test_plan: spec && spec.test_plan || [],
+function verificationScope(risk) { return verificationContract.verificationScope(risk); }
+
+function fullAdmissionPolicy(config = {}, risk, root) {
+  const verification = config.verification_policy || {};
+  const policy = verification.full_admission || {};
+  const inputs = verification.identity_inputs || {};
+  const controlFields = ['runner', 'verdict', 'scheduler']
+    .filter(area => Array.isArray(inputs[area]) && inputs[area].length > 0)
+    .map(area => `${area}_digest`);
+  return {
+    ...policy,
+    project_root: root,
+    // Exact admission cannot weaken the candidate or configured control identity.
+    identity_fields: [...new Set([...verificationPolicy.DEFAULT_IDENTITY_FIELDS, ...(policy.identity_fields || []), ...controlFields])],
+    required_identity_fields: [...new Set([...verificationPolicy.DEFAULT_IDENTITY_FIELDS, ...(policy.required_identity_fields || []), ...controlFields])],
+    ...(risk === undefined ? {} : {
+      risk,
+      risk_checks: RISK_CHECKS,
+      proof_checks: verificationScope(risk).proof_checks,
+      evaluate_checks: (checks, currentRisk) => computeEvidenceOverall(checks, currentRisk,
+        root ? verificationContract.readContract(root, currentRisk) : null),
+    }),
   };
+}
+
+function verificationIdentity(root, config = {}, risk) {
+  const gitIdentity = evidenceAttestation.readGitIdentity(root);
+  const testManifest = verificationContract.readContract(root, risk, config);
   const identity = {
     ...gitIdentity,
     test_manifest_digest: digestObject(testManifest),
   };
-  const inputs = policy.identity_inputs || {};
-  for (const area of ['runner', 'verdict', 'scheduler']) {
-    const files = Array.isArray(inputs[area]) ? inputs[area] : [];
-    if (!files.length) continue;
-    const payload = files.map(relPath => {
-      const normalized = String(relPath).replace(/\\/g, '/');
-      try { return { path: normalized, content: fs.readFileSync(path.join(root, normalized), 'utf8') }; }
-      catch { return { path: normalized, missing: true }; }
-    });
-    identity[`${area}_digest`] = digestObject(payload);
-  }
+  Object.assign(identity, verificationContract.controlIdentity(root, config));
   return identity;
 }
 
@@ -1480,9 +1462,9 @@ function baselineEvidencePath(root, config = {}) {
   return path.isAbsolute(relPath) ? relPath : path.join(root, relPath);
 }
 
-function trustedBaseline(root, config, candidate) {
+function trustedBaseline(root, config, candidate, risk) {
   const baseline = readJson(baselineEvidencePath(root, config));
-  const policy = config.verification_policy && config.verification_policy.full_admission || {};
+  const policy = fullAdmissionPolicy(config, risk, root);
   const exactAssessment = verificationPolicy.baselineAssessment(baseline, candidate, policy);
   const identityInputs = config.verification_policy && config.verification_policy.identity_inputs || {};
   const focusedIdentityFields = ['test_manifest_digest'];
@@ -1495,10 +1477,10 @@ function trustedBaseline(root, config, candidate) {
     required_identity_fields: [...verificationPolicy.DEFAULT_IDENTITY_FIELDS, ...focusedIdentityFields],
   });
   const baselineCommit = focusedAssessment.identity && focusedAssessment.identity.commit;
-  const commitExists = baselineCommit && spawnSync('git', ['cat-file', '-e', `${baselineCommit}^{commit}`], {
+  const commitExists = baselineCommit && spawnSync('git', ['--no-replace-objects', 'cat-file', '-e', `${baselineCommit}^{commit}`], {
     cwd: root, encoding: 'utf8', stdio: 'ignore',
   }).status === 0;
-  const isAncestor = commitExists && spawnSync('git', ['merge-base', '--is-ancestor', baselineCommit, 'HEAD'], {
+  const isAncestor = commitExists && spawnSync('git', ['--no-replace-objects', 'merge-base', '--is-ancestor', baselineCommit, 'HEAD'], {
     cwd: root, encoding: 'utf8', stdio: 'ignore',
   }).status === 0;
   if (!commitExists) focusedAssessment.reason_codes = [...new Set([...focusedAssessment.reason_codes, 'BASELINE_COMMIT_UNAVAILABLE'])];
@@ -1541,12 +1523,13 @@ function makeEvidence(root, risk, cache, options = {}) {
     }
     return cache.record(check, fn());
   };
-  const commands = detectCommands(root);
+  const config = options.config || ledger.readHarnessConfig(root);
+  const contract = verificationContract.readContract(root, risk, config);
+  const commands = contract.commands;
   const checks = {};
   for (const name of ALL_CHECKS) checks[name] = { status: 'SKIP', command: '', reason: 'not required or not configured' };
   const required = RISK_CHECKS[risk] || RISK_CHECKS.medium;
-  const config = options.config || {};
-  const commandSuites = required.filter(check => ['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check));
+  const commandSuites = required.filter(check => !contract.declarations[check] && ['build', 'types', 'lint', 'tests', 'coverage', 'e2e', 'runtime', 'runtime_selftest', 'dogfood_oss', 'upstream_dogfood', 'browser_e2e_dogfood'].includes(check));
   const suitePlan = verificationPolicy.resolveSuitePlan({
     selected: commandSuites,
     suite_includes: config.verification_policy && config.verification_policy.suite_includes || {},
@@ -1555,6 +1538,11 @@ function makeEvidence(root, risk, cache, options = {}) {
   const executableSuites = new Set(suitePlan.execute);
   checks.quality_gate = qualityGateCheck(root, risk);
   for (const check of required) {
+    if (contract.declarations[check]) {
+      checks[check] = { ...contract.declarations[check], command: '' };
+      if (cache) cache.invalidate(check);
+      continue;
+    }
     if (commandSuites.includes(check) && !executableSuites.has(check)) continue;
     if (check === 'quality_gate') continue;
     if (check === 'security') checks.security = runCached('security', () => runSecurityScan(root));
@@ -1630,6 +1618,9 @@ function makeEvidence(root, risk, cache, options = {}) {
     };
   }
   const limitations = [];
+  for (const [name, check] of Object.entries(checks)) {
+    if (check.status === 'NOT_APPLICABLE') limitations.push({ check: name, status: check.status, reason: check.reason, claims_ready: false, summary: `${name}: NOT_APPLICABLE — ${check.reason}` });
+  }
   if (checks.coverage && checks.coverage.status === 'SKIP') {
     limitations.push({
       check: 'coverage',
@@ -1677,7 +1668,8 @@ function makeEvidence(root, risk, cache, options = {}) {
     checks,
     limitations,
     verification_policy: { suite_plan: suitePlan },
-    overall: computeEvidenceOverall(checks, risk),
+    provenance: { applicability: { contract, digest: verificationContract.digest(contract) } },
+    overall: computeEvidenceOverall(checks, risk, contract),
   };
 }
 
@@ -1735,6 +1727,7 @@ function writeEvidence(root, evidence, options = {}) {
     ...evidence,
     run_id: evidence.run_id || `run-${crypto.randomUUID()}`,
     provenance: {
+      ...(evidence.provenance || {}),
       git: evidenceAttestation.readGitIdentity(root),
       verification: options.verification_identity || {},
       mode: options.mode || 'full',
@@ -1761,11 +1754,11 @@ function cmdVerify(args, root) {
   const phase = phaseIdx >= 0 ? args[phaseIdx + 1] : null;
   if (phase && !['focused', 'final', 'integration'].includes(phase)) throw new Error(`invalid verify phase: ${phase}`);
   const config = ledger.readHarnessConfig(root);
-  const candidate = verificationIdentity(root, config);
-  const baseline = trustedBaseline(root, config, candidate);
+  const candidate = verificationIdentity(root, config, risk);
+  const baseline = trustedBaseline(root, config, candidate, risk);
 
   if (phase === 'integration' || phase === 'final') {
-    const admissionPolicy = config.verification_policy && config.verification_policy.full_admission || {};
+    const admissionPolicy = fullAdmissionPolicy(config, risk, root);
     const admission = verificationPolicy.evaluateFullAdmission({
       phase,
       candidate,
@@ -1797,6 +1790,7 @@ function cmdVerify(args, root) {
       round: roundIdx >= 0 ? Number(args[roundIdx + 1]) : 1,
       seal,
       config,
+      contract_digest: candidate.test_manifest_digest,
       baseline: phase === 'focused' ? baseline.cache_seed : null,
     })
     : null;
@@ -1876,6 +1870,7 @@ function cmdEvidence(args, root) {
     : ledger.resolveArtifactPath(root, 'evidenceJson');
   const allowLegacy = rest.includes('--allow-legacy');
   const policy = {
+    project_root: root,
     require_attestation: !allowLegacy,
     allow_legacy: allowLegacy,
     require_clean: rest.includes('--require-clean'),
@@ -1934,9 +1929,22 @@ function evidenceConsumerAttestationProblem(root, evidence) {
   if (!evidence) return null;
   const config = ledger.readHarnessConfig(root);
   const required = Boolean(config && config.evidence && config.evidence.require_attestation === true);
+  const hasGitIdentity = Object.prototype.hasOwnProperty.call(evidence, 'git_identity')
+    || Object.prototype.hasOwnProperty.call(evidence.provenance || {}, 'git');
+  const mustBindCurrent = Boolean(evidence.attestation || required || hasGitIdentity);
+  let currentGit;
+  if (mustBindCurrent) {
+    currentGit = evidenceAttestation.readGitIdentity(root);
+    if (!currentGit || !currentGit.available || !currentGit.commit || !currentGit.tree || !currentGit.candidate_digest) {
+      return { code: 'GIT_IDENTITY_UNAVAILABLE', message: 'current Git commit, tree or candidate digest could not be resolved' };
+    }
+  }
   const result = evidenceAttestation.verifyEvidence(evidence, {
+    project_root: root,
     require_attestation: required,
     allow_legacy: !required,
+    ...(mustBindCurrent ? { expected_commit: currentGit.commit, expected_tree: currentGit.tree,
+      expected_candidate_digest: currentGit.candidate_digest } : {}),
   });
   return result.status === 'PASS' ? null : result.failures[0];
 }
@@ -2093,7 +2101,7 @@ function codexProjectTrustCheck(root) {
   };
 }
 
-function doctorReport(root) {
+function doctorReport(root, options = {}) {
   const checks = [];
   const add = (id, status, message, data = {}) => checks.push({ id, status, message, ...data });
   const stage = stageData(root);
@@ -2129,19 +2137,21 @@ function doctorReport(root) {
     exact_project_trusted: codexTrust.exact_project_trusted,
   });
 
-  const evidence = latestEvidence(root);
-  if (!evidence) add('verify-evidence', 'WARN', `${ledger.relFromRoot(root, ledger.resolveArtifactPath(root, 'evidenceJson'))} missing`);
-  else if (evidence.overall !== 'READY') add('verify-evidence', 'FAIL', `overall=${evidence.overall}`, { risk: evidence.risk });
-  else {
-    const problem = evidenceConsumerAttestationProblem(root, evidence);
-    if (problem) {
-      add('verify-evidence', 'FAIL', `attestation invalid: ${problem.code} (${problem.message})`, { risk: evidence.risk, attestation_code: problem.code });
-    } else {
-      let evidenceFresh = true;
-      if (stageSince && !Number.isNaN(stageSince.getTime())) {
-        try { evidenceFresh = fs.statSync(ledger.resolveArtifactPath(root, 'evidenceJson')).mtime >= stageSince; } catch { evidenceFresh = false; }
+  if (!options.environment_only) {
+    const evidence = latestEvidence(root);
+    if (!evidence) add('verify-evidence', 'WARN', `${ledger.relFromRoot(root, ledger.resolveArtifactPath(root, 'evidenceJson'))} missing`);
+    else if (evidence.overall !== 'READY') add('verify-evidence', 'FAIL', `overall=${evidence.overall}`, { risk: evidence.risk });
+    else {
+      const problem = evidenceConsumerAttestationProblem(root, evidence);
+      if (problem) {
+        add('verify-evidence', 'FAIL', `attestation invalid: ${problem.code} (${problem.message})`, { risk: evidence.risk, attestation_code: problem.code });
+      } else {
+        let evidenceFresh = true;
+        if (stageSince && !Number.isNaN(stageSince.getTime())) {
+          try { evidenceFresh = fs.statSync(ledger.resolveArtifactPath(root, 'evidenceJson')).mtime >= stageSince; } catch { evidenceFresh = false; }
+        }
+        add('verify-evidence', evidenceFresh ? 'PASS' : 'FAIL', evidenceFresh ? `READY risk=${evidence.risk}` : 'READY evidence is older than current stage since', { risk: evidence.risk });
       }
-      add('verify-evidence', evidenceFresh ? 'PASS' : 'FAIL', evidenceFresh ? `READY risk=${evidence.risk}` : 'READY evidence is older than current stage since', { risk: evidence.risk });
     }
   }
 
@@ -2165,7 +2175,7 @@ function doctorReport(root) {
   add('config-risk-scan', configRisk.status, configRisk.status === 'PASS' ? 'no high-risk hook/MCP config found' : `${configRisk.findings} high-risk config findings`, { findings: configRisk.details || [] });
 
   const overall = checks.some(c => c.status === 'FAIL') ? 'FAIL' : checks.some(c => c.status === 'WARN') ? 'WARN' : 'PASS';
-  return { schema_version: '1.0', root, overall, checks };
+  return { schema_version: '1.0', root, scope: options.environment_only ? 'environment' : 'environment_and_evidence', overall, checks };
 }
 
 function printDoctor(report, format) {
@@ -2177,7 +2187,7 @@ function printDoctor(report, format) {
 function cmdDoctor(args, root) {
   const fmtIdx = args.indexOf('--format');
   const fmt = fmtIdx >= 0 ? args[fmtIdx + 1] : 'human';
-  const report = doctorReport(root);
+  const report = doctorReport(root, { environment_only: args.includes('--environment-only') });
   printDoctor(report, fmt);
   return report.overall === 'FAIL' ? 1 : 0;
 }
@@ -2247,8 +2257,22 @@ function expandProfile(name, map = loadManifest().profiles, seen = new Set()) {
 }
 
 function installDependenciesForScript(script) {
-  if (script === 'scripts/hooks/harness-stage-guard.js') return ['scripts/lib/spec-quality.js'];
-  return [];
+  const dependencies = new Set();
+  const visited = new Set([script]);
+  function visit(relative) {
+    const source = path.join(KIT_ROOT, relative);
+    if (!exists(source)) return;
+    for (const match of readText(source).matchAll(/require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+      const target = path.resolve(path.dirname(source), match[1]);
+      const dependency = path.relative(KIT_ROOT, path.extname(target) ? target : `${target}.js`);
+      if (dependency.startsWith('..') || visited.has(dependency)) continue;
+      visited.add(dependency);
+      dependencies.add(dependency);
+      visit(dependency);
+    }
+  }
+  visit(script);
+  return [...dependencies];
 }
 
 function buildInstallPlan(root, profile) {
@@ -2783,6 +2807,13 @@ function cmdBenchmark(args) {
 function cmdQa(root) {
   const e = latestEvidence(root);
   if (!e) { console.error(`No ${ledger.relFromRoot(root, ledger.resolveArtifactPath(root, 'evidenceJson'))}`); return 1; }
+  if (e.overall === 'READY') {
+    const problem = evidenceConsumerAttestationProblem(root, e);
+    if (problem) {
+      console.error(`QA report rejected: ${problem.code} (${problem.message})`);
+      return 1;
+    }
+  }
   console.log(evidenceMarkdown(e)); return e.overall === 'READY' ? 0 : 1;
 }
 function cmdStatus(root) { return cmdDoctor(['--format', 'human'], root); }

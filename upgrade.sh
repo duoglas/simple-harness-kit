@@ -23,8 +23,9 @@ set -euo pipefail
 # tests/scripts/21-upgrade-ref-contract.sh 强制，不靠注释约束——R1 曾把这个字段
 # 写成未推送的分支导致 checkout exit 128，当时只补了注释，注释拦不住第二次。
 #
-# 打 tag 的顺序：先在本 commit 里把 DEFAULT_REF 指向即将创建的 tag，再让 tag 指向本
-# commit——这样 tag 内的 upgrade.sh 是自洽的，避免"必须先有 tag 才能改 ref"的死循环。
+# 发布候选保留已存在的 DEFAULT_REF，通过完整门禁后创建新 tag；再用独立提交
+# 把 master 上的默认入口更新到新 tag。这样发布前不依赖尚不存在的远端引用，
+# 也不必提前创建未验证 tag 或移动已发布 tag。标签内的默认入口可能指向前版。
 DEFAULT_REF="v0.15.0"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"

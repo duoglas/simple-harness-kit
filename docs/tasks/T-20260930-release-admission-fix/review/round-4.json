@@ -1,0 +1,77 @@
+{
+  "round": 4,
+  "verdict": "FAIL",
+  "candidate_head": "ff00b68241aacddf68d21f4a59554f843930574f",
+  "frozen_files": 26,
+  "start_and_end_hashes": "both reviewers matched 26/26",
+  "reviewers": [
+    {
+      "tool": "Claude Code",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 423,
+          "severity": "high",
+          "summary": "回归：原先基于原始文本 mayReachDelivery 的兜底（遇到重定向、花括号或控制结构就判 AMBIGUOUS）被删除，改为只在 operations.length>0 时才让 contextProblems 生效（第 600-605 行）。here-string 或花括号展开包住的 git push 解码不出 operation，于是整条命令被当作非交付命令，exit 0 直接放行，后续证据、阶段和目标检查全部没有执行。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 491,
+          "severity": "high",
+          "summary": "未知 wrapper 的判断只看后续某个词的 basename 是否等于 'git'（第 491-494 行），而 ANSI-C 引号 $'…' 在 shellTokens 中没有解码（第 80-113 行）。结果是 $'\\x67it' push、timeout 10 bash -c '…'、nice sh -c '…'、xargs -0 sh -c '…'、env -S 'git push …'、echo 'git push …' | bash、watch '…' 全部被当作非交付命令放行（exit 0）。这些 shell 等价写法可以绕过全部交付检查，包括把 cd 到其他仓库写进字符串内部。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 636,
+          "severity": "high",
+          "summary": "pushConfigurationProblem 只读取 push.followTags。在 push.recurseSubmodules=on-demand 或 submodule.recurse=true 的配置下，git push origin HEAD:main 会先把子模块提交推到另一个仓库。gate 的仓库绑定和目标检查全部通过，因此 A 仓库的证据能放行对 B 仓库（子模块远端）的实际交付。对应的 CLI 选项 --recurse-submodules 会因不在允许列表而被拒，但配置路径没有被拒绝。"
+        }
+      ]
+    },
+    {
+      "tool": "Codex",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 284,
+          "severity": "P1",
+          "summary": "env 参数仅按 shell 变量名识别赋值，BASH_FUNC_git%% 被误当成 executable，后面的 bash -c 不再解析。最终 kinds 为空，770 行直接放行，完全跳过证据和仓库绑定。普通合法 env 参数 FOO-BAR=1 也能触发同一缺口。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 763,
+          "severity": "P1",
+          "summary": "调用 commandDeliveryInfo 时未传入 hook 输入中的 cwd，默认采用 process.cwd()。标准模板 templates/settings-json.tmpl:141 又会先 cd 到 Harness 根目录，丢失工具原始目录。因此嵌套 Git 仓库等场景仍可能用 A 仓签名授权 B 仓交付。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 258,
+          "severity": "P1",
+          "summary": "isTagCreation 扫描所有参数寻找只读选项，没有跳过 -m/--message 的参数值。合法标签消息 \"--list\" 会把创建 annotated tag 误判为只读，跳过风险、证据及目标 revision 检查。"
+        },
+        {
+          "file": "scripts/lib/verification-contract.js",
+          "line": 105,
+          "severity": "P1",
+          "summary": "受保护契约只包含 spec.test_plan，未绑定 requirements、design、acceptance 等实际参与 spec 判定的内容。对被 Git 忽略的 legacy .harness/iteration-spec.json，这些字段改变不会改变候选 Git 身份或契约摘要，旧 spec_status=PASS 仍可授权 REUSE。"
+        },
+        {
+          "file": "scripts/lib/verification-contract.js",
+          "line": 113,
+          "severity": "P2",
+          "summary": "N/A 防继承检查使用 inherited_from，但实际 projectSuiteResults 写入 inherited 和 included_by。带真实继承标记的 N/A 证据仍被接受，违反 N/A 不得作为 suite 继承执行结果的契约。"
+        },
+        {
+          "file": "scripts/shk.js",
+          "line": 414,
+          "severity": "P2",
+          "summary": "指定的 CLI 入口未统一执行当前 attested 契约校验：specStatusData 不检查 applicability；qualityStatus 和 testEffectivenessData 不比较既存 attested 契约。因而与 evidence verifier 对相同漂移给出不同结果，未满足 rubric 对所有权威 reader 的要求。"
+        }
+      ]
+    }
+  ],
+  "automated_evidence": "high READY is invalidated for release by these findings",
+  "disposition": "Repair concrete delivery, full-spec binding and inherited-marker gaps. Capability/spec assessments do not consume previous verify evidence; standalone effectiveness executes fresh E2E. Preserve that recovery path and explicitly document the distinction."
+}

@@ -1,0 +1,65 @@
+{
+  "round": 5,
+  "verdict": "FAIL",
+  "candidate_head": "ff00b68241aacddf68d21f4a59554f843930574f",
+  "frozen_files": 26,
+  "start_and_end_hashes": "both reviewers matched 26/26",
+  "reviewers": [
+    {
+      "tool": "Claude Code",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "severity": "high",
+          "line": 366,
+          "summary": "shellCommandString 遇到 -c 就把紧随其后的下一个词当作命令字符串。但 bash/sh/zsh 的实际语义是：-c 之后的选项继续按选项解析，命令字符串是第一个非选项参数。因此 `bash -c -e '<交付命令>'` 中，hook 把 '-e' 当成命令，解析不到任何操作，contextProblems 为空，最终 exit 0 放行。zsh -fc -e 同理：shellStartupProblem 在 -fc 处就停止收集选项（第 458 行），也不会报出问题。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "severity": "high",
+          "line": 311,
+          "summary": "isTagCreation 把 --sort、--format、--column 列为只读选项（这类命令被判为非 tag 创建），但在 git 中，只有 -l/--contains/--no-contains/--merged/--no-merged/--points-at/-n 会隐含列表模式；带位置参数时，--sort/--format/--column 仍会创建 tag。结果是 hook 把这些 tag 创建命令当作非交付放行。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "severity": "medium",
+          "line": 630,
+          "summary": "交付子命令的识别只覆盖 commit/tag/push/merge/cherry-pick/rebase/revert/am/pull。plumbing 命令 git send-pack 可以直接推送 ref，git update-ref refs/tags/X 可以绕开 git tag 创建 tag；这两个命令不会被识别，只经过 alias 检查就放行，没有任何证据校验，也不做仓库绑定。"
+        }
+      ]
+    },
+    {
+      "tool": "Codex",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "severity": "P1",
+          "line": 588,
+          "summary": "扩展通配符绕过整个交付门禁。shellTokens 将括号拆成分隔符，而 glob 检查只识别 *、?、[；bash -O extglob -c '/usr/bin/g@(it) ...' 因而得到空 operations/kinds，并在第 889 行直接放行。实际 Bash 会将该路径展开为 /usr/bin/git，可对另一仓库执行交付。"
+        },
+        {
+          "file": "scripts/lib/evidence-attestation.js",
+          "severity": "P1",
+          "line": 337,
+          "summary": "当前契约验证被 NOT_APPLICABLE 条件包住；verification-contract.js 第 119 行也有同样早退。包含完整受保护契约、但所有检查均为 PASS 的新式 attested evidence，在 requirements/design/acceptance 或命令配置漂移后仍通过 verifier；缺失 contract 模块也不会拒绝。三个权威 hook 使用这一 verifier，因此同样漏检。这不是保留无契约 legacy evidence 的兼容行为。"
+        },
+        {
+          "file": "scripts/lib/verify-cache.js",
+          "severity": "P2",
+          "line": 287,
+          "summary": "普通缓存只绑定 test_manifest_digest，未绑定配置的 runner/verdict/scheduler 内容摘要。manifest 保存 identity_inputs 路径，不保存这些文件的内容；忽略目录中的控制文件漂移或不可读后，即使 trustedBaseline 已拒绝，createContext 仍加载 prev 并在第 319 行复用旧 PASS。seal 会重跑，但 focused/增量结果仍错误复用。"
+        },
+        {
+          "file": "scripts/shk.js",
+          "severity": "P1",
+          "line": 1561,
+          "summary": "release 新验证在写入本轮证据之前调用 doctorEvidenceCheck；doctorReport 第 2137 行读取上一份证据。旧 N/A 证据因当前契约漂移被正确拒绝后，doctor FAIL 又使本轮结果成为 NOT_READY；写入后再次运行 release，则因上一份 overall=NOT_READY 持续失败。正常的新 release 验证无法直接修复旧证据。"
+        }
+      ]
+    }
+  ],
+  "automated_evidence": "high READY is invalidated for release by independent findings",
+  "disposition": "Repair shell -c option slots, tag display option semantics, unsupported Git entry points, extglob, all-PASS protected contract drift, ordinary cache control contents and release recovery. Round 6 requires fresh independent review."
+}

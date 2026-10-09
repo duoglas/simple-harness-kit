@@ -1,0 +1,89 @@
+{
+  "round": 8,
+  "verdict": "FAIL",
+  "candidate_head": "ff00b68241aacddf68d21f4a59554f843930574f",
+  "frozen_files": 28,
+  "start_and_end_hashes": "both reviewers and root matched 28/28",
+  "reviewers": [
+    {
+      "tool": "Claude Code",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 511,
+          "severity": "high",
+          "summary": "gitCallbackProblem 没有检查 uploadpack.packObjectsHook（Git 只从 global/system 等受保护配置读取该项）。gate 对本地 clone（--no-local/file://）以及从本地路径远端 fetch 返回 exit 0，Git 实际执行时会调用环境配置中的可执行程序。这与本轮修复的 init.templateDir 属于同一类 ambient callback：同样来自全局配置、在“普通”命令中执行，不属于任意外部程序。effectiveGitConfiguration 已经能读到这个键（git config --list 会列出），却没有据此拒绝。"
+        }
+      ]
+    },
+    {
+      "tool": "Codex",
+      "verdict": "FAIL",
+      "issues": [
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 101,
+          "severity": "P1",
+          "summary": "双引号内无条件删除反斜杠，与 Bash 语义不等价。例如 \"/tmp/repo\\A\" 被解析为 /tmp/repoA，实际 shell 保留反斜杠。这使仓库 A 的配置、身份和证据检查可以对应实际在另一目录 B 执行的 Git 命令。后续 repositoryContextProblem 使用的已是错误路径。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 426,
+          "severity": "P1",
+          "summary": "reflog 被列为支持命令，却未标记 content/signature 能力。git reflog show 支持 log 的补丁及签名选项，因此 --ext-diff 可以到达 diff.external，而回调检查因 content=false 跳过；命令随后作为非交付直接放行。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 585,
+          "severity": "P1",
+          "summary": "fetch 引用集合遗漏 pruneTags 的配置展开。命名 remote 启用 remote.<name>.pruneTags 或 fetch.pruneTags，并启用 prune 时，即使传入 --no-tags，Git 仍会加入标签同步映射。当前检查只读取显式 refspec 和 remote.fetch，因此允许未经 release evidence 验证的标签创建、更新或删除。"
+        },
+        {
+          "file": "scripts/hooks/delivery-gate.js",
+          "line": 235,
+          "severity": "P1",
+          "summary": "验证模块缺失时的兼容判断没有检查 provenance.applicability。新契约证据只要没有 attestation、没有 N/A 且配置未强制 attestation，就返回 null，误当成真正旧证据放行。同样缺陷存在于 verification-gate.js:1633 和 harness-stage-guard.js:984。"
+        },
+        {
+          "file": "scripts/hooks/verification-gate.js",
+          "line": 458,
+          "severity": "P2",
+          "summary": "stash 未按子命令区分参数语义。git stash show -p/--patch 是只读补丁展示，却被统一判为交互编辑，导致常用只读命令回归。"
+        }
+      ]
+    }
+  ],
+  "root_probes": [
+    {
+      "finding": "commit --only can produce a different tree from the attested candidate",
+      "scope": "disposable local fixture only; real marker or harmless rev-parse confirms execution semantics"
+    },
+    {
+      "finding": "core.alternateRefsCommand executes after admitted rev-list",
+      "scope": "disposable local fixture only; real marker or harmless rev-parse confirms execution semantics"
+    },
+    {
+      "finding": "pre-auto-gc executes after admitted fetch",
+      "scope": "disposable local fixture only; real marker or harmless rev-parse confirms execution semantics"
+    },
+    {
+      "finding": "an arbitrary executable named gh is trusted as a credential helper",
+      "scope": "disposable local fixture only; real marker or harmless rev-parse confirms execution semantics"
+    },
+    {
+      "finding": "real Bash confirms the double-quoted backslash selects a different repository",
+      "scope": "disposable local fixture only; real marker or harmless rev-parse confirms execution semantics"
+    }
+  ],
+  "automated_evidence": {
+    "high": "NOT_READY",
+    "unit": "258 PASS, 1 FAIL, 1 optional SKIP",
+    "unit_failure": "extglob ordinary nested-shell push control: effective Git repository could not be resolved",
+    "focused_failure_rerun": "3/3 PASS; cause not established; original full-run failure retained",
+    "task_e2e": "PASS, including full evidence suite and real browser mutation control",
+    "applicability": "18/18 PASS in E2E",
+    "upgrade_ref": "7/7 PASS in E2E"
+  },
+  "disposition": "Repair concrete blockers in authorized round 9; no publication or project commit."
+}

@@ -1,13 +1,17 @@
 # Harness Kit TODO
 
-## 当前发版（v0.11.0 Phase 2 草案，未打 tag）
+## 当前发布收尾（v0.15.1 补丁候选）
 
-- [x] ~~**Phase 2 Quality Engineering Gate 文档草案**~~ — `docs/quality-engineering-gate.md` + `docs/phase2-quality-gate/` + `docs/release-notes/v0.11.0.md`
-- [x] ~~**交付时本地门禁刷新**~~ — 2026-06-08 运行 `node tests/template-integrity.js`：exit 0，30 passed, 0 failed；`node tests/run.js`：exit 0，218 passed, 0 failed，scripted matrix 14 PASS / 3 SKIP / 0 FAIL
-- [ ] **最终 tag 前刷新 release evidence**：在目标发版机器重跑 `node tests/run.js`，并把 `docs/release-notes/v0.11.0.md` / `CHANGELOG.md` 的数字同步到最终输出
-- [ ] **真实 OSS / browser dogfood 证据**：`tests/scripts/17/18/19` 默认环境可能 SKIP；只有满足各自依赖条件时才能写成 PASS
-- [ ] **Codex runtime smoke**：当前 `codex exec` smoke 只能报告 `DEGRADED / SKIP`，不能作为 release-ready runtime PASS；release tag 仍要求 runtime PASS
-- [ ] **example-company preset → company-private 实物 preset**（属于私有 overlay repo 的事，跨仓库工作）
+- [x] v0.15.0 代码与 tag 已推送；保留原 tag，不重打。
+- [x] 配置项目 Codex hooks 与精确信任，并用真实会话证明 hook 派发。
+- [x] 双独立发布复审发现准入和 Git 目标绑定缺口，登记 VH-38。
+- [ ] 修复全部已复现问题并完成旧实现失败、新实现通过的回归。
+- [ ] 落实显式 N/A 契约，并修复远端版本证据绑定及 SKIP 汇总；关键发布证明继续必须 PASS。
+- [ ] 冻结补丁候选，完成专项 E2E、完整发布门禁和双独立复审。
+- [ ] 核对证据后关闭两项旧任务，发布 v0.15.1 与对应说明。
+- [ ] Public 仓 CI workflow 接入单独排期；本机结果不等于远端 CI。
+
+当前任务见 [任务台账](tasks/INDEX.md)，历史 v0.11.0 验证数字见该版本 release notes，不能作为当前准出证据。
 
 ## 近期
 
