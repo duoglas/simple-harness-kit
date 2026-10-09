@@ -1,0 +1,16 @@
+{
+  "id": "T-20261009-check-hook-complexity",
+  "title": "拆分提交检查 Hook 的输入处理函数，降低复杂度",
+  "status": "open",
+  "risk": "medium",
+  "stage": "PLAN",
+  "created": "2026-10-09T08:19:00.134Z",
+  "started_at": "2026-10-09T08:19:00.134Z",
+  "closed": null,
+  "outcome": null,
+  "supersedes": null,
+  "agents": [
+    "claude"
+  ],
+  "commits": []
+}

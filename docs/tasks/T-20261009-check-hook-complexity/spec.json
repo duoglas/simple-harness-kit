@@ -1,0 +1,212 @@
+{
+  "schema_version": "1.0",
+  "risk": "medium",
+  "requirements": [
+    {
+      "id": "REQ-HOOK-1",
+      "text": "scripts/hooks/commit-check.js 的 stdin 结束处理函数拆分为按职责命名的小函数（提取提交信息、subject 校验、Co-Authored-By 校验、未提交变更提醒），每个函数的圈复杂度不超过 10、认知复杂度不超过 15、控制流嵌套不超过 3 层。",
+      "priority": "must",
+      "source": "下游 overlay 项目在 SonarQube（SonarJS 规则 S1541/S3776/S134）中，修改该函数即被计为新增的严重问题，质量门无法通过"
+    },
+    {
+      "id": "REQ-HOOK-2",
+      "text": "行为保持不变：同一输入下 stderr 的提示文本、出现顺序与 stdout 为空的约定均与修改前一致；任何异常仍被吞掉，不阻断命令。",
+      "priority": "must",
+      "source": "Hook 为警告级别且被多个下游复用，提示文本是用户可见接口"
+    },
+    {
+      "id": "REQ-HOOK-3",
+      "text": "修改范围内消除同类代码规范问题：if 缺大括号、一行多条语句、嵌套三元表达式、字符串拼接与魔法数字。",
+      "priority": "should",
+      "source": "SonarJS S121/S122/S3358/S3512/S109"
+    }
+  ],
+  "design": {
+    "summary": "保持模块对外行为不变，将匿名处理函数中的四段逻辑提取为顶层函数；提交信息提取中的嵌套三元改为按捕获组顺序取第一个已定义值；stdin 上限常量改为字面量注释；处理函数只负责解析输入并依次调用各检查。",
+    "changed_areas": [
+      "scripts/hooks/commit-check.js",
+      "tests/hook-scenarios/commit-check.json",
+      "CHANGELOG.md"
+    ],
+    "risk_points": [
+      {
+        "id": "RISK-HOOK-1",
+        "text": "重构改变了多段 -m / --message= / heredoc 的拼接顺序或取值，导致 subject 或尾行被误判。"
+      },
+      {
+        "id": "RISK-HOOK-2",
+        "text": "重构改变了提示文本或输出顺序，下游依赖文本的使用者或测试受影响。"
+      },
+      {
+        "id": "RISK-HOOK-3",
+        "text": "异常处理范围变化，使原本被吞掉的异常抛出并影响命令执行。"
+      }
+    ]
+  },
+  "traffic_flows": [
+    {
+      "id": "FLOW-HOOK-1",
+      "name": "PreToolUse:Bash 提交命令检查",
+      "entrypoint": "node scripts/hooks/commit-check.js（stdin 为 hook JSON）",
+      "steps": [
+        "读取 stdin（上限 1 MB）并解析 JSON",
+        "命令含 git commit 时提取提交信息",
+        "preset 声明 subject_regex 时校验 subject",
+        "检查 Co-Authored-By 是否存在及每一行格式",
+        "命令含交付或复盘关键词时提醒未提交变更"
+      ],
+      "covers": [
+        "REQ-HOOK-1",
+        "REQ-HOOK-2"
+      ],
+      "risks": [
+        "RISK-HOOK-1",
+        "RISK-HOOK-2",
+        "RISK-HOOK-3"
+      ]
+    }
+  ],
+  "test_plan": [
+    {
+      "id": "TEST-HOOK-1",
+      "type": "hook-scenario",
+      "covers": [
+        "REQ-HOOK-2"
+      ],
+      "risks": [
+        "RISK-HOOK-1",
+        "RISK-HOOK-2"
+      ],
+      "traffic_flows": [
+        "FLOW-HOOK-1"
+      ],
+      "scenario": "现有 commit-check 场景（多段 -m、混用引号、--message=、heredoc、缺尾行、尾行格式错误、preset subject 校验）在重构前后全部通过",
+      "assertions": [
+        "每个场景的 stderr 断言与重构前一致",
+        "stdout 保持为空"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "tests/hook-scenarios/commit-check.json",
+        "tests/run.js"
+      ]
+    },
+    {
+      "id": "TEST-HOOK-2",
+      "type": "hook-scenario",
+      "covers": [
+        "REQ-HOOK-2"
+      ],
+      "risks": [
+        "RISK-HOOK-2",
+        "RISK-HOOK-3"
+      ],
+      "traffic_flows": [
+        "FLOW-HOOK-1"
+      ],
+      "scenario": "补充现有场景未覆盖的边界：非 JSON 输入不报错且无输出；多个尾行中仅部分不合规时只列出不合规行；--message=bare 与 -m 混用时按出现顺序拼接",
+      "assertions": [
+        "非法输入时 stderr 与 stdout 均为空，退出码为 0",
+        "不合规行列表只包含不合规的行",
+        "subject 取自按出现顺序拼接后的第一段"
+      ],
+      "negative_or_boundary": true,
+      "paths": [
+        "tests/hook-scenarios/commit-check.json"
+      ]
+    },
+    {
+      "id": "TEST-HOOK-3",
+      "type": "static",
+      "covers": [
+        "REQ-HOOK-1",
+        "REQ-HOOK-3"
+      ],
+      "risks": [],
+      "traffic_flows": [],
+      "scenario": "用与 SonarJS 规则对应的 ESLint 规则（curly、max-statements-per-line、complexity 10、sonarjs/cognitive-complexity 15、sonarjs/nested-control-flow 3、sonarjs/no-nested-conditional、prefer-template、no-magic-numbers）检查 commit-check.js",
+      "assertions": [
+        "commit-check.js 无上述规则的问题"
+      ],
+      "negative_or_boundary": false,
+      "paths": [
+        "scripts/hooks/commit-check.js"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "ACC-HOOK-1",
+      "covers": [
+        "REQ-HOOK-2"
+      ],
+      "tests": [
+        "TEST-HOOK-1",
+        "TEST-HOOK-2"
+      ],
+      "must_have_evidence": true
+    },
+    {
+      "id": "ACC-HOOK-2",
+      "covers": [
+        "REQ-HOOK-1",
+        "REQ-HOOK-3"
+      ],
+      "tests": [
+        "TEST-HOOK-3"
+      ],
+      "must_have_evidence": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-HOOK-1",
+      "title": "补充边界场景并确认在重构前通过",
+      "stage": "SETUP",
+      "covers": [
+        "REQ-HOOK-2"
+      ],
+      "risk": "行为回归无法被发现",
+      "done": "新增场景在未修改的 commit-check.js 上全部通过，作为行为基线"
+    },
+    {
+      "id": "TASK-HOOK-2",
+      "title": "拆分处理函数并消除规范问题",
+      "stage": "EXECUTE",
+      "covers": [
+        "REQ-HOOK-1",
+        "REQ-HOOK-3"
+      ],
+      "risk": "输出文本或拼接顺序变化",
+      "done": "全部 commit-check 场景通过，静态检查无问题"
+    },
+    {
+      "id": "TASK-HOOK-3",
+      "title": "全量单元测试与验证证据",
+      "stage": "VERIFY",
+      "covers": [
+        "REQ-HOOK-1",
+        "REQ-HOOK-2",
+        "REQ-HOOK-3"
+      ],
+      "risk": "其他 Hook 或脚本受影响",
+      "done": "node tests/run.js --unit 通过，shk verify 写出证据"
+    }
+  ],
+  "irreversible_actions": [
+    {
+      "id": "IRREV-HOOK-1",
+      "action": "push 分支并创建 GitHub PR",
+      "required": true,
+      "requires_human_confirmation": true,
+      "status": "待用户确认"
+    },
+    {
+      "id": "IRREV-HOOK-2",
+      "action": "发布补丁 tag 或 GitHub Release",
+      "required": false,
+      "requires_human_confirmation": true,
+      "status": "未计划，随下一次补丁发布另行决定"
+    }
+  ]
+}

@@ -274,5 +274,96 @@
       "stderrNot": ["Subject 不符合", "缺少 Co-Authored-By", "格式不符合"],
       "stdout": "empty"
     }
+  },
+  {
+    "name": "commit-check: stdin 不是对象 → 不报错、无输出",
+    "hook": "commit-check.js",
+    "stdin": "not-an-object",
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": [
+        "Commit Check"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: 多个尾行中只有一行不合规 → 只列出不合规的行",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "git commit -m 'fix: y\n\nCo-Authored-By: Codex CLI (gpt-5.5) test\nCo-Authored-By: Claude Code (model-x)'"
+      }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "格式不符合",
+        "Co-Authored-By: Claude Code (model-x)"
+      ],
+      "stderrNot": [
+        "gpt-5.5"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: --message=bare 与 -m 混用 → 按出现顺序拼接，尾行合规不警告",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "git commit --message=wip -m 'Co-Authored-By: Claude Code (claude-opus-4-7) code'"
+      }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": [
+        "缺少 Co-Authored-By",
+        "格式不符合"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: 交付复盘命令且有未提交文件 → 提醒先提交",
+    "hook": "commit-check.js",
+    "gitSetup": {
+      "create": [
+        "pending.txt"
+      ]
+    },
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo review"
+      }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderr": [
+        "有 1 个文件未提交",
+        "请先 commit 再进行交付复盘"
+      ],
+      "stdout": "empty"
+    }
+  },
+  {
+    "name": "commit-check: 交付复盘命令但不在 git 仓库 → 静默",
+    "hook": "commit-check.js",
+    "stdin": {
+      "tool_name": "Bash",
+      "tool_input": {
+        "command": "echo review"
+      }
+    },
+    "expect": {
+      "exitCode": 0,
+      "stderrNot": [
+        "未提交"
+      ],
+      "stdout": "empty"
+    }
   }
 ]
