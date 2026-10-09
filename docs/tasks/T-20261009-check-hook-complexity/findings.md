@@ -2,7 +2,7 @@
 
 ## 背景
 
-THS overlay 的 MR 在 SonarQube 质量门中失败：修改了 `scripts/hooks/commit-check.js` 的 stdin 结束处理函数后，该函数（认知复杂度约 100、圈复杂度 37）被计为新增严重问题。函数来自本仓库，overlay 单独重构会在之后每次同步时冲突，因此先在本仓库修复。
+下游 overlay 项目的合并请求在 SonarQube 质量门中失败：修改了 `scripts/hooks/commit-check.js` 的 stdin 结束处理函数后，该函数（认知复杂度约 100、圈复杂度 37）被计为新增严重问题。函数来自本仓库，overlay 单独重构会在之后每次同步时冲突，因此先在本仓库修复。
 
 ## 行为基线（SETUP）
 

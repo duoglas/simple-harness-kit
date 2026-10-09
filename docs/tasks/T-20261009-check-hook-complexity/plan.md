@@ -2,7 +2,7 @@
 
 ## 目标
 
-`scripts/hooks/commit-check.js` 的 stdin 结束处理函数集中了提交信息提取、subject 校验、Co-Authored-By 校验和未提交变更提醒四段逻辑，认知复杂度约 100。下游 THS overlay 在 SonarQube 中只要修改这个函数，就会被计为新增严重问题，质量门无法通过。本任务把它拆成按职责命名的小函数，行为保持不变。
+`scripts/hooks/commit-check.js` 的 stdin 结束处理函数集中了提交信息提取、subject 校验、Co-Authored-By 校验和未提交变更提醒四段逻辑，认知复杂度约 100。下游 overlay 项目在 SonarQube 中只要修改这个函数，就会被计为新增严重问题，质量门无法通过。本任务把它拆成按职责命名的小函数，行为保持不变。
 
 ## 阶段
 

@@ -6,7 +6,7 @@
       "id": "REQ-HOOK-1",
       "text": "scripts/hooks/commit-check.js 的 stdin 结束处理函数拆分为按职责命名的小函数（提取提交信息、subject 校验、Co-Authored-By 校验、未提交变更提醒），每个函数的圈复杂度不超过 10、认知复杂度不超过 15、控制流嵌套不超过 3 层。",
       "priority": "must",
-      "source": "下游 THS overlay 在 SonarQube（SonarJS 规则 S1541/S3776/S134）中，修改该函数即被计为新增的严重问题，质量门无法通过"
+      "source": "下游 overlay 项目在 SonarQube（SonarJS 规则 S1541/S3776/S134）中，修改该函数即被计为新增的严重问题，质量门无法通过"
     },
     {
       "id": "REQ-HOOK-2",
