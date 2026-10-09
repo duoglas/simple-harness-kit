@@ -26,7 +26,7 @@ set -euo pipefail
 # 发布候选保留已存在的 DEFAULT_REF，通过完整门禁后创建新 tag；再用独立提交
 # 把 master 上的默认入口更新到新 tag。这样发布前不依赖尚不存在的远端引用，
 # 也不必提前创建未验证 tag 或移动已发布 tag。标签内的默认入口可能指向前版。
-DEFAULT_REF="v0.15.0"
+DEFAULT_REF="v0.15.1"
 REF="${SHK_REF:-$DEFAULT_REF}"
 REPO_URL="https://github.com/duoglas/simple-harness-kit.git"
 
