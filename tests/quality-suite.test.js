@@ -156,7 +156,7 @@ fs.writeFileSync('.harness/e2e-result.json', JSON.stringify({
     assert.strictEqual(evidence.provenance.mode, 'full');
     assert.strictEqual(evidence.attestation.trust_level, 'local-self');
     assert.match(evidence.attestation.digest, /^sha256:[a-f0-9]{64}$/);
-    assert.strictEqual(evidenceAttestation.verifyEvidence(evidence, { require_attestation: true }).status, 'PASS');
+    assert.strictEqual(evidenceAttestation.verifyEvidence(evidence, { require_attestation: true, project_root: dir }).status, 'PASS');
     assert.ok(evidence.checks.build, 'build check exists');
     assert.ok(evidence.checks.tests, 'tests check exists');
     assert.ok(['READY', 'NOT_READY'].includes(evidence.overall));
@@ -1779,16 +1779,19 @@ function testVerificationGateRecognizesGitGlobalOptionsAndShellWrapper() {
       'git -c user.name=test push origin master',
       '/usr/bin/git --git-dir=.git tag v1.2.3',
       "bash -c 'git commit -m nested'",
-      "bash -lc 'git commit -m login-shell'",
-      'env -u HOME git commit -m env-unset',
+      "bash --noprofile --norc -lc 'git commit -m login-shell'",
       'env -C . git push origin master',
-      'sudo -u root git push origin master',
       'echo `git commit -m substitution`',
     ];
     for (const command of commands) {
       const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
       assert.strictEqual(res.status, 2, `${command}: ${res.stderr || res.stdout}`);
       assert.ok(res.stderr.includes('未找到验证报告'), `${command}: ${res.stderr}`);
+    }
+    for (const command of ['env -u HOME git commit -m env-unset', 'sudo -u root git push origin master']) {
+      const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(res.status, 2, `${command}: ${res.stderr}`);
+      assert.ok(res.stderr.includes('GIT_DELIVERY_COMMAND_AMBIGUOUS'), `${command}: ${res.stderr}`);
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
@@ -1808,9 +1811,6 @@ function testVerificationGateRejectsParserBypassesAndUnboundTargets() {
 
     const recognizedWithoutEvidence = [
       'echo "$(git push origin master)"',
-      'env -P /usr/bin git commit -m env-path',
-      'sudo -R / git push origin master',
-      "bash -lc 'env -P /usr/bin sudo -R / git commit -m nested'",
     ];
     for (const command of recognizedWithoutEvidence) {
       const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
@@ -1819,6 +1819,9 @@ function testVerificationGateRejectsParserBypassesAndUnboundTargets() {
     }
 
     const ambiguousCommands = [
+      'env -P /usr/bin git commit -m env-path',
+      'sudo -R / git push origin master',
+      "bash -lc 'env -P /usr/bin sudo -R / git commit -m nested'",
       '$(printf git) commit -m dynamic',
       '`printf git` commit -m dynamic',
       'git $(printf commit) -m dynamic',
@@ -1921,7 +1924,7 @@ function testVerificationGateRejectsParserBypassesAndUnboundTargets() {
     }
 
     for (const command of [
-      "bash -lc 'git commit -m ok'",
+      "bash --noprofile --norc -lc 'git commit -m ok'",
       'git -C . push origin master',
       'git push origin master',
     ]) {
@@ -1946,10 +1949,39 @@ function testVerificationGateRejectsParserBypassesAndUnboundTargets() {
 function testVerificationGateAllowsReadOnlyTagListing() {
   const dir = tmpProject();
   try {
-    for (const command of ['git tag', 'git tag -l', 'git tag --list=v*', 'git tag -d old']) {
+    ensureGitRepo(dir);
+    const create = spawnSync('git', ['tag', 'old'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(create.status, 0, create.stderr || create.stdout);
+    for (const command of ['git tag', 'git tag -l', "git tag --list 'v*'", 'git tag -d old']) {
       const res = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
       assert.strictEqual(res.status, 0, `${command}: ${res.stderr || res.stdout}`);
     }
+    for (const tag of ['v-first', 'v-second']) {
+      const result = spawnSync('git', ['tag', tag], { cwd: dir, encoding: 'utf8' });
+      assert.strictEqual(result.status, 0, result.stderr);
+    }
+    // An unquoted shell glob can replace Git's intended pattern with one
+    // matching filename. Quoting preserves the literal Git tag pattern.
+    fs.writeFileSync(path.join(dir, 'v-first'), 'shell expansion fixture\n');
+    for (const shell of ['bash', 'zsh']) {
+      const args = shell === 'zsh' ? ['-fc'] : ['--noprofile', '--norc', '-c'];
+      const quoted = spawnSync(shell, [...args, "git tag --list 'v*'"], { cwd: dir, encoding: 'utf8' });
+      if (shell === 'zsh' && quoted.error && quoted.error.code === 'ENOENT') {
+        console.log('INFO optional zsh unavailable; Bash tag-pattern execution remains required'); continue;
+      }
+      assert.strictEqual(quoted.status, 0, quoted.stderr);
+      assert.deepStrictEqual(quoted.stdout.trim().split('\n'), ['v-first', 'v-second']);
+      const expanded = spawnSync(shell, [...args, 'git tag --list v*'], { cwd: dir, encoding: 'utf8' });
+      assert.strictEqual(expanded.status, 0, expanded.stderr);
+      assert.strictEqual(expanded.stdout.trim(), 'v-first', `${shell} must demonstrate the changed argument`);
+    }
+    for (const command of ['git tag --list=v*', 'git tag --list v*']) {
+      const ambiguous = runNode(VERIFY_GATE, [], { cwd: dir, input: JSON.stringify({ tool_input: { command } }) });
+      assert.strictEqual(ambiguous.status, 2, 'unquoted shell glob must remain rejected');
+    }
+    const remove = spawnSync('git', ['tag', '-d', 'old'], { cwd: dir, encoding: 'utf8' });
+    assert.strictEqual(remove.status, 0, remove.stderr || remove.stdout);
+    assert.strictEqual(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/tags/old'], { cwd: dir }).status, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 
@@ -2055,6 +2087,7 @@ Module._load = function(request, parent, isMain) {
 function testVerificationGateRejectsWeakEvidenceWithoutCurrentTask() {
   const dir = tmpProject();
   try {
+    ensureGitRepo(dir);
     fs.writeFileSync(path.join(dir, '.harness/current-stage.json'), JSON.stringify({
       stage: 'REVIEW', since: new Date(Date.now() - 5000).toISOString(), task: 'legacy evidence test'
     }) + '\n');
@@ -2189,6 +2222,7 @@ function testDeliveryGateFailsClosedWhenVerifierUnavailable() {
 function testVerificationGateFailsClosedWhenVerifierUnavailable() {
   const dir = tmpProject();
   try {
+    ensureGitRepo(dir);
     writeStage(dir, new Date(Date.now() - 5000).toISOString());
     fs.writeFileSync(path.join(dir, '.harness/verify-evidence.json'), JSON.stringify(readyAttestedEvidence(), null, 2) + '\n');
     const res = runNode(VERIFY_GATE, [], {

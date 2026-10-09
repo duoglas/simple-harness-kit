@@ -638,12 +638,14 @@ try {
     console.log('  Evidence Attestation Tests\n');
     const res = require('child_process').spawnSync(process.execPath, [evidenceScript], {
       stdio: 'inherit',
-      timeout: 3 * 60 * 1000,
+      // Full real Git/CLI regressions take several minutes. Keep a finite
+      // bound with room for the complete suite and parallel validation load.
+      timeout: 10 * 60 * 1000,
     });
     evidenceAttestationTotal = 1;
     if (res.status !== 0) {
       evidenceAttestationFailed = 1;
-      console.log(`\n  Evidence Attestation Suite FAIL (exit ${res.status})\n`);
+      console.log(`\n  Evidence Attestation Suite FAIL (exit ${res.status}, signal ${res.signal || 'none'}, error ${res.error?.code || 'none'})\n`);
     } else {
       console.log(`\n  Evidence Attestation Suite PASS\n`);
     }
@@ -679,6 +681,35 @@ try {
 } catch (e) {
   verificationPolicyFailed = 1;
   console.log(`  Verification Policy Suite FAIL: ${e.message}\n`);
+}
+
+// ── Release contract regression suites ──
+let releaseContractFailed = 0;
+let releaseContractTotal = 0;
+for (const [label, filename] of [
+  ['Verification Applicability', 'verification-applicability.test.js'],
+  ['Upgrade Ref Contract', 'upgrade-ref-contract.test.js'],
+]) {
+  releaseContractTotal += 1;
+  try {
+    const script = path.resolve(__dirname, filename);
+    console.log(`  ${label} Tests\n`);
+    const res = spawnSync(process.execPath, [script], {
+      cwd: path.resolve(__dirname, '..'), encoding: 'utf8', timeout: 180000,
+      env: { ...process.env, HARNESS_GUARD_MODE: 'strict' },
+    });
+    if (res.stdout) process.stdout.write(res.stdout);
+    if (res.stderr) process.stderr.write(res.stderr);
+    if (res.status !== 0) {
+      releaseContractFailed += 1;
+      console.log(`\n  ${label} Suite FAIL (exit ${res.status})\n`);
+    } else {
+      console.log(`\n  ${label} Suite PASS\n`);
+    }
+  } catch (error) {
+    releaseContractFailed += 1;
+    console.log(`  ${label} Suite FAIL: ${error.message}\n`);
+  }
 }
 
 // ── Task Ledger / Verify Cache Unit Tests ──
@@ -843,10 +874,10 @@ try {
   console.log(`  Codex Init Smoke FAIL: ${e.message}\n`);
 }
 
-const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + evidenceAttestationFailed + verificationPolicyFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
+const totalFailed = failed + tpl.fail + findRootUnit.fail + qualityFailed + evidenceAttestationFailed + verificationPolicyFailed + releaseContractFailed + ledgerFailed + scriptedFailed + smokeFailed + initSmokeFailed;
 const totalSkipped = smokeSkipped + initSmokeSkipped;
 const totalDegraded = smokeDegraded + initSmokeDegraded;
-const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + evidenceAttestationTotal + verificationPolicyTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
+const totalTests = scenarios.length + tpl.results.length + findRootUnit.results.length + qualityTotal + evidenceAttestationTotal + verificationPolicyTotal + releaseContractTotal + ledgerTotal + scriptedTotal + smokeTotal + initSmokeTotal;
 const totalPassed = totalTests - totalFailed - totalSkipped - totalDegraded;
 console.log(`  ══════════════════════════════`);
 console.log(`  总计: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped, ${totalDegraded} degraded, ${totalTests} total\n`);

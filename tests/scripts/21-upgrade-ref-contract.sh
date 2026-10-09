@@ -8,7 +8,7 @@
 #      （否则升级完成后提示的 `shk task migrate` 必然 MODULE_NOT_FOUND）
 #
 # 这两条此前只写在注释里，而 R1 已经违反过一次。注释不是控制手段。
-# 离线或无远端时跳过，不把网络问题报成失败。
+# 离线或无远端时明确 SKIP；pre-release 必须传播这个状态并阻塞发布。
 
 set -uo pipefail
 
@@ -41,26 +41,60 @@ if [ -z "$REMOTE" ]; then
   echo "  [21-upgrade-ref] SKIP: 无 origin 远端"
   exit 0
 fi
-if ! git -C "$ROOT" ls-remote --exit-code "$REMOTE" HEAD >/dev/null 2>&1; then
+if ! git -C "$ROOT" ls-remote --exit-code -- "$REMOTE" HEAD >/dev/null 2>&1; then
   echo "  [21-upgrade-ref] SKIP: 无法访问远端（离线）"
   exit 0
 fi
 
-if git -C "$ROOT" ls-remote --exit-code "$REMOTE" "refs/tags/$REF" >/dev/null 2>&1 \
-  || git -C "$ROOT" ls-remote --exit-code "$REMOTE" "refs/heads/$REF" >/dev/null 2>&1; then
-  ok "DEFAULT_REF 在 origin 上存在"
-else
+# 以远端解析结果绑定内容。不能让同名但不同对象的本地 tag 替远端作证。
+if ! REMOTE_REFS="$(git -C "$ROOT" ls-remote --exit-code -- "$REMOTE" \
+  "refs/tags/$REF" "refs/tags/$REF^{}" "refs/heads/$REF")"; then
   bad "DEFAULT_REF=$REF 在 origin 上不存在——curl|bash 升级会以 exit 128 中止"
+  exit 1
 fi
+TAG_SHA="$(printf '%s\n' "$REMOTE_REFS" | awk -v ref="refs/tags/$REF" '$2 == ref {print $1}')"
+PEELED_SHA="$(printf '%s\n' "$REMOTE_REFS" | awk -v ref="refs/tags/$REF^{}" '$2 == ref {print $1}')"
+BRANCH_SHA="$(printf '%s\n' "$REMOTE_REFS" | awk -v ref="refs/heads/$REF" '$2 == ref {print $1}')"
+if [ -n "$TAG_SHA" ] && [ -n "$BRANCH_SHA" ]; then
+  bad "DEFAULT_REF=$REF 同时命中远端 tag 与 branch，目标不唯一"
+  exit 1
+elif [ -n "$TAG_SHA" ]; then
+  REMOTE_REF="refs/tags/$REF"
+  REMOTE_SHA="${PEELED_SHA:-$TAG_SHA}"
+elif [ -n "$BRANCH_SHA" ]; then
+  REMOTE_REF="refs/heads/$REF"
+  REMOTE_SHA="$BRANCH_SHA"
+else
+  bad "DEFAULT_REF=$REF 没有唯一远端对象"
+  exit 1
+fi
+if ! [[ "$REMOTE_SHA" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]; then
+  bad "DEFAULT_REF=$REF 的远端对象 ID 无效"
+  exit 1
+fi
+ok "DEFAULT_REF 在 origin 上存在：$REMOTE_REF @ $REMOTE_SHA"
 
-# tree 内容检查：优先用本地已有对象，避免额外网络往返
+# 仅下载对象，不移动本地 tag、branch 或 FETCH_HEAD。若远端在查询后变化，
+# 仍必须获得并校验本次解析的对象，不能退回同名本地 ref。
+# 本地 replacement 视图不是远端对象的一部分，权威内容检查始终读取原始对象。
+# URL 也可能与配置 remote 同名；显式清空 refmap，隔离其 fetch 目标映射。
+if ! git --no-replace-objects -C "$ROOT" cat-file -e "$REMOTE_SHA^{commit}" 2>/dev/null; then
+  if ! git -C "$ROOT" fetch --quiet --no-tags --no-write-fetch-head --refmap= \
+    --no-recurse-submodules -- "$REMOTE" "$REMOTE_REF"; then
+    bad "无法获取 DEFAULT_REF 的远端对象 $REMOTE_SHA"
+    exit 1
+  fi
+fi
+if ! git --no-replace-objects -C "$ROOT" cat-file -e "$REMOTE_SHA^{commit}" 2>/dev/null; then
+  bad "DEFAULT_REF 的远端对象不是可验证 commit：$REMOTE_SHA"
+  exit 1
+fi
 for want in scripts/lib/task-ledger.js scripts/shk.js; do
-  if git -C "$ROOT" cat-file -e "$REF:$want" 2>/dev/null; then
-    ok "$REF 的 tree 含 $want"
-  elif git -C "$ROOT" rev-parse -q --verify "$REF" >/dev/null 2>&1; then
-    bad "$REF 的 tree 缺 ${want}——升级后提示的 shk task migrate 会 MODULE_NOT_FOUND"
+  ENTRY="$(git --no-replace-objects -C "$ROOT" ls-tree "$REMOTE_SHA" -- "$want" 2>/dev/null)"
+  if [[ "$ENTRY" =~ ^100(644|755)[[:space:]]blob[[:space:]] ]]; then
+    ok "$REF 远端 tree 含 $want"
   else
-    echo "  [21-upgrade-ref] SKIP tree 检查: 本地没有 $REF 对象（先 git fetch --tags）"
+    bad "$REF 远端 tree 缺普通文件 ${want}——升级后提示的 shk task migrate 会 MODULE_NOT_FOUND"
   fi
 done
 
