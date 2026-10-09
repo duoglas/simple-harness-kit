@@ -4,7 +4,9 @@
 
 ## Open
 
-(none)
+| ID | 标题 | 阶段 | 风险 | 结果 |
+|---|---|---|---|---|
+| T-20261009-check-hook-complexity | 拆分提交检查 Hook 的输入处理函数，降低复杂度 | PLAN | medium |  |
 
 ## Closed
 
